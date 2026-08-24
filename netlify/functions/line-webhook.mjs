@@ -1,13 +1,17 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { parseOrder } from "../../src/lib/order-parser.mjs";
+import { downloadLineImage, transcribeOrderImage } from "../../src/lib/image-ocr.mjs";
 
 const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
+const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.7-flash";
 
 if (!LINE_CHANNEL_SECRET || !SUPABASE_URL || !SUPABASE_SECRET_KEY) {
-  console.warn("Missing one or more required environment variables");
+  console.warn("Missing one or more required core environment variables");
 }
 
 const supabase = createClient(SUPABASE_URL ?? "", SUPABASE_SECRET_KEY ?? "", {
@@ -88,7 +92,7 @@ async function reserveWebhookEvent(destination, event) {
 
   const { error } = await supabase.from("webhook_events").insert(row);
   if (!error) return true;
-  if (error.code === "23505") return false; // already processed / reserved
+  if (error.code === "23505") return false;
   throw error;
 }
 
@@ -121,29 +125,23 @@ async function createMessage({ destination, event, group, messageType, rawText =
   return { id: data.id, ...row };
 }
 
-async function handleTextMessage(destination, event, group) {
-  const text = event.message.text ?? "";
-  const message = await createMessage({ destination, event, group, messageType: "text", rawText: text });
+async function saveReview(messageRecordId, reasonCodes, warnings = []) {
+  const { error } = await supabase.from("review_items").insert({
+    message_record_id: messageRecordId,
+    reason_codes: reasonCodes,
+    warnings,
+  });
+  if (error) throw error;
+}
 
-  if (!group) {
-    await supabase.from("messages").update({ parse_status: "REVIEW" }).eq("id", message.id);
-    await supabase.from("review_items").insert({
-      message_record_id: message.id,
-      reason_codes: [{ code: "GROUP_NOT_CONFIGURED", detail: event.source.groupId }],
-      warnings: [],
-    });
-    return { status: "REVIEW", reason: "GROUP_NOT_CONFIGURED" };
-  }
-
-  const config = await loadParserConfig();
-  const result = parseOrder(text, config);
-
+async function persistParsedResult(message, group, result, extraMessageUpdate = {}) {
   const { error: updateError } = await supabase
     .from("messages")
     .update({
       normalized_text: result.normalized_text,
       parse_status: result.status,
       parser_version: result.parser_version,
+      ...extraMessageUpdate,
     })
     .eq("id", message.id);
   if (updateError) throw updateError;
@@ -166,12 +164,7 @@ async function handleTextMessage(destination, event, group) {
   }
 
   if (["REVIEW", "PARTIAL"].includes(result.status)) {
-    const { error: reviewError } = await supabase.from("review_items").insert({
-      message_record_id: message.id,
-      reason_codes: result.errors,
-      warnings: result.warnings,
-    });
-    if (reviewError) throw reviewError;
+    await saveReview(message.id, result.errors, result.warnings);
   }
 
   return {
@@ -181,22 +174,131 @@ async function handleTextMessage(destination, event, group) {
   };
 }
 
+async function handleTextMessage(destination, event, group) {
+  const text = event.message.text ?? "";
+  const message = await createMessage({ destination, event, group, messageType: "text", rawText: text });
+
+  if (!group) {
+    await supabase.from("messages").update({ parse_status: "REVIEW" }).eq("id", message.id);
+    await saveReview(
+      message.id,
+      [{ code: "GROUP_NOT_CONFIGURED", detail: event.source.groupId }],
+      [],
+    );
+    return { status: "REVIEW", reason: "GROUP_NOT_CONFIGURED" };
+  }
+
+  const config = await loadParserConfig();
+  const result = parseOrder(text, config);
+  return persistParsedResult(message, group, result);
+}
+
 async function handleImageMessage(destination, event, group) {
   const message = await createMessage({
     destination,
     event,
     group,
     messageType: "image",
-    parseStatus: "REVIEW",
+    parseStatus: "PENDING",
   });
 
-  await supabase.from("review_items").insert({
-    message_record_id: message.id,
-    reason_codes: [{ code: "IMAGE_OCR_NOT_IMPLEMENTED", detail: "Phase 2" }],
-    warnings: [],
-  });
+  if (!group) {
+    await supabase.from("messages").update({ parse_status: "REVIEW" }).eq("id", message.id);
+    await saveReview(
+      message.id,
+      [{ code: "GROUP_NOT_CONFIGURED", detail: event.source.groupId }],
+      [],
+    );
+    return { status: "REVIEW", reason: "GROUP_NOT_CONFIGURED" };
+  }
 
-  return { status: "REVIEW", reason: "IMAGE_OCR_NOT_IMPLEMENTED" };
+  if (event.message?.contentProvider?.type && event.message.contentProvider.type !== "line") {
+    await supabase
+      .from("messages")
+      .update({ parse_status: "REVIEW", ocr_status: "ERROR", ocr_error: "IMAGE_EXTERNAL_CONTENT_UNSUPPORTED" })
+      .eq("id", message.id);
+    await saveReview(
+      message.id,
+      [{ code: "IMAGE_EXTERNAL_CONTENT_UNSUPPORTED", detail: event.message.contentProvider.type }],
+      [],
+    );
+    return { status: "REVIEW", reason: "IMAGE_EXTERNAL_CONTENT_UNSUPPORTED" };
+  }
+
+  if (!LINE_CHANNEL_ACCESS_TOKEN || !GEMINI_API_KEY) {
+    const missing = [
+      !LINE_CHANNEL_ACCESS_TOKEN ? "LINE_CHANNEL_ACCESS_TOKEN" : null,
+      !GEMINI_API_KEY ? "GEMINI_API_KEY" : null,
+    ].filter(Boolean);
+
+    await supabase
+      .from("messages")
+      .update({ parse_status: "REVIEW", ocr_status: "ERROR", ocr_error: `MISSING_ENV: ${missing.join(",")}` })
+      .eq("id", message.id);
+    await saveReview(
+      message.id,
+      [{ code: "IMAGE_OCR_CONFIG_MISSING", detail: missing.join(",") }],
+      [],
+    );
+    return { status: "REVIEW", reason: "IMAGE_OCR_CONFIG_MISSING" };
+  }
+
+  try {
+    const image = await downloadLineImage(event.message.id, LINE_CHANNEL_ACCESS_TOKEN);
+    const ocr = await transcribeOrderImage({
+      bytes: image.bytes,
+      mimeType: image.mimeType,
+      apiKey: GEMINI_API_KEY,
+      model: GEMINI_MODEL,
+    });
+
+    const baseUpdate = {
+      ocr_text: ocr.text,
+      ocr_provider: ocr.provider,
+      ocr_model: ocr.model,
+      ocr_status: ocr.uncertain ? "UNCERTAIN" : "DONE",
+      ocr_error: null,
+      image_content_type: image.mimeType,
+      image_size_bytes: image.sizeBytes,
+    };
+
+    if (ocr.uncertain) {
+      await supabase
+        .from("messages")
+        .update({
+          ...baseUpdate,
+          normalized_text: ocr.text,
+          parse_status: "REVIEW",
+        })
+        .eq("id", message.id);
+      await saveReview(
+        message.id,
+        [{ code: "OCR_UNCERTAIN", detail: "OCR output contains one or more uncertain characters marked with ?" }],
+        [],
+      );
+      return { status: "REVIEW", reason: "OCR_UNCERTAIN" };
+    }
+
+    const config = await loadParserConfig();
+    const result = parseOrder(ocr.text, config);
+    return persistParsedResult(message, group, result, baseUpdate);
+  } catch (error) {
+    const detail = error?.message ?? String(error);
+    await supabase
+      .from("messages")
+      .update({
+        parse_status: "REVIEW",
+        ocr_status: "ERROR",
+        ocr_error: detail.slice(0, 1000),
+      })
+      .eq("id", message.id);
+    await saveReview(
+      message.id,
+      [{ code: "IMAGE_OCR_FAILED", detail: detail.slice(0, 500) }],
+      [],
+    );
+    return { status: "REVIEW", reason: "IMAGE_OCR_FAILED" };
+  }
 }
 
 async function handleUnsend(destination, event) {
@@ -223,7 +325,14 @@ async function handleUnsend(destination, event) {
 
     const { error: messageUpdateError } = await supabase
       .from("messages")
-      .update({ unsent: true, unsent_at: unsentAt, raw_text: null, normalized_text: null })
+      .update({
+        unsent: true,
+        unsent_at: unsentAt,
+        raw_text: null,
+        normalized_text: null,
+        ocr_text: null,
+        ocr_error: null,
+      })
       .eq("id", message.id);
     if (messageUpdateError) throw messageUpdateError;
 
@@ -283,6 +392,10 @@ async function processEvent(destination, event) {
 }
 
 export default async (req) => {
+  if (req.method === "GET") {
+    return json({ ok: true, service: "line-order-webhook" });
+  }
+
   if (req.method !== "POST") return json({ ok: false, error: "METHOD_NOT_ALLOWED" }, 405);
 
   const rawBody = await req.text();
