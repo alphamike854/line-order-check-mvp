@@ -1,0 +1,117 @@
+# LINE Order Check MVP — Netlify + Supabase
+
+## Architecture
+
+LINE Messaging API → Netlify Function `/api/line-webhook` → deterministic Parser v1 → Supabase Postgres.
+
+Phase 1 implements:
+- LINE webhook signature verification
+- Group-only processing
+- Webhook idempotency using `webhookEventId`
+- Text parser
+- Canonical `order_items`
+- REVIEW queue
+- UNSEND audit while keeping received totals
+- Summary and allocation views
+- Image events are captured into REVIEW for Phase 2 OCR
+
+## 1) Create Supabase project
+
+Open SQL Editor and run:
+
+`supabase/migrations/202608240001_initial_line_order_mvp.sql`
+
+Then insert your real LINE group mapping, for example:
+
+```sql
+insert into public.line_groups (
+  line_group_id,
+  line_group_name,
+  summary_group_id
+) values (
+  'Cxxxxxxxxxxxxxxxx',
+  'กลุ่มทดลองภาคเหนือ',
+  'NORTH'
+);
+```
+
+Add allocation rules only after the group mapping is correct.
+
+## 2) Create Netlify project
+
+Push this folder to GitHub/GitLab and import the repository into Netlify, or deploy with Netlify CLI.
+
+Required environment variables in Netlify:
+
+- `LINE_CHANNEL_SECRET`
+- `SUPABASE_URL`
+- `SUPABASE_SECRET_KEY` (new `sb_secret_...` backend key; never expose in browser)
+
+The deployed webhook endpoint is:
+
+`https://YOUR-SITE.netlify.app/api/line-webhook`
+
+## 3) Configure LINE Developers
+
+In the Messaging API channel:
+- Set Webhook URL to the Netlify endpoint
+- Enable `Use webhook`
+- Ensure the bot is allowed to join group chats
+- Use the matching Channel Secret in Netlify
+
+## 4) First test
+
+Send in the configured LINE group:
+
+`01=20`
+
+Expected database state:
+- `webhook_events`: 1 row
+- `messages`: 1 row with `parse_status = PARSED`
+- `order_items`: 1 row, `A / 01 / 20`
+
+Then test:
+
+```text
+AB
+01
+02
+03=20
+```
+
+Expected `order_items`: 6 rows.
+
+Then test invalid grammar:
+
+`123=20x4`
+
+Expected:
+- `messages.parse_status = REVIEW`
+- `review_items`: 1 row
+- no guessed order items
+
+## 5) UNSEND behavior
+
+When the original message is unsent:
+- `messages.unsent = true`
+- original raw/normalized text is cleared
+- `order_items.unsent_flag = true`
+- quantities remain in `current_summary.order_total`
+- `current_summary.unsent_qty` shows the unsent contribution
+- `unsend_events` records derived impact
+
+## 6) What is intentionally deferred
+
+Phase 2:
+- LINE image download
+- OCR / Vision
+- image text → same Parser v1
+- Dashboard UI
+- authentication
+- confirmation UI for allocation transfers
+
+## Security notes
+
+- Keep `SUPABASE_SECRET_KEY` and `LINE_CHANNEL_SECRET` only in Netlify environment variables.
+- Do not put backend secret keys in frontend code or Git.
+- Internal tables have RLS enabled and no anon/authenticated policies in this MVP.
