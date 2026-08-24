@@ -57,6 +57,7 @@
         <button class="tab" data-tab="allocation">ตัดยอด</button>
         <button class="tab" data-tab="review">Review <span id="reviewBadge" class="badge">0</span></button>
         <button class="tab" data-tab="unsend">Unsend <span id="unsendBadge" class="badge">0</span></button>
+        <button class="tab" data-tab="settings">ตั้งค่า</button>
       </nav>
 
       <section id="summaryTab" class="tab-panel panel">
@@ -94,7 +95,12 @@
       </section>
 
       <section id="reviewTab" class="tab-panel panel hidden">
-        <div class="section-heading"><div><h2>รายการต้องตรวจสอบ</h2><p class="muted">ระบบไม่เดาข้อมูลที่ไม่ผ่าน Grammar หรือ OCR ไม่ชัด</p></div></div>
+        <div class="section-heading">
+          <div>
+            <h2>รายการต้องตรวจสอบ</h2>
+            <p class="muted">แก้ข้อความ → ตรวจผล Parser → ยืนยัน จึงจะเปลี่ยนยอดจริง ระบบจะ Parse ซ้ำที่ Server ก่อนบันทึกเสมอ</p>
+          </div>
+        </div>
         <div id="reviewList" class="stack"></div>
       </section>
 
@@ -105,6 +111,71 @@
             <thead><tr><th>เวลา</th><th>กลุ่ม</th><th>ผู้ส่ง</th><th class="num">ผลกระทบ</th><th>Message ID</th></tr></thead>
             <tbody id="unsendBody"></tbody>
           </table>
+        </div>
+      </section>
+
+      <section id="settingsTab" class="tab-panel panel hidden">
+        <div class="section-heading">
+          <div>
+            <h2>ตั้งค่าระบบ</h2>
+            <p class="muted">ปรับ Mapping กลุ่ม, Alias และกฎตัดยอดโดยไม่ต้องเข้า SQL Editor การเปลี่ยนทุกครั้งมี Audit</p>
+          </div>
+          <button id="reloadSettingsButton" class="button ghost small">โหลดใหม่</button>
+        </div>
+
+        <div id="unconfiguredGroups" class="settings-block"></div>
+
+        <div class="settings-grid">
+          <section class="settings-block">
+            <h3>กลุ่มสรุป</h3>
+            <form id="summaryGroupForm" class="compact-form">
+              <input name="id" placeholder="ID เช่น NORTH" required />
+              <input name="name" placeholder="ชื่อ เช่น ภาคเหนือ" required />
+              <label class="check"><input name="enabled" type="checkbox" checked /> ใช้งาน</label>
+              <button class="button primary small" type="submit">บันทึก</button>
+            </form>
+            <div id="summaryGroupsList" class="settings-list"></div>
+          </section>
+
+          <section class="settings-block">
+            <h3>LINE Group → กลุ่มสรุป</h3>
+            <form id="lineGroupForm" class="compact-form">
+              <input name="line_group_id" placeholder="LINE Group ID" required />
+              <input name="line_group_name" placeholder="ชื่อกลุ่ม" required />
+              <select name="summary_group_id" required></select>
+              <label class="check"><input name="enabled" type="checkbox" checked /> ใช้งาน</label>
+              <button class="button primary small" type="submit">บันทึก</button>
+            </form>
+            <div id="lineGroupsList" class="settings-list"></div>
+          </section>
+
+          <section class="settings-block">
+            <h3>กฎตัดยอด</h3>
+            <form id="allocationRuleForm" class="compact-form">
+              <select name="summary_group_id" required></select>
+              <select name="category" required>
+                <option>A</option><option>B</option><option>E</option><option>F</option><option>G</option>
+              </select>
+              <input name="threshold" type="number" min="1" step="1" placeholder="Threshold" required />
+              <input name="destination" placeholder="ปลายทาง/คลัง" />
+              <label class="check"><input name="enabled" type="checkbox" checked /> ใช้งาน</label>
+              <button class="button primary small" type="submit">บันทึก</button>
+            </form>
+            <div id="allocationRulesList" class="settings-list"></div>
+          </section>
+
+          <section class="settings-block">
+            <h3>Alias หมวด</h3>
+            <form id="aliasForm" class="compact-form">
+              <input name="alias" placeholder="Alias เช่น น" required />
+              <select name="canonical_category" required>
+                <option>A</option><option>B</option><option>E</option><option>F</option><option>G</option>
+              </select>
+              <label class="check"><input name="enabled" type="checkbox" checked /> ใช้งาน</label>
+              <button class="button primary small" type="submit">บันทึก</button>
+            </form>
+            <div id="aliasesList" class="settings-list"></div>
+          </section>
         </div>
       </section>
 

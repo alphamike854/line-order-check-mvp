@@ -1,8 +1,12 @@
 import { timingSafeEqual } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
-import { bangkokDayRange } from "./dashboard-utils.mjs";
+import {
+  bangkokDayRange,
+  bangkokToday,
+  normalizeBusinessDate,
+  normalizeSummaryGroup,
+} from "./dashboard-utils.mjs";
 
-export { bangkokToday, normalizeBusinessDate, bangkokDayRange, normalizeSummaryGroup } from "./dashboard-utils.mjs";
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY;
@@ -44,6 +48,8 @@ export function requireDashboardAccess(req) {
 
   return null;
 }
+
+export { bangkokDayRange, bangkokToday, normalizeBusinessDate, normalizeSummaryGroup };
 
 export async function loadGroupConfig() {
   const [summaryResult, lineResult] = await Promise.all([
@@ -137,4 +143,82 @@ export async function fetchUnsends(businessDate, summaryGroupId = null) {
       ...row,
       line_group_name: lineNameById.get(row.line_group_id) ?? row.line_group_id,
     }));
+}
+
+export async function loadParserConfig() {
+  const { data, error } = await supabase
+    .from("category_aliases")
+    .select("alias,canonical_category")
+    .eq("enabled", true);
+  if (error) throw error;
+
+  const aliases = {};
+  for (const row of data ?? []) aliases[row.alias] = row.canonical_category;
+  return { aliases, defaultCategoryByCodeLength: { 2: "A", 3: "E" } };
+}
+
+export async function fetchOpenReviewById(reviewId) {
+  const id = Number(reviewId);
+  if (!Number.isInteger(id) || id <= 0) throw new Error("INVALID_REVIEW_ID");
+
+  const { data: review, error: reviewError } = await supabase
+    .from("review_items")
+    .select("id,message_record_id,reason_codes,warnings,status,created_at")
+    .eq("id", id)
+    .maybeSingle();
+  if (reviewError) throw reviewError;
+  if (!review) throw new Error("REVIEW_NOT_FOUND");
+  if (review.status !== "OPEN") throw new Error("REVIEW_NOT_OPEN");
+
+  const { data: message, error: messageError } = await supabase
+    .from("messages")
+    .select("id,business_date,summary_group_id,line_group_id,user_id,message_type,raw_text,normalized_text,ocr_text,parse_status,unsent,created_at")
+    .eq("id", review.message_record_id)
+    .maybeSingle();
+  if (messageError) throw messageError;
+  if (!message) throw new Error("MESSAGE_NOT_FOUND");
+
+  return { review, message };
+}
+
+export async function fetchSettings() {
+  const [summaryResult, lineResult, allocationResult, aliasResult, eventResult] = await Promise.all([
+    supabase.from("summary_groups").select("id,name,enabled,created_at").order("name"),
+    supabase.from("line_groups").select("line_group_id,line_group_name,summary_group_id,enabled,created_at,updated_at").order("line_group_name"),
+    supabase.from("allocation_rules").select("summary_group_id,category,threshold,destination,enabled,created_at,updated_at").order("summary_group_id").order("category"),
+    supabase.from("category_aliases").select("alias,canonical_category,enabled,created_at").order("alias"),
+    supabase.from("webhook_events").select("line_group_id,received_at").not("line_group_id", "is", null).order("received_at", { ascending: false }).limit(5000),
+  ]);
+
+  for (const result of [summaryResult, lineResult, allocationResult, aliasResult, eventResult]) {
+    if (result.error) throw result.error;
+  }
+
+  const configured = new Set((lineResult.data ?? []).map((row) => row.line_group_id));
+  const latestByGroup = new Map();
+  for (const row of eventResult.data ?? []) {
+    if (!configured.has(row.line_group_id) && !latestByGroup.has(row.line_group_id)) {
+      latestByGroup.set(row.line_group_id, row.received_at);
+    }
+  }
+
+  return {
+    summary_groups: summaryResult.data ?? [],
+    line_groups: lineResult.data ?? [],
+    allocation_rules: allocationResult.data ?? [],
+    category_aliases: aliasResult.data ?? [],
+    unconfigured_line_groups: [...latestByGroup.entries()].map(([line_group_id, last_seen_at]) => ({ line_group_id, last_seen_at })),
+  };
+}
+
+export async function writeSettingsAudit({ entityType, entityKey, beforeData, afterData, changedBy }) {
+  const { error } = await supabase.from("settings_change_events").insert({
+    entity_type: entityType,
+    entity_key: entityKey,
+    action: "UPSERT",
+    before_data: beforeData ?? null,
+    after_data: afterData,
+    changed_by: changedBy ?? "DASHBOARD",
+  });
+  if (error) throw error;
 }

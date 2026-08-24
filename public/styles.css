@@ -66,3 +66,33 @@ tbody tr:hover { background: #fafcff; }
   .metrics { grid-template-columns: repeat(2,1fr); }
   .tab-panel { padding: 12px; }
 }
+
+/* Review correction + settings */
+.editor-label { display: grid; gap: 6px; margin-top: 12px; color: #45566d; font-size: 13px; font-weight: 750; }
+.review-editor { width: 100%; resize: vertical; min-height: 110px; border: 1px solid #ccd7e5; border-radius: 10px; padding: 10px 12px; background: #fff; color: #152033; font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.review-editor:focus, .compact-form input:focus, .compact-form select:focus { outline: 3px solid rgba(47,107,168,.12); border-color: #2f6ba8; }
+.review-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.review-preview { margin-top: 10px; }
+.preview-box { border: 1px solid #dce5ef; border-radius: 12px; padding: 12px; background: #f8fafc; }
+.preview-box.ok { border-color: #b8d9c2; background: #f3fbf5; }
+.preview-box.warn { border-color: #e8c6b9; background: #fff8f4; }
+.preview-heading { margin-bottom: 8px; }
+.preview-errors { margin-top: 8px; color: #9a3e24; font-size: 13px; font-weight: 700; }
+.item-chips { display: flex; flex-wrap: wrap; gap: 7px; margin: 8px 0; }
+.item-chip, .chip-button { border: 1px solid #d5dfeb; border-radius: 999px; padding: 5px 9px; background: white; color: #34455a; font-size: 12px; font-weight: 750; }
+.chip-button { cursor: pointer; }
+.chip-button:hover { border-color: #7ea2c8; background: #f2f7fb; }
+.small-text { font-size: 12px; }
+.empty.compact { padding: 12px; }
+.settings-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; }
+.settings-block { border: 1px solid #e1e7ef; border-radius: 14px; padding: 14px; background: #fbfcfe; margin-bottom: 14px; }
+.settings-block h3 { margin: 0 0 10px; font-size: 16px; }
+.compact-form { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; margin-bottom: 12px; }
+.compact-form input, .compact-form select { min-width: 0; width: 100%; border: 1px solid #ccd7e5; border-radius: 9px; padding: 8px 10px; background: white; color: #152033; }
+.compact-form .check { display: flex; align-items: center; gap: 6px; color: #536178; font-size: 13px; }
+.compact-form .check input { width: auto; }
+.settings-list { display: grid; gap: 6px; }
+.settings-row { display: grid; grid-template-columns: minmax(0,1fr) auto auto; gap: 10px; align-items: center; padding: 9px 0; border-top: 1px solid #e7edf4; font-size: 13px; }
+.settings-row small { display: block; margin-top: 2px; color: #7a8799; overflow-wrap: anywhere; }
+@media (max-width: 900px) { .settings-grid { grid-template-columns: 1fr; } }
+@media (max-width: 620px) { .compact-form { grid-template-columns: 1fr; } .settings-row { grid-template-columns: 1fr auto; } .settings-row > span:nth-child(2) { display: none; } }
