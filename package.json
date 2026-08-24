@@ -1,10 +1,10 @@
 {
   "name": "line-order-netlify-supabase-mvp",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node test-parser.mjs && node test-dashboard.mjs && node test-review-settings.mjs"
+    "test": "node test-parser.mjs && node test-dashboard.mjs && node test-review-settings.mjs && node test-review-safety.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4"

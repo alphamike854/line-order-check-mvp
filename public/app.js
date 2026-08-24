@@ -204,11 +204,28 @@ function previewItemsHtml(preview) {
     </div>`;
 }
 
+function clearReviewPreview(card, message = "") {
+  card._reviewPreview = null;
+  const previewArea = card.querySelector(".review-preview");
+  if (message) {
+    previewArea.innerHTML = `<div class="preview-box warn">${escapeHtml(message)}</div>`;
+  } else {
+    previewArea.innerHTML = "";
+  }
+}
+
+function onReviewEditorInput(event) {
+  const card = event.currentTarget.closest(".review-card");
+  if (!card._reviewPreview) return;
+  clearReviewPreview(card, "ข้อความถูกแก้หลังจากตรวจผลแล้ว กรุณากด “ตรวจผล Parser” ใหม่ก่อนยืนยัน");
+}
+
 async function previewReview(event) {
   const card = event.currentTarget.closest(".review-card");
   const reviewId = Number(card.dataset.reviewId);
   const correctedText = card.querySelector(".review-editor").value;
   const previewArea = card.querySelector(".review-preview");
+  clearReviewPreview(card);
   event.currentTarget.disabled = true;
   previewArea.innerHTML = `<div class="empty compact">กำลังตรวจ...</div>`;
   try {
@@ -217,10 +234,18 @@ async function previewReview(event) {
       body: JSON.stringify({ review_id: reviewId, corrected_text: correctedText }),
     });
     previewArea.innerHTML = previewItemsHtml(payload.preview);
+    if (payload.preview?.can_apply && payload.preview_token) {
+      card._reviewPreview = {
+        correctedText,
+        token: payload.preview_token,
+        fingerprint: payload.preview_fingerprint,
+        expiresAt: payload.preview_expires_at,
+      };
+    }
     const apply = previewArea.querySelector(".apply-review");
     if (apply) apply.addEventListener("click", () => applyReview(card));
   } catch (error) {
-    previewArea.innerHTML = `<div class="preview-box warn">ตรวจไม่สำเร็จ: ${escapeHtml(error.message)}</div>`;
+    clearReviewPreview(card, `ตรวจไม่สำเร็จ: ${error.message}`);
   } finally {
     event.currentTarget.disabled = false;
   }
@@ -229,18 +254,33 @@ async function previewReview(event) {
 async function applyReview(card) {
   const reviewId = Number(card.dataset.reviewId);
   const correctedText = card.querySelector(".review-editor").value;
-  if (!window.confirm("ยืนยันใช้ผล Parser นี้แทนข้อมูลเดิม? ยอดจากข้อความนี้จะถูกสร้างใหม่ตามผลที่ตรวจแล้ว")) return;
+  const preview = card._reviewPreview;
+  if (!preview || preview.correctedText !== correctedText) {
+    clearReviewPreview(card, "ผล Preview ไม่ตรงกับข้อความปัจจุบัน กรุณาตรวจผล Parser ใหม่");
+    toast("กรุณาตรวจผล Parser ใหม่ก่อนยืนยัน", true);
+    return;
+  }
+  if (!window.confirm("ยืนยันใช้ผล Parser ที่เห็นนี้แทนข้อมูลเดิม? ยอดจากข้อความนี้จะถูกสร้างใหม่ตามผล Preview")) return;
   const buttons = [...card.querySelectorAll("button")];
   buttons.forEach((b) => { b.disabled = true; });
   try {
     const payload = await api("/api/review-resolve", {
       method: "POST",
-      body: JSON.stringify({ review_id: reviewId, action: "CORRECT", corrected_text: correctedText }),
+      body: JSON.stringify({
+        review_id: reviewId,
+        action: "CORRECT",
+        corrected_text: correctedText,
+        preview_token: preview.token,
+      }),
     });
+    card._reviewPreview = null;
     toast(`แก้ Review สำเร็จ ${formatNumber(payload.items?.length)} รายการ`);
     await loadDashboard();
     await loadReviews();
   } catch (error) {
+    if (["PREVIEW_REQUIRED", "PREVIEW_EXPIRED", "PREVIEW_STALE", "PREVIEW_TOKEN_INVALID"].includes(error.message)) {
+      clearReviewPreview(card, "ผล Preview หมดอายุหรือข้อมูลเปลี่ยนแล้ว กรุณาตรวจผล Parser ใหม่ก่อนยืนยัน");
+    }
     toast(`แก้ Review ไม่สำเร็จ: ${error.message}`, true);
   } finally {
     buttons.forEach((b) => { b.disabled = false; });
@@ -296,6 +336,7 @@ async function loadReviews() {
       </article>`).join("");
     $$(".preview-review").forEach((button) => button.addEventListener("click", previewReview));
     $$(".ignore-review").forEach((button) => button.addEventListener("click", ignoreReview));
+    $$(".review-editor").forEach((editor) => editor.addEventListener("input", onReviewEditorInput));
   } catch (error) {
     list.innerHTML = `<div class="empty">โหลด Review ไม่สำเร็จ</div>`;
     toast(error.message, true);

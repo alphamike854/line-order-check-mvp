@@ -157,6 +157,18 @@ export async function loadParserConfig() {
   return { aliases, defaultCategoryByCodeLength: { 2: "A", 3: "E" } };
 }
 
+export async function fetchCurrentSummaryGroupForLineGroup(lineGroupId) {
+  const { data, error } = await supabase
+    .from("line_groups")
+    .select("summary_group_id")
+    .eq("line_group_id", lineGroupId)
+    .eq("enabled", true)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data?.summary_group_id) throw new Error("MESSAGE_GROUP_NOT_CONFIGURED");
+  return data.summary_group_id;
+}
+
 export async function fetchOpenReviewById(reviewId) {
   const id = Number(reviewId);
   if (!Number.isInteger(id) || id <= 0) throw new Error("INVALID_REVIEW_ID");
