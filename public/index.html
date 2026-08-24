@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light" />
+  <title>LINE Order Check</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <section id="loginView" class="login-card">
+      <div class="brand-mark">S</div>
+      <div>
+        <p class="eyebrow">LINE ORDER CHECK</p>
+        <h1>เข้าสู่ Dashboard</h1>
+        <p class="muted">กรอก Access Key ที่ตั้งไว้ใน Netlify สำหรับ Dashboard</p>
+      </div>
+      <form id="loginForm" class="login-form">
+        <label for="accessKey">Access Key</label>
+        <input id="accessKey" type="password" autocomplete="current-password" required />
+        <button type="submit" class="button primary">เข้าสู่ระบบ</button>
+        <p id="loginError" class="error hidden"></p>
+      </form>
+    </section>
+
+    <section id="appView" class="app hidden">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">LINE ORDER CHECK</p>
+          <h1>สรุปออเดอร์ประจำวัน</h1>
+          <p id="freshness" class="muted">กำลังโหลดข้อมูล...</p>
+        </div>
+        <div class="top-actions">
+          <button id="logoutButton" class="button ghost">ออกจาก Dashboard</button>
+        </div>
+      </header>
+
+      <section class="filters panel">
+        <label>
+          วันที่
+          <input id="businessDate" type="date" />
+        </label>
+        <label>
+          กลุ่มสรุป
+          <select id="summaryGroup">
+            <option value="ALL">ทุกกลุ่ม</option>
+          </select>
+        </label>
+        <button id="refreshButton" class="button primary">อัปเดต ณ ตอนนี้</button>
+      </section>
+
+      <section id="metrics" class="metrics"></section>
+
+      <nav class="tabs" aria-label="Dashboard sections">
+        <button class="tab active" data-tab="summary">สรุปยอด</button>
+        <button class="tab" data-tab="allocation">ตัดยอด</button>
+        <button class="tab" data-tab="review">Review <span id="reviewBadge" class="badge">0</span></button>
+        <button class="tab" data-tab="unsend">Unsend <span id="unsendBadge" class="badge">0</span></button>
+      </nav>
+
+      <section id="summaryTab" class="tab-panel panel">
+        <div class="section-heading">
+          <div>
+            <h2>ยอดที่ระบบรับ</h2>
+            <p class="muted">Received Total ยังคงรวมข้อความที่ถูก Unsend เพื่อใช้ตรวจเทียบ</p>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>กลุ่ม</th><th>หมวด</th><th>รหัส</th><th class="num">ยอดรับ</th><th class="num">Unsend</th><th class="num">Active</th></tr>
+            </thead>
+            <tbody id="summaryBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="allocationTab" class="tab-panel panel hidden">
+        <div class="section-heading">
+          <div>
+            <h2>รายการตัดยอด</h2>
+            <p class="muted">กดยืนยันเฉพาะเมื่อดำเนินการตัดจริงแล้ว การกด Refresh ไม่เปลี่ยนยอดยืนยัน</p>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>กลุ่ม</th><th>หมวด</th><th>รหัส</th><th class="num">ยอด</th><th class="num">Threshold</th><th class="num">ควรตัด</th><th class="num">ยืนยันแล้ว</th><th class="num">ตัดเพิ่ม</th><th>ปลายทาง</th><th></th></tr>
+            </thead>
+            <tbody id="allocationBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="reviewTab" class="tab-panel panel hidden">
+        <div class="section-heading"><div><h2>รายการต้องตรวจสอบ</h2><p class="muted">ระบบไม่เดาข้อมูลที่ไม่ผ่าน Grammar หรือ OCR ไม่ชัด</p></div></div>
+        <div id="reviewList" class="stack"></div>
+      </section>
+
+      <section id="unsendTab" class="tab-panel panel hidden">
+        <div class="section-heading"><div><h2>ข้อความที่ถูก Unsend</h2><p class="muted">แสดงผลกระทบที่ระบบเคยรับไว้ โดยไม่ลบออกจาก Received Total</p></div></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>เวลา</th><th>กลุ่ม</th><th>ผู้ส่ง</th><th class="num">ผลกระทบ</th><th>Message ID</th></tr></thead>
+            <tbody id="unsendBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <div id="toast" class="toast hidden" role="status"></div>
+    </section>
+  </main>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
