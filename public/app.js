@@ -6,7 +6,13 @@ const state = {
   dashboard: null,
   settings: null,
   groupsLoaded: false,
+  freshnessVersion: null,
+  dashboardStale: false,
+  freshnessTimer: null,
+  freshnessPollBusy: false,
 };
+
+const FRESHNESS_POLL_MS = 15_000;
 
 const loginView = $("#loginView");
 const appView = $("#appView");
@@ -90,6 +96,41 @@ function selectedQuery() {
   return `date=${encodeURIComponent(date)}&group=${encodeURIComponent(group)}`;
 }
 
+function setDashboardStale(stale) {
+  state.dashboardStale = Boolean(stale);
+  const banner = $("#staleBanner");
+  if (banner) banner.classList.toggle("hidden", !state.dashboardStale);
+  $$(".confirm-transfer").forEach((button) => {
+    button.disabled = state.dashboardStale;
+    button.closest("tr")?.classList.toggle("row-stale", state.dashboardStale);
+  });
+}
+
+function stopFreshnessPolling() {
+  if (state.freshnessTimer) clearInterval(state.freshnessTimer);
+  state.freshnessTimer = null;
+}
+
+async function checkFreshness() {
+  if (!state.accessKey || !state.dashboard || state.freshnessPollBusy || state.dashboardStale) return;
+  state.freshnessPollBusy = true;
+  try {
+    const payload = await api(`/api/dashboard-freshness?${selectedQuery()}`);
+    if (state.freshnessVersion != null && payload.freshness?.version !== state.freshnessVersion) {
+      setDashboardStale(true);
+    }
+  } catch (error) {
+    if (error.message !== "UNAUTHORIZED") console.warn("freshness check failed", error);
+  } finally {
+    state.freshnessPollBusy = false;
+  }
+}
+
+function startFreshnessPolling() {
+  stopFreshnessPolling();
+  state.freshnessTimer = setInterval(checkFreshness, FRESHNESS_POLL_MS);
+}
+
 function renderMetrics(metrics) {
   const cards = [
     ["ยอดรับทั้งหมด", metrics.order_total, false],
@@ -143,8 +184,9 @@ function renderAllocation(rows) {
   const sorted = [...rows].sort((a, b) => Number(b.transfer_now) - Number(a.transfer_now) || a.category.localeCompare(b.category) || a.code.localeCompare(b.code));
   body.innerHTML = sorted.map((row) => {
     const required = Number(row.transfer_now) > 0;
+    const canConfirm = required && row.confirmation_token;
     return `
-      <tr>
+      <tr class="${state.dashboardStale && required ? "row-stale" : ""}">
         <td>${escapeHtml(groupName(row.summary_group_id))}</td>
         <td><strong>${escapeHtml(row.category)}</strong></td>
         <td><strong>${escapeHtml(row.code)}</strong></td>
@@ -154,34 +196,74 @@ function renderAllocation(rows) {
         <td class="num">${formatNumber(row.confirmed_transfer)}</td>
         <td class="num"><span class="status-pill ${required ? "required" : ""}">${formatNumber(row.transfer_now)}</span></td>
         <td>${escapeHtml(row.destination || "-")}</td>
-        <td>${required ? `<button class="button primary small confirm-transfer" data-group="${escapeHtml(row.summary_group_id)}" data-category="${escapeHtml(row.category)}" data-code="${escapeHtml(row.code)}" data-qty="${escapeHtml(row.transfer_now)}">ยืนยันตัด ${formatNumber(row.transfer_now)}</button>` : ""}</td>
+        <td>${canConfirm ? `<button class="button primary small confirm-transfer" data-token="${escapeHtml(row.confirmation_token)}" data-category="${escapeHtml(row.category)}" data-code="${escapeHtml(row.code)}" data-qty="${escapeHtml(row.transfer_now)}" data-destination="${escapeHtml(row.destination || "-")}" ${state.dashboardStale ? "disabled" : ""}>ยืนยันตัด ${formatNumber(row.transfer_now)}</button>` : ""}</td>
       </tr>`;
   }).join("");
   $$(".confirm-transfer").forEach((button) => button.addEventListener("click", confirmTransfer));
 }
 
+async function loadAllocationHistory() {
+  const body = $("#allocationHistoryBody");
+  if (!body) return;
+  body.innerHTML = `<tr><td colspan="8" class="empty">กำลังโหลด...</td></tr>`;
+  try {
+    const payload = await api(`/api/allocation-history?${selectedQuery()}`);
+    if (!payload.items.length) {
+      body.innerHTML = `<tr><td colspan="8" class="empty">ยังไม่มีประวัติการยืนยันตัดยอดในช่วงที่เลือก</td></tr>`;
+      return;
+    }
+    body.innerHTML = payload.items.map((item) => `
+      <tr>
+        <td>${escapeHtml(formatBangkokTime(item.confirmed_at))}</td>
+        <td>${escapeHtml(groupName(item.summary_group_id))}</td>
+        <td><strong>${escapeHtml(item.category)}${escapeHtml(item.code)}</strong></td>
+        <td class="num"><strong>${formatNumber(item.delta_confirmed)}</strong></td>
+        <td class="num">${formatNumber(item.previous_confirmed)} → ${formatNumber(item.new_confirmed)}</td>
+        <td class="num">${item.order_total == null ? "-" : formatNumber(item.order_total)}</td>
+        <td>${escapeHtml(item.destination || "-")}</td>
+        <td>${escapeHtml(item.confirmed_by || "-")}</td>
+      </tr>`).join("");
+  } catch (error) {
+    body.innerHTML = `<tr><td colspan="8" class="empty">โหลดประวัติไม่สำเร็จ</td></tr>`;
+    toast(`โหลดประวัติตัดยอดไม่สำเร็จ: ${error.message}`, true);
+  }
+}
+
 async function confirmTransfer(event) {
   const button = event.currentTarget;
-  const qty = button.dataset.qty;
+  const qty = Number(button.dataset.qty || 0);
   const label = `${button.dataset.category}${button.dataset.code}`;
-  if (!window.confirm(`ยืนยันว่าได้ตัด ${label} จำนวน ${formatNumber(qty)} แล้ว?`)) return;
+  if (state.dashboardStale) {
+    toast("มีข้อมูลใหม่ กรุณาอัปเดต Dashboard ก่อนยืนยันตัดยอด", true);
+    return;
+  }
+  if (!button.dataset.token) {
+    toast("ข้อมูลยืนยันไม่พร้อม กรุณาอัปเดต Dashboard", true);
+    setDashboardStale(true);
+    return;
+  }
+  if (!window.confirm(`ยืนยันว่าได้ตัด ${label} จำนวน ${formatNumber(qty)} ไปยัง ${button.dataset.destination || "-"} แล้ว?`)) return;
   button.disabled = true;
   try {
-    await api("/api/confirm-transfer", {
+    const payload = await api("/api/confirm-transfer", {
       method: "POST",
-      body: JSON.stringify({
-        business_date: businessDateInput.value,
-        summary_group_id: button.dataset.group,
-        category: button.dataset.category,
-        code: button.dataset.code,
-      }),
+      body: JSON.stringify({ confirmation_token: button.dataset.token }),
     });
-    toast(`ยืนยันตัด ${label} จำนวน ${formatNumber(qty)} แล้ว`);
+    if (payload.allocation?.idempotent) {
+      toast(`คำขอยืนยัน ${label} นี้ถูกบันทึกไว้แล้ว ระบบไม่บันทึกซ้ำ`);
+    } else {
+      toast(`ยืนยันตัด ${label} จำนวน ${formatNumber(payload.allocation?.delta_confirmed ?? qty)} แล้ว`);
+    }
     await loadDashboard();
   } catch (error) {
-    toast(`ยืนยันไม่สำเร็จ: ${error.message}`, true);
+    if (["ALLOCATION_STALE", "CONFIRMATION_EXPIRED", "NO_TRANSFER_REQUIRED"].includes(error.message)) {
+      setDashboardStale(true);
+      toast("ยอดหรือสถานะเปลี่ยนแล้ว กรุณาอัปเดต Dashboard ก่อนยืนยันอีกครั้ง", true);
+    } else {
+      toast(`ยืนยันไม่สำเร็จ: ${error.message}`, true);
+    }
   } finally {
-    button.disabled = false;
+    if (!state.dashboardStale && document.body.contains(button)) button.disabled = false;
   }
 }
 
@@ -481,6 +563,8 @@ async function loadDashboard() {
   try {
     const payload = await api(`/api/dashboard?${selectedQuery()}`);
     state.dashboard = payload;
+    state.freshnessVersion = payload.freshness?.version ?? null;
+    setDashboardStale(false);
     if (!businessDateInput.value) businessDateInput.value = payload.business_date;
     if (!state.groupsLoaded) {
       const current = summaryGroupSelect.value || "ALL";
@@ -498,6 +582,7 @@ async function loadDashboard() {
     renderSummary(payload.summary);
     renderAllocation(payload.allocation);
     const activeTab = $(".tab.active")?.dataset.tab;
+    if (activeTab === "allocation") await loadAllocationHistory();
     if (activeTab === "review") await loadReviews();
     if (activeTab === "unsend") await loadUnsends();
     if (activeTab === "settings") await loadSettings();
@@ -513,6 +598,7 @@ function activateTab(name) {
   $$(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.tab === name));
   $$(".tab-panel").forEach((panel) => panel.classList.add("hidden"));
   $(`#${name}Tab`).classList.remove("hidden");
+  if (name === "allocation") loadAllocationHistory();
   if (name === "review") loadReviews();
   if (name === "unsend") loadUnsends();
   if (name === "settings") loadSettings();
@@ -525,24 +611,35 @@ loginForm.addEventListener("submit", async (event) => {
   loginError.classList.add("hidden");
   showApp();
   await loadDashboard();
+  startFreshnessPolling();
 });
 
 logoutButton.addEventListener("click", () => {
+  stopFreshnessPolling();
   sessionStorage.removeItem("lineOrderDashboardKey");
   state.accessKey = "";
+  state.freshnessVersion = null;
+  state.dashboard = null;
+  setDashboardStale(false);
   accessKeyInput.value = "";
   showLogin();
 });
 
 refreshButton.addEventListener("click", loadDashboard);
+$("#staleRefreshButton").addEventListener("click", loadDashboard);
+$("#reloadAllocationHistoryButton").addEventListener("click", loadAllocationHistory);
 businessDateInput.addEventListener("change", loadDashboard);
 summaryGroupSelect.addEventListener("change", loadDashboard);
 $$(".tab").forEach((tab) => tab.addEventListener("click", () => activateTab(tab.dataset.tab)));
 bindSettingForms();
 
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) checkFreshness();
+});
+
 if (state.accessKey) {
   showApp();
-  loadDashboard();
+  loadDashboard().then(startFreshnessPolling);
 } else {
   showLogin();
 }

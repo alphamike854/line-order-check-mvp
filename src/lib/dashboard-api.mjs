@@ -74,6 +74,70 @@ export async function loadGroupConfig() {
   };
 }
 
+
+export async function fetchDashboardFreshness({ businessDate, summaryGroupId = null, lineGroups = [] }) {
+  const { startIso, endIso } = bangkokDayRange(businessDate);
+  const matchingLineIds = summaryGroupId
+    ? lineGroups.filter((g) => g.summary_group_id === summaryGroupId).map((g) => g.line_group_id)
+    : lineGroups.map((g) => g.line_group_id);
+
+  let webhookPromise;
+  if (summaryGroupId && matchingLineIds.length === 0) {
+    webhookPromise = Promise.resolve({ data: [], error: null });
+  } else {
+    let query = supabase
+      .from("webhook_events")
+      .select("received_at")
+      .gte("received_at", startIso)
+      .lt("received_at", endIso)
+      .order("received_at", { ascending: false })
+      .limit(1);
+    if (matchingLineIds.length) query = query.in("line_group_id", matchingLineIds);
+    webhookPromise = query;
+  }
+
+  let allocationQuery = supabase
+    .from("allocation_confirmation_events")
+    .select("confirmed_at")
+    .eq("business_date", businessDate)
+    .order("confirmed_at", { ascending: false })
+    .limit(1);
+  if (summaryGroupId) allocationQuery = allocationQuery.eq("summary_group_id", summaryGroupId);
+
+  const [webhookResult, allocationResult, reviewResult, settingsResult] = await Promise.all([
+    webhookPromise,
+    allocationQuery,
+    supabase
+      .from("review_resolution_events")
+      .select("resolved_at")
+      .order("resolved_at", { ascending: false })
+      .limit(1),
+    supabase
+      .from("settings_change_events")
+      .select("changed_at")
+      .order("changed_at", { ascending: false })
+      .limit(1),
+  ]);
+
+  for (const result of [webhookResult, allocationResult, reviewResult, settingsResult]) {
+    if (result.error) throw result.error;
+  }
+
+  const freshness = {
+    webhook_at: webhookResult.data?.[0]?.received_at ?? null,
+    allocation_at: allocationResult.data?.[0]?.confirmed_at ?? null,
+    review_at: reviewResult.data?.[0]?.resolved_at ?? null,
+    settings_at: settingsResult.data?.[0]?.changed_at ?? null,
+  };
+  freshness.version = [
+    freshness.webhook_at ?? "",
+    freshness.allocation_at ?? "",
+    freshness.review_at ?? "",
+    freshness.settings_at ?? "",
+  ].join("|");
+  return freshness;
+}
+
 export async function fetchOpenReviews(businessDate, summaryGroupId = null) {
   const { data: reviews, error: reviewError } = await supabase
     .from("review_items")

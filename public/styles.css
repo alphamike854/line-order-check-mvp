@@ -96,3 +96,14 @@ tbody tr:hover { background: #fafcff; }
 .settings-row small { display: block; margin-top: 2px; color: #7a8799; overflow-wrap: anywhere; }
 @media (max-width: 900px) { .settings-grid { grid-template-columns: 1fr; } }
 @media (max-width: 620px) { .compact-form { grid-template-columns: 1fr; } .settings-row { grid-template-columns: 1fr auto; } .settings-row > span:nth-child(2) { display: none; } }
+
+
+/* Allocation operational safety */
+.stale-banner { margin: 12px 0 0; padding: 12px 14px; border: 1px solid #efc18f; border-radius: 14px; background: #fff8ed; display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.stale-banner > div { display: grid; gap: 3px; }
+.stale-banner strong { color: #8b4a13; }
+.stale-banner span { color: #73583e; font-size: 13px; }
+.section-heading.subheading { margin-top: 24px; padding-top: 18px; border-top: 1px solid #e6ebf2; }
+.section-heading.subheading h3 { margin: 0; font-size: 16px; }
+.row-stale { opacity: .66; }
+@media (max-width: 720px) { .stale-banner { align-items: stretch; flex-direction: column; } }

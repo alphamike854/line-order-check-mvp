@@ -1,11 +1,19 @@
 import {
   json,
-  normalizeBusinessDate,
   requireDashboardAccess,
   supabase,
 } from "../../src/lib/dashboard-api.mjs";
+import { verifyAllocationConfirmationToken } from "../../src/lib/allocation-safety.mjs";
 
 const OPERATOR = process.env.DASHBOARD_OPERATOR_NAME || "DASHBOARD";
+
+function mappedRpcError(error) {
+  const message = String(error?.message ?? "");
+  if (message.includes("ALLOCATION_STALE")) return ["ALLOCATION_STALE", 409];
+  if (message.includes("NO_TRANSFER_REQUIRED")) return ["NO_TRANSFER_REQUIRED", 409];
+  if (message.includes("ALLOCATION_STATE_NOT_FOUND")) return ["ALLOCATION_STATE_NOT_FOUND", 404];
+  return null;
+}
 
 export default async (req) => {
   if (req.method !== "POST") return json({ ok: false, error: "METHOD_NOT_ALLOWED" }, 405);
@@ -14,30 +22,31 @@ export default async (req) => {
 
   try {
     const body = await req.json();
-    const businessDate = normalizeBusinessDate(body.business_date);
-    const summaryGroupId = String(body.summary_group_id ?? "").trim();
-    const category = String(body.category ?? "").trim().toUpperCase();
-    const code = String(body.code ?? "").trim();
-
-    if (!summaryGroupId || !["A", "B", "E", "F", "G"].includes(category) || !code) {
-      return json({ ok: false, error: "INVALID_CONFIRMATION_INPUT" }, 400);
+    const verified = verifyAllocationConfirmationToken({ token: body.confirmation_token });
+    if (!verified.ok) {
+      const status = verified.error === "CONFIRMATION_EXPIRED" ? 409 : 400;
+      return json({ ok: false, error: verified.error }, status);
     }
 
-    const { data, error } = await supabase.rpc("confirm_allocation_transfer", {
-      p_business_date: businessDate,
-      p_summary_group_id: summaryGroupId,
-      p_category: category,
-      p_code: code,
+    const s = verified.snapshot;
+    const { data, error } = await supabase.rpc("confirm_allocation_transfer_safe", {
+      p_request_id: verified.request_id,
+      p_business_date: s.business_date,
+      p_summary_group_id: s.summary_group_id,
+      p_category: s.category,
+      p_code: s.code,
+      p_expected_order_total: s.order_total,
+      p_expected_threshold: s.threshold,
+      p_expected_destination: s.destination,
+      p_expected_should_transfer: s.should_transfer,
+      p_expected_confirmed_transfer: s.confirmed_transfer,
+      p_expected_transfer_now: s.transfer_now,
       p_confirmed_by: OPERATOR,
     });
 
     if (error) {
-      if (String(error.message).includes("NO_TRANSFER_REQUIRED")) {
-        return json({ ok: false, error: "NO_TRANSFER_REQUIRED" }, 409);
-      }
-      if (String(error.message).includes("ALLOCATION_STATE_NOT_FOUND")) {
-        return json({ ok: false, error: "ALLOCATION_STATE_NOT_FOUND" }, 404);
-      }
+      const mapped = mappedRpcError(error);
+      if (mapped) return json({ ok: false, error: mapped[0] }, mapped[1]);
       throw error;
     }
 

@@ -1,5 +1,5 @@
 import {
-  bangkokDayRange,
+  fetchDashboardFreshness,
   fetchOpenReviews,
   fetchUnsends,
   json,
@@ -9,9 +9,21 @@ import {
   requireDashboardAccess,
   supabase,
 } from "../../src/lib/dashboard-api.mjs";
+import { createAllocationConfirmationToken } from "../../src/lib/allocation-safety.mjs";
 
 function sum(rows, key) {
   return rows.reduce((total, row) => total + Number(row[key] ?? 0), 0);
+}
+
+function withConfirmationToken(row) {
+  if (Number(row.transfer_now) <= 0) return row;
+  const signed = createAllocationConfirmationToken({ allocation: row });
+  return {
+    ...row,
+    confirmation_token: signed.token,
+    confirmation_request_id: signed.request_id,
+    confirmation_expires_at: signed.expires_at,
+  };
 }
 
 export default async (req) => {
@@ -49,36 +61,21 @@ export default async (req) => {
       .limit(10000);
     if (summaryGroupId) messagesQuery = messagesQuery.eq("summary_group_id", summaryGroupId);
 
-    const { startIso, endIso } = bangkokDayRange(businessDate);
-    const matchingLineIds = summaryGroupId
-      ? lineGroups.filter((g) => g.summary_group_id === summaryGroupId).map((g) => g.line_group_id)
-      : lineGroups.map((g) => g.line_group_id);
-
-    let latestEventQuery = supabase
-      .from("webhook_events")
-      .select("received_at,event_type,line_group_id")
-      .gte("received_at", startIso)
-      .lt("received_at", endIso)
-      .order("received_at", { ascending: false })
-      .limit(1);
-    if (matchingLineIds.length) latestEventQuery = latestEventQuery.in("line_group_id", matchingLineIds);
-
-    const [summaryResult, allocationResult, messagesResult, latestEventResult, reviews, unsends] = await Promise.all([
+    const [summaryResult, allocationResult, messagesResult, reviews, unsends, freshness] = await Promise.all([
       summaryQuery,
       allocationQuery,
       messagesQuery,
-      latestEventQuery,
       fetchOpenReviews(businessDate, summaryGroupId),
       fetchUnsends(businessDate, summaryGroupId),
+      fetchDashboardFreshness({ businessDate, summaryGroupId, lineGroups }),
     ]);
 
     if (summaryResult.error) throw summaryResult.error;
     if (allocationResult.error) throw allocationResult.error;
     if (messagesResult.error) throw messagesResult.error;
-    if (latestEventResult.error) throw latestEventResult.error;
 
     const summary = summaryResult.data ?? [];
-    const allocation = allocationResult.data ?? [];
+    const allocation = (allocationResult.data ?? []).map(withConfirmationToken);
     const messages = messagesResult.data ?? [];
 
     const parsedCount = messages.filter((m) => m.parse_status === "PARSED").length;
@@ -88,6 +85,8 @@ export default async (req) => {
       ok: true,
       business_date: businessDate,
       selected_summary_group: summaryGroupId ?? "ALL",
+      generated_at: new Date().toISOString(),
+      freshness,
       summary_groups: summaryGroups,
       metrics: {
         messages_total: messages.length,
@@ -100,7 +99,7 @@ export default async (req) => {
         active_equivalent: sum(summary, "active_equivalent"),
         transfer_now_total: sum(allocation, "transfer_now"),
         transfer_required_codes: allocation.filter((r) => Number(r.transfer_now) > 0).length,
-        last_event_at: latestEventResult.data?.[0]?.received_at ?? messages[0]?.created_at ?? null,
+        last_event_at: freshness.webhook_at ?? messages[0]?.created_at ?? null,
       },
       summary,
       allocation,

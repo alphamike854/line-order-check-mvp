@@ -50,6 +50,14 @@
         <button id="refreshButton" class="button primary">อัปเดต ณ ตอนนี้</button>
       </section>
 
+      <section id="staleBanner" class="stale-banner hidden" role="status">
+        <div>
+          <strong>มีข้อมูลใหม่หรือมีการยืนยันจากอีกหน้าต่าง</strong>
+          <span>กรุณาอัปเดต Dashboard ก่อนตัดยอด เพื่อให้ยอดที่เห็นตรงกับข้อมูลล่าสุด</span>
+        </div>
+        <button id="staleRefreshButton" class="button primary small">อัปเดตข้อมูล</button>
+      </section>
+
       <section id="metrics" class="metrics"></section>
 
       <nav class="tabs" aria-label="Dashboard sections">
@@ -90,6 +98,22 @@
               <tr><th>กลุ่ม</th><th>หมวด</th><th>รหัส</th><th class="num">ยอด</th><th class="num">Threshold</th><th class="num">ควรตัด</th><th class="num">ยืนยันแล้ว</th><th class="num">ตัดเพิ่ม</th><th>ปลายทาง</th><th></th></tr>
             </thead>
             <tbody id="allocationBody"></tbody>
+          </table>
+        </div>
+
+        <div class="section-heading subheading">
+          <div>
+            <h3>ประวัติการยืนยันตัดยอด</h3>
+            <p class="muted">ใช้ตรวจย้อนหลังว่าเวลาใด รหัสใด ถูกยืนยันไปเท่าใด และโดยใคร</p>
+          </div>
+          <button id="reloadAllocationHistoryButton" class="button ghost small">โหลดประวัติใหม่</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>เวลา</th><th>กลุ่ม</th><th>รหัส</th><th class="num">ตัดครั้งนี้</th><th class="num">ก่อน → หลัง</th><th class="num">ยอดตอนยืนยัน</th><th>ปลายทาง</th><th>ผู้ยืนยัน</th></tr>
+            </thead>
+            <tbody id="allocationHistoryBody"></tbody>
           </table>
         </div>
       </section>
