@@ -13,8 +13,8 @@
       <div class="brand-mark">S</div>
       <div>
         <p class="eyebrow">LINE ORDER CHECK</p>
-        <h1>เข้าสู่ Dashboard</h1>
-        <p class="muted">กรอก Access Key ที่ตั้งไว้ใน Netlify สำหรับ Dashboard</p>
+        <h1>เข้าสู่ระบบ</h1>
+        <p class="muted">กรอก Access Key</p>
       </div>
       <form id="loginForm" class="login-form">
         <label for="accessKey">Access Key</label>
@@ -32,7 +32,7 @@
           <p id="freshness" class="muted">กำลังโหลดข้อมูล...</p>
         </div>
         <div class="top-actions">
-          <button id="logoutButton" class="button ghost">ออกจาก Dashboard</button>
+          <button id="logoutButton" class="button ghost">ออกจากระบบ</button>
         </div>
       </header>
 
@@ -47,8 +47,8 @@
           <button id="closeSettlementButton" class="button danger hidden">ปิดยอด</button>
         </div>
         <div id="openSettlementEditor" class="settlement-editor hidden">
-          <h3>Promotion ก่อนเปิดยอด</h3>
-          <p class="muted">Promotion คือสัดส่วนของ Point พิเศษของรหัสนั้น เช่น E ×100 และ Promotion 50% → ถ้ารหัสนั้นถูก Point พิเศษจะคิด ×50</p>
+          <h3>Promotion</h3>
+          <p class="muted">กำหนดเฉพาะรหัสที่มี Promotion</p>
           <div id="openingPointProfiles" class="profile-strip"></div>
           <form id="promotionDraftForm" class="compact-form inline-form">
             <select name="category"><option>A</option><option>B</option><option>E</option><option>F</option><option>G</option></select>
@@ -72,13 +72,13 @@
             <option value="ALL">ทุกกลุ่ม</option>
           </select>
         </label>
-        <button id="refreshButton" class="button primary">อัปเดต ณ ตอนนี้</button>
+        <button id="refreshButton" class="button primary">อัปเดต</button>
       </section>
 
       <section id="staleBanner" class="stale-banner hidden" role="status">
         <div>
-          <strong>มีข้อมูลใหม่หรือมีการยืนยันจากอีกหน้าต่าง</strong>
-          <span>กรุณาอัปเดต Dashboard ก่อนตัดยอด เพื่อให้ยอดที่เห็นตรงกับข้อมูลล่าสุด</span>
+          <strong>ข้อมูลเปลี่ยนแล้ว</strong>
+          <span>กดอัปเดตก่อนทำรายการ</span>
         </div>
         <button id="staleRefreshButton" class="button primary small">อัปเดตข้อมูล</button>
       </section>
@@ -90,59 +90,59 @@
         <button class="tab" data-tab="allocation">ตัดยอด</button>
         <button class="tab" data-tab="points">Point พิเศษ</button>
         <button class="tab" data-tab="report">รายงานประจำวัน</button>
-        <button class="tab" data-tab="review">Review <span id="reviewBadge" class="badge">0</span></button>
+        <button class="tab" data-tab="review">ตรวจรายการ <span id="reviewBadge" class="badge">0</span></button>
         <button class="tab" data-tab="unsend">Unsend <span id="unsendBadge" class="badge">0</span></button>
         <button class="tab" data-tab="settings">ตั้งค่า</button>
       </nav>
 
       <section id="summaryTab" class="tab-panel panel">
-        <div class="section-heading"><div><h2>Order Board</h2><p class="muted">4 คอลัมน์ A / B / E / F · A/B แสดง 00–99 ครบ · E/F แสดงเฉพาะรหัสที่มียอด · G แสดงเมื่อมีข้อมูล · เรียงยอดมาก → น้อย</p></div></div>
+        <div class="section-heading"><div><h2>สรุปยอด</h2><p class="muted">A / B / E / F · G แสดงเมื่อมีข้อมูล</p></div></div>
         <div id="summaryBoard" class="order-board"></div>
       </section>
 
       <section id="allocationTab" class="tab-panel panel hidden">
         <div class="section-heading allocation-title">
-          <div><h2>ตัดยอด / กระจายความเสี่ยง</h2><p class="muted">ดูรหัสเหมือนหน้า Order Board เลือกได้หลายรหัส แล้วให้ระบบแบ่งเป็นหลายรอบตามลิมิตของคลังให้อัตโนมัติ</p></div>
+          <div><h2>ตัดยอด</h2><p class="muted">เลือกรหัสได้หลายตัว ระบบแบ่งรอบให้เอง</p></div>
         </div>
         <div id="allocationRiskSummary" class="risk-summary"></div>
         <section id="bulkDistributionControls" class="bulk-distribution-controls">
           <div class="bulk-control-head">
-            <div><h3>คลังปลายทาง</h3><p class="muted">เลือกได้มากกว่า 1 คลัง ระบบจะสลับคลังและแบ่งรอบอัตโนมัติ เช่น ส่วนเกิน 25 / ลิมิต 5 = 5 รอบ</p></div>
+            <div><h3>คลังปลายทาง</h3><p class="muted">เลือกได้หลายคลัง</p></div>
             <div class="bulk-actions">
-              <button id="selectAllRecommendedButton" class="button ghost small" type="button">เลือกทั้งหมดที่แนะนำ</button>
+              <button id="selectAllRecommendedButton" class="button ghost small" type="button">เลือกที่แนะนำ</button>
               <button id="clearRecommendedButton" class="button ghost small" type="button">ล้างที่เลือก</button>
             </div>
           </div>
           <div id="warehouseChoices" class="warehouse-choices"></div>
-          <div id="bulkDistributionSummary" class="transfer-selection-bar">ยังไม่มีรายการที่ต้องกระจาย</div>
+          <div id="bulkDistributionSummary" class="transfer-selection-bar">ยังไม่มีรายการที่ต้องตัด</div>
           <div class="form-actions">
-            <button id="runBulkDistributionButton" class="button primary" type="button">กระจายยอดที่เลือกตามแผน</button>
+            <button id="runBulkDistributionButton" class="button primary" type="button">ตัดยอดที่เลือก</button>
           </div>
           <div id="transferPreview" class="transfer-preview"></div>
         </section>
         <div id="allocationBoard" class="allocation-board allocation-order-board"></div>
         <details class="allocation-history-details">
-          <summary>ดูประวัติการตัดยอดในชุดนี้</summary>
-          <div class="section-heading subheading"><div><h3>ประวัติรอบส่ง</h3><p class="muted">หนึ่งครั้งที่ผู้ใช้ยืนยัน อาจถูกแบ่งเป็นหลายรอบตามลิมิตของแต่ละคลัง</p></div><button id="reloadAllocationHistoryButton" class="button ghost small">โหลดประวัติใหม่</button></div>
+          <summary>ประวัติการตัดยอด</summary>
+          <div class="section-heading subheading"><div><h3>รายการที่ตัดแล้ว</h3><p class="muted">แสดงรายการที่ตัดแล้ว</p></div><button id="reloadAllocationHistoryButton" class="button ghost small">โหลดประวัติใหม่</button></div>
           <div id="allocationHistoryList" class="transfer-history"></div>
         </details>
       </section>
 
       <section id="pointsTab" class="tab-panel panel hidden">
-        <div class="section-heading"><div><h2>รหัส Point พิเศษจริง</h2><p class="muted">กำหนดภายหลังได้ก่อนปิดยอด ระหว่างที่ยังไม่ครบ ระบบใช้ Point Reserve แบบกรณีเสี่ยงสูงสุดเพื่อคำนวณการกระจายความเสี่ยง</p></div></div>
+        <div class="section-heading"><div><h2>Point พิเศษ</h2><p class="muted">กำหนดรหัสก่อนปิดยอด</p></div></div>
         <div id="specialPointProfiles" class="profile-strip"></div>
         <div id="specialPointStatus" class="point-status"></div>
         <form id="specialPointForm" class="compact-form inline-form">
           <select name="category"><option>A</option><option>B</option><option>E</option><option>F</option><option>G</option></select>
-          <input name="code" placeholder="รหัส Point จริง" required />
+          <input name="code" placeholder="รหัส" required />
           <button class="button primary small" type="submit">เพิ่มรหัส</button>
         </form>
         <div id="specialPointRules" class="settings-list"></div>
-        <button id="saveSpecialPointsButton" class="button primary">บันทึกรหัส Point พิเศษจริง</button>
+        <button id="saveSpecialPointsButton" class="button primary">บันทึก Point</button>
       </section>
 
       <section id="reportTab" class="tab-panel panel hidden">
-        <div class="section-heading"><div><h2>รายงานประจำวัน</h2><p class="muted">รายงานแยกตามชุดยอด แม้เปิดใหม่ในวันที่เดียวกันก็ไม่สะสมกับชุดที่ปิดไปแล้ว</p></div>
+        <div class="section-heading"><div><h2>รายงานประจำวัน</h2><p class="muted">เลือกดูรายงานของแต่ละชุดยอด</p></div>
           <div class="report-filters"><select id="reportSessionSelect"></select><select id="reportLineGroupSelect"><option value="ALL">ทุก LINE Group</option></select></div>
         </div>
         <div id="reportContent" class="report-stack"></div>
@@ -151,18 +151,18 @@
       <section id="reviewTab" class="tab-panel panel hidden">
         <div class="section-heading">
           <div>
-            <h2>รายการต้องตรวจสอบ</h2>
-            <p class="muted">แก้ข้อความ → ตรวจผล Parser → ยืนยัน จึงจะเปลี่ยนยอดจริง ระบบจะ Parse ซ้ำที่ Server ก่อนบันทึกเสมอ</p>
+            <h2>ตรวจรายการ</h2>
+            <p class="muted">แก้ข้อความ → ตรวจผล → ยืนยัน</p>
           </div>
         </div>
         <div id="reviewList" class="stack"></div>
       </section>
 
       <section id="unsendTab" class="tab-panel panel hidden">
-        <div class="section-heading"><div><h2>ข้อความที่ถูก Unsend</h2><p class="muted">แสดงผลกระทบที่ระบบเคยรับไว้ โดยไม่ลบออกจาก Received Total</p></div></div>
+        <div class="section-heading"><div><h2>Unsend</h2><p class="muted">เก็บไว้สำหรับตรวจสอบย้อนหลัง</p></div></div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>เวลา</th><th>กลุ่ม</th><th>ผู้ส่ง</th><th class="num">ผลกระทบ</th><th>Message ID</th></tr></thead>
+            <thead><tr><th>เวลา</th><th>กลุ่ม</th><th>ผู้ส่ง</th><th class="num">ผลกระทบ</th><th>ข้อความ</th></tr></thead>
             <tbody id="unsendBody"></tbody>
           </table>
         </div>
@@ -172,7 +172,7 @@
         <div class="section-heading">
           <div>
             <h2>ตั้งค่าระบบ</h2>
-            <p class="muted">ตั้งค่า LINE Group, % ลด, ตัวคูณ Point, Point ที่ยอมติดลบได้ และลิมิตการรับยอดของแต่ละคลัง โดยไม่ต้องเข้า SQL Editor</p>
+            <p class="muted">ตั้งค่ากลุ่ม, %, Point และคลัง</p>
           </div>
           <button id="reloadSettingsButton" class="button ghost small">โหลดใหม่</button>
         </div>
@@ -206,7 +206,7 @@
 
           <section class="settings-block">
             <h3>ตัวคูณ Point พิเศษของบริษัท</h3>
-            <p class="muted small-text">ค่าบริษัทใช้กับยอดที่กำลัง OPEN ทันทีเมื่อบันทึก ส่วนชุดที่ CLOSED จะเก็บค่าเดิมไว้เป็นประวัติ</p>
+            <p class="muted small-text">มีผลกับยอดที่เปิดอยู่ทันที</p>
             <form id="pointProfileForm" class="compact-form">
               <select name="category" required><option>A</option><option>B</option><option>E</option><option>F</option><option>G</option></select>
               <input name="special_multiplier" type="number" min="0.001" step="0.001" placeholder="ตัวคูณ" required />
@@ -217,8 +217,8 @@
           </section>
 
           <section class="settings-block">
-            <h3>Point ที่ยอมติดลบได้</h3>
-            <p class="muted small-text">Risk Budget = ยอดหลังหัก % + Point ที่บริษัทยอมรับให้ติดลบได้ ระบบจะเริ่มแนะนำให้กระจายเมื่อ Point Reserve สูงกว่า Risk Budget</p>
+            <h3>Point ที่ยอมขาดทุน</h3>
+            <p class="muted small-text">กำหนดส่วนเผื่อของแต่ละกลุ่ม</p>
             <form id="riskBudgetForm" class="compact-form">
               <select name="summary_group_id" required></select>
               <input name="point_loss_tolerance" type="number" min="0" step="0.01" placeholder="เช่น 10 Point" required />
@@ -228,8 +228,8 @@
           </section>
 
           <section class="settings-block">
-            <h3>ลิมิตคลังปลายทางต่อรอบ</h3>
-            <p class="muted small-text">กำหนดจำนวนรวมสูงสุดที่คลังนั้นรับได้ใน 1 รอบ เช่น 5 หมายถึงส่วนเกิน 25 ต้องกระจายอย่างน้อย 5 รอบ หากใช้คลังนี้เพียงคลังเดียว</p>
+            <h3>ลิมิตคลังต่อรอบ</h3>
+            <p class="muted small-text">จำนวนสูงสุดที่คลังรับได้ต่อรอบ</p>
             <form id="warehouseLimitForm" class="compact-form">
               <input name="destination" placeholder="ชื่อคลัง เช่น คลัง 2" required />
               <input name="max_batch_quantity" type="number" min="1" step="1" placeholder="สูงสุดต่อรอบ" required />

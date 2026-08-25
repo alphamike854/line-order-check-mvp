@@ -90,10 +90,10 @@ assert.match(dashboard,/buildRiskDistributionPlan/);
 assert.match(preview,/DESTINATION_LIMIT_NOT_CONFIGURED/);
 assert.match(preview,/buildRiskDistributionPlan/);
 assert.match(confirm,/confirm_risk_transfer_batch_budget_safe/);
-assert.match(html,/Point ที่ยอมติดลบได้/);
-assert.match(html,/ลิมิตคลังปลายทางต่อรอบ/);
-assert.match(app,/ยอดที่ควรกระจายออกจากคลังเรา/);
-assert.match(app,/Risk Budget/);
+assert.match(html,/id="riskBudgetForm"/);
+assert.match(html,/id="warehouseLimitForm"/);
+assert.match(app,/distributionPlanFor/);
+assert.match(app,/risk_budget/);
 assert.doesNotMatch(app,/นโยบายตัด/);
 assert.doesNotMatch(app,/ยอดแนะนำรวม/);
 

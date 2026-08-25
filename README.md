@@ -161,3 +161,10 @@ Migration `011` remains in history because it may already have been applied, but
 - Point multiplier edits apply immediately to the current OPEN settlement; CLOSED reports keep their snapshot.
 - Allocation uses a Summary-like A/B/E/F board (G below), preselects recommended codes, supports multiple warehouses, and automatically splits one approved distribution into bounded warehouse rounds.
 - See `DASHBOARD_V6_7_SETUP.md` and migration `202608250013_sync_live_point_profiles_and_bulk_distribution.sql`.
+
+## v6.8 Quiet Refresh + Concise UI
+
+- Dashboard checks for fresh data every 20 seconds instead of every 5 seconds.
+- Background refresh is silent and skips polling while the browser tab is hidden.
+- User actions still refresh immediately.
+- Operational UI copy is shortened; deeper risk details live under “ดูรายละเอียด”.

@@ -177,3 +177,16 @@ tbody tr:hover { background: #fafcff; }
 .warehouse-choices{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.warehouse-choice{display:flex;align-items:center;gap:8px;border:1px solid #d7e1ec;border-radius:10px;padding:8px 10px;background:#fff;cursor:pointer}.warehouse-choice:has(input:checked){border-color:#86a4c0;background:#eef6fd}.warehouse-choice input{width:17px;height:17px}.warehouse-choice span{display:grid;gap:1px}.warehouse-choice small{font-size:.65rem;color:#66788c}
 .allocation-order-board{margin-top:8px}.allocation-summary-board{display:grid;gap:12px}.allocation-board-column .board-code-list{max-height:58vh}.allocation-code-row{grid-template-columns:24px minmax(0,1fr);align-items:start;cursor:pointer}.allocation-code-row.recommended{background:#f5fbf7}.allocation-code-row.recommended.reserve{background:#fff8e8}.allocation-code-check{padding-top:2px}.allocation-code-check input{width:17px;height:17px}.allocation-code-spacer{display:block;width:17px;height:17px}.allocation-code-content{min-width:0}.allocation-code-meta{display:flex;justify-content:space-between;gap:8px;margin:3px 0 4px;font-size:.65rem;color:#6f7e90}.allocation-code-meta strong{color:#216b4a}.allocation-g-code{grid-template-columns:22px auto 1fr auto;cursor:pointer}.allocation-g-code input{width:17px;height:17px}.allocation-g-code.recommended{background:#f4faf6}
 @media(max-width:900px){.bulk-distribution-controls{position:static}.bulk-control-head{flex-direction:column}.allocation-board-column .board-code-list{max-height:48vh}}
+
+/* v6.8: quieter refresh + concise operational copy. */
+.group-risk-summary{display:grid;justify-items:end;gap:5px}
+.group-risk-details{font-size:.72rem;color:#64748b}
+.group-risk-details summary{cursor:pointer;font-weight:750;list-style:none;text-align:right}
+.group-risk-details summary::-webkit-details-marker{display:none}
+.group-risk-details summary::after{content:" ▾"}
+.group-risk-details[open] summary::after{content:" ▴"}
+.group-risk-details>div{display:flex;gap:8px 14px;flex-wrap:wrap;justify-content:flex-end;margin-top:6px;padding:7px 9px;border-radius:9px;background:#f7f9fc;border:1px solid #e7ecf2}
+.stale-banner{padding:8px 11px;margin-top:8px}
+.stale-banner span{font-size:12px}
+#freshness{font-size:12px}
+@media(max-width:700px){.group-risk-summary{justify-items:start}.group-risk-details summary{text-align:left}.group-risk-details>div{justify-content:flex-start}}
