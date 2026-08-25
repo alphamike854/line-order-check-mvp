@@ -4,7 +4,6 @@ import {
   reviewPreviewFingerprint,
 } from "../../src/lib/review-safety.mjs";
 import {
-  fetchCurrentSummaryGroupForLineGroup,
   fetchOpenReviewById,
   json,
   loadParserConfig,
@@ -26,10 +25,9 @@ export default async (req) => {
     const { message } = await fetchOpenReviewById(reviewId);
     if (message.unsent) return json({ ok: false, error: "MESSAGE_ALREADY_UNSENT" }, 409);
 
-    const [config, summaryGroupId] = await Promise.all([
-      loadParserConfig(),
-      fetchCurrentSummaryGroupForLineGroup(message.line_group_id),
-    ]);
+    const config = await loadParserConfig();
+    const summaryGroupId = message.summary_group_id;
+    if (!summaryGroupId) return json({ ok: false, error: "MESSAGE_GROUP_NOT_CONFIGURED" }, 409);
     const result = parseOrder(correctedText, config);
     const canApply = result.status === "PARSED" && result.items.length > 0;
 

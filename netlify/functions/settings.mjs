@@ -43,6 +43,22 @@ async function saveLineGroup(values) {
   const payload = { ...row, updated_at: new Date().toISOString() };
   const { data, error } = await supabase.from("line_groups").upsert(payload, { onConflict: "line_group_id" }).select("*").single();
   if (error) throw error;
+
+  // Reduction % is an operational setting. If a settlement is OPEN, apply the
+  // new percentage to that settlement immediately; closed settlements keep their snapshot.
+  const { data: openSession, error: openError } = await supabase
+    .from("settlement_sessions").select("id").eq("status", "OPEN").maybeSingle();
+  if (openError) throw openError;
+  if (openSession?.id) {
+    const { error: reductionError } = await supabase
+      .from("settlement_line_group_config")
+      .update({ reduction_pct: row.reduction_pct })
+      .eq("settlement_session_id", openSession.id)
+      .eq("line_group_id", row.line_group_id);
+    if (reductionError) throw reductionError;
+  }
+
+  // Keep the existing LINE-group audit for mapping/name changes; no reason field is required.
   await writeSettingsAudit({ entityType: "LINE_GROUP", entityKey: row.line_group_id, beforeData: before, afterData: data, changedBy: OPERATOR });
   return data;
 }

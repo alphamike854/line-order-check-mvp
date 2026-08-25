@@ -10,9 +10,12 @@ const state = {
   dashboardStale: false,
   freshnessTimer: null,
   freshnessPollBusy: false,
+  settlement: null,
+  specialPointRules: [],
+  promotionDrafts: [],
 };
 
-const FRESHNESS_POLL_MS = 15_000;
+const FRESHNESS_POLL_MS = 5_000;
 
 const loginView = $("#loginView");
 const appView = $("#appView");
@@ -26,6 +29,12 @@ const logoutButton = $("#logoutButton");
 
 function formatNumber(value) {
   return new Intl.NumberFormat("th-TH").format(Number(value || 0));
+}
+
+
+function formatThaiDate(value) {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat("th-TH", { timeZone:"Asia/Bangkok", day:"numeric", month:"short", year:"numeric" }).format(new Date(`${value}T12:00:00+07:00`));
 }
 
 function formatBangkokTime(value) {
@@ -117,7 +126,15 @@ async function checkFreshness() {
   try {
     const payload = await api(`/api/dashboard-freshness?${selectedQuery()}`);
     if (state.freshnessVersion != null && payload.freshness?.version !== state.freshnessVersion) {
-      setDashboardStale(true);
+      const activeTab = $(".tab.active")?.dataset.tab;
+      if (activeTab === "summary") {
+        await loadDashboard();
+      } else if (activeTab === "report") {
+        state.freshnessVersion = payload.freshness?.version ?? state.freshnessVersion;
+        await loadReport();
+      } else {
+        setDashboardStale(true);
+      }
     }
   } catch (error) {
     if (error.message !== "UNAUTHORIZED") console.warn("freshness check failed", error);
@@ -134,20 +151,13 @@ function startFreshnessPolling() {
 function renderMetrics(metrics) {
   const cards = [
     ["ยอดรับทั้งหมด", metrics.order_total, false],
-    ["Active", metrics.active_equivalent, false],
-    ["Unsend", metrics.unsent_qty, metrics.unsent_qty > 0],
     ["ต้องตัดเพิ่ม", metrics.transfer_now_total, metrics.transfer_now_total > 0],
     ["ข้อความ", metrics.messages_total, false],
     ["Review", metrics.review_open, metrics.review_open > 0],
   ];
   $("#metrics").innerHTML = cards.map(([label, value, alert]) => `
-    <article class="metric ${alert ? "alert" : ""}">
-      <div class="label">${escapeHtml(label)}</div>
-      <div class="value">${formatNumber(value)}</div>
-    </article>
-  `).join("");
+    <article class="metric ${alert ? "alert" : ""}"><div class="label">${escapeHtml(label)}</div><div class="value">${formatNumber(value)}</div></article>`).join("");
   $("#reviewBadge").textContent = formatNumber(metrics.review_open);
-  $("#unsendBadge").textContent = formatNumber(metrics.unsend_count);
   $("#freshness").textContent = `ข้อมูลล่าสุด: ${formatBangkokTime(metrics.last_event_at)} · Pending ${formatNumber(metrics.pending)}`;
 }
 
@@ -158,21 +168,32 @@ function groupName(id) {
 }
 
 function renderSummary(rows) {
-  const body = $("#summaryBody");
-  if (!rows.length) {
-    body.innerHTML = `<tr><td colspan="6" class="empty">ยังไม่มีออเดอร์ในช่วงที่เลือก</td></tr>`;
-    return;
-  }
-  body.innerHTML = rows.map((row) => `
-    <tr>
-      <td>${escapeHtml(groupName(row.summary_group_id))}</td>
-      <td><strong>${escapeHtml(row.category)}</strong></td>
-      <td><strong>${escapeHtml(row.code)}</strong></td>
-      <td class="num">${formatNumber(row.order_total)}</td>
-      <td class="num">${formatNumber(row.unsent_qty)}</td>
-      <td class="num">${formatNumber(row.active_equivalent)}</td>
-    </tr>
-  `).join("");
+  const board = $("#summaryBoard");
+  if (!rows.length) { board.innerHTML = `<div class="empty">ยังไม่มีออเดอร์ในชุดยอดปัจจุบัน</div>`; return; }
+  const allocationMap = new Map((state.dashboard?.allocation || []).map((r) => [`${r.summary_group_id}|${r.category}|${r.code}`, r]));
+  const byCategory = new Map();
+  for (const row of rows) { if (!byCategory.has(row.category)) byCategory.set(row.category, []); byCategory.get(row.category).push(row); }
+  board.innerHTML = [...byCategory.entries()].map(([category, items]) => `
+    <section class="category-board">
+      <div class="category-heading"><h3>หมวด ${escapeHtml(category)}</h3><span>เรียงยอดมาก → น้อย</span></div>
+      <div class="code-stack">${items.sort((a,b)=>Number(b.order_total)-Number(a.order_total)||a.code.localeCompare(b.code)).map(row => {
+        const allocation = allocationMap.get(`${row.summary_group_id}|${row.category}|${row.code}`);
+        const threshold = Number(allocation?.threshold || 0);
+        const total = Number(row.order_total || 0);
+        const remainderPct = threshold > 0 ? Math.min(100, ((total % threshold) / threshold) * 100) : 0;
+        const segments = threshold > 0 ? Math.floor(total / threshold) : 0;
+        const special = row.special_point_multiplier ? `<span class="point-badge">★ ×${formatNumber(row.special_point_multiplier)}</span>` : "";
+        const promo = allocation?.promotion_override ? `<span class="promo-badge">PROMO T${formatNumber(threshold)}</span>` : `<span class="threshold-label">T${formatNumber(threshold)}</span>`;
+        const transfer = Number(allocation?.transfer_now || 0) > 0 ? `<strong class="transfer-due">ตัดเพิ่ม ${formatNumber(allocation.transfer_now)}</strong>` : "";
+        const thresholdClass = Number(allocation?.transfer_now || 0) > 0 ? "threshold-due" : (segments >= 1 ? "threshold-ready" : "threshold-low");
+        return `<article class="code-card ${thresholdClass} ${allocation?.promotion_override ? "is-promo" : ""}">
+          <div class="code-main"><div><span class="code-label">${escapeHtml(category)} ${escapeHtml(row.code)}</span>${special}</div><strong class="code-total">${formatNumber(total)}</strong></div>
+          <div class="code-meta">${promo}${transfer}<span>${escapeHtml(groupName(row.summary_group_id))}</span></div>
+          <div class="threshold-track" title="Threshold ${formatNumber(threshold)}"><div class="threshold-fill" style="width:${remainderPct}%"></div></div>
+          <div class="threshold-caption">ผ่าน ${formatNumber(segments)} Threshold${allocation?.destination ? ` · ${escapeHtml(allocation.destination)}` : ""}</div>
+        </article>`;
+      }).join("")}</div>
+    </section>`).join("");
 }
 
 function renderAllocation(rows) {
@@ -430,8 +451,9 @@ async function loadUnsends() {
   body.innerHTML = `<tr><td colspan="5" class="empty">กำลังโหลด...</td></tr>`;
   try {
     const payload = await api(`/api/unsends?${selectedQuery()}`);
+    $("#unsendBadge").textContent = formatNumber(payload.items.length);
     if (!payload.items.length) {
-      body.innerHTML = `<tr><td colspan="5" class="empty">ไม่มี Unsend ในช่วงที่เลือก</td></tr>`;
+      body.innerHTML = `<tr><td colspan="5" class="empty">ไม่มี Unsend ในชุดยอดปัจจุบัน</td></tr>`;
       return;
     }
     body.innerHTML = payload.items.map((item) => `
@@ -449,7 +471,7 @@ async function loadUnsends() {
 }
 
 function setSummaryOptions(select, selected = "") {
-  const groups = state.settings?.summary_groups || [];
+  const groups = state.settings?.summary_groups || state.dashboard?.summary_groups || [];
   select.innerHTML = groups.map((g) => `<option value="${escapeHtml(g.id)}" ${g.id === selected ? "selected" : ""}>${escapeHtml(g.name)} (${escapeHtml(g.id)})</option>`).join("");
 }
 
@@ -477,7 +499,7 @@ function renderSettings() {
     <div class="settings-row"><span><strong>${escapeHtml(row.name)}</strong><small>${escapeHtml(row.id)}</small></span><span>${row.enabled ? "ใช้งาน" : "ปิด"}</span><button class="button ghost small edit-summary" data-id="${escapeHtml(row.id)}">แก้ไข</button></div>`).join("");
 
   $("#lineGroupsList").innerHTML = s.line_groups.map((row) => `
-    <div class="settings-row"><span><strong>${escapeHtml(row.line_group_name)}</strong><small>${escapeHtml(row.line_group_id)}</small></span><span>${escapeHtml(groupName(row.summary_group_id))} · ${row.enabled ? "ใช้งาน" : "ปิด"}</span><button class="button ghost small edit-line" data-id="${escapeHtml(row.line_group_id)}">แก้ไข</button></div>`).join("");
+    <div class="settings-row"><span><strong>${escapeHtml(row.line_group_name)}</strong><small>${escapeHtml(row.line_group_id)}</small></span><span>${escapeHtml(groupName(row.summary_group_id))} · ลด ${formatNumber(row.reduction_pct || 0)}% · ${row.enabled ? "ใช้งาน" : "ปิด"}</span><button class="button ghost small edit-line" data-id="${escapeHtml(row.line_group_id)}">แก้ไข</button></div>`).join("");
 
   $("#allocationRulesList").innerHTML = s.allocation_rules.map((row) => `
     <div class="settings-row"><span><strong>${escapeHtml(groupName(row.summary_group_id))} / ${escapeHtml(row.category)}</strong><small>Threshold ${formatNumber(row.threshold)} · ${escapeHtml(row.destination || "ไม่ระบุปลายทาง")}</small></span><span>${row.enabled ? "ใช้งาน" : "ปิด"}</span><button class="button ghost small edit-allocation" data-key="${escapeHtml(row.summary_group_id)}|${escapeHtml(row.category)}">แก้ไข</button></div>`).join("");
@@ -493,7 +515,7 @@ function renderSettings() {
   $$(".edit-line").forEach((button) => button.addEventListener("click", () => {
     const row = s.line_groups.find((x) => x.line_group_id === button.dataset.id);
     const form = $("#lineGroupForm");
-    form.elements.line_group_id.value = row.line_group_id; form.elements.line_group_name.value = row.line_group_name; setSummaryOptions(form.elements.summary_group_id, row.summary_group_id); form.elements.enabled.checked = row.enabled;
+    form.elements.line_group_id.value = row.line_group_id; form.elements.line_group_name.value = row.line_group_name; setSummaryOptions(form.elements.summary_group_id, row.summary_group_id); form.elements.reduction_pct.value = row.reduction_pct || 0; form.elements.enabled.checked = row.enabled;
   }));
   $$(".edit-allocation").forEach((button) => button.addEventListener("click", () => {
     const [group, category] = button.dataset.key.split("|");
@@ -544,7 +566,7 @@ function bindSettingForms() {
   });
   $("#lineGroupForm").addEventListener("submit", (event) => {
     event.preventDefault(); const f = event.currentTarget;
-    saveSetting("LINE_GROUP", { line_group_id: f.elements.line_group_id.value, line_group_name: f.elements.line_group_name.value, summary_group_id: f.elements.summary_group_id.value, enabled: f.elements.enabled.checked }, f);
+    saveSetting("LINE_GROUP", { line_group_id: f.elements.line_group_id.value, line_group_name: f.elements.line_group_name.value, summary_group_id: f.elements.summary_group_id.value, reduction_pct: Number(f.elements.reduction_pct.value || 0), enabled: f.elements.enabled.checked }, f);
   });
   $("#allocationRuleForm").addEventListener("submit", (event) => {
     event.preventDefault(); const f = event.currentTarget;
@@ -557,6 +579,138 @@ function bindSettingForms() {
   $("#reloadSettingsButton").addEventListener("click", loadSettings);
 }
 
+
+function todayBangkok() {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok", year:"numeric", month:"2-digit", day:"2-digit" }).formatToParts(new Date());
+  const get = (t) => parts.find((p) => p.type === t)?.value;
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+function renderPromotionDrafts() {
+  const list = $("#promotionDraftList");
+  if (!state.promotionDrafts.length) { list.innerHTML = `<div class="muted">ไม่มี Promotion override — ใช้ Threshold ปกติ</div>`; return; }
+  list.innerHTML = state.promotionDrafts.map((r,i)=>`<div class="settings-row"><span><strong>${escapeHtml(r.summary_group_id)} / ${escapeHtml(r.category)}${escapeHtml(r.code)}</strong><small>T${formatNumber(r.threshold)}${r.destination?` · ${escapeHtml(r.destination)}`:""}</small></span><button class="button ghost small remove-promo" data-i="${i}">ลบ</button></div>`).join("");
+  $$(".remove-promo").forEach(b=>b.addEventListener("click",()=>{state.promotionDrafts.splice(Number(b.dataset.i),1);renderPromotionDrafts();}));
+}
+
+function renderSettlementStatus(payload) {
+  state.settlement = payload;
+  const open = payload.open_session;
+  $("#prepareOpenButton").classList.toggle("hidden", Boolean(open));
+  $("#closeSettlementButton").classList.toggle("hidden", !open);
+  if (open) {
+    businessDateInput.value = open.business_date;
+    businessDateInput.disabled = true;
+    $("#settlementStatus").textContent = `เปิดยอดอยู่ · ${open.business_date}`;
+    $("#settlementMeta").textContent = `เริ่ม ${formatBangkokTime(open.opened_at)} · Promotion ${formatNumber((payload.promotions||[]).length)} รหัส`;
+    $("#openSettlementEditor").classList.add("hidden");
+  } else {
+    businessDateInput.disabled = false;
+    if (!businessDateInput.value) businessDateInput.value = todayBangkok();
+    $("#settlementStatus").textContent = "ยังไม่ได้เปิดยอด";
+    $("#settlementMeta").textContent = "กำหนด Promotion ก่อนเปิดยอดได้ เมื่อเปิดแล้วจะเริ่มนับใหม่จาก 0 แม้เป็นวันที่เดิม";
+  }
+}
+
+async function loadSettlement() {
+  const payload = await api("/api/settlement");
+  renderSettlementStatus(payload);
+  const select = $("#reportSessionSelect");
+  const sessions = [payload.open_session, ...(payload.closed_sessions||[])].filter(Boolean);
+  select.innerHTML = sessions.map(s=>`<option value="${escapeHtml(s.id)}">${s.status==="OPEN"?"ยอดปัจจุบัน":"ปิด "+formatBangkokTime(s.closed_at)} · ${escapeHtml(s.business_date)}</option>`).join("") || `<option value="">ยังไม่มีรายงาน</option>`;
+  const lineSelect=$("#reportLineGroupSelect");
+  const lines=state.dashboard?.line_groups||[];
+  lineSelect.innerHTML=`<option value="ALL">ทุก LINE Group</option>`+lines.map(g=>`<option value="${escapeHtml(g.line_group_id)}">${escapeHtml(g.line_group_name)}</option>`).join("");
+  return payload;
+}
+
+async function openSettlement() {
+  const date = businessDateInput.value || todayBangkok();
+  if (!window.confirm(`เปิดยอดใหม่วันที่ ${date}?\nยอดรับ, Allocation และลำดับข้อความจะเริ่มจาก 0`)) return;
+  $("#openSettlementButton").disabled = true;
+  try {
+    await api("/api/settlement", { method:"POST", body:JSON.stringify({ action:"OPEN", business_date:date, promotions:state.promotionDrafts }) });
+    state.promotionDrafts=[]; renderPromotionDrafts(); toast("เปิดยอดใหม่แล้ว เริ่มนับจาก 0");
+    await loadSettlement(); await loadDashboard();
+  } catch(error) { toast(`เปิดยอดไม่สำเร็จ: ${error.message}`,true); }
+  finally { $("#openSettlementButton").disabled=false; }
+}
+
+async function closeSettlement() {
+  const open = state.settlement?.open_session;
+  if (!open) return;
+  let summaryText = "";
+  try {
+    const report = await api(`/api/accounting-report?session_id=${encodeURIComponent(open.id)}`);
+    const received = (report.groups||[]).reduce((s,g)=>s+Number(g.received_total||0),0);
+    const special = (report.groups||[]).reduce((s,g)=>s+Number(g.special_point_total||0),0);
+    summaryText = `\nยอดรับรวม ${formatNumber(received)}\nPoint พิเศษรวม ${formatNumber(special)}`;
+  } catch {}
+  if (!window.confirm(`ปิดยอดปัจจุบัน?${summaryText}\n\nข้อมูลชุดนี้จะไม่ถูกนำไปสะสมกับยอดที่เปิดใหม่ และจะไม่สามารถแก้ Point พิเศษของชุดนี้ได้`)) return;
+  $("#closeSettlementButton").disabled=true;
+  try {
+    await api("/api/settlement", {method:"POST",body:JSON.stringify({action:"CLOSE",settlement_session_id:open.id})});
+    toast("ปิดยอดแล้ว สามารถเปิดยอดใหม่วันที่เดิมได้ทันที");
+    await loadSettlement(); await loadDashboard();
+  } catch(error){toast(`ปิดยอดไม่สำเร็จ: ${error.message}`,true);}
+  finally{$("#closeSettlementButton").disabled=false;}
+}
+
+function renderSpecialPoints() {
+  const list=$("#specialPointRules");
+  if(!state.specialPointRules.length){list.innerHTML=`<div class="muted">ยังไม่มีรหัส Point พิเศษในชุดนี้ ทุกสินค้าเป็น Point ปกติ ×1</div>`;return;}
+  list.innerHTML=state.specialPointRules.map((r,i)=>`<div class="settings-row"><span><strong>★ ${escapeHtml(r.category)}${escapeHtml(r.code)}</strong><small>×${formatNumber(r.multiplier)} Point</small></span><button class="button ghost small remove-point" data-i="${i}">ลบ</button></div>`).join("");
+  $$(".remove-point").forEach(b=>b.addEventListener("click",()=>{state.specialPointRules.splice(Number(b.dataset.i),1);renderSpecialPoints();}));
+}
+
+async function loadSpecialPoints() {
+  const payload=await api("/api/special-points");
+  state.specialPointRules=(payload.rules||[]).map(r=>({category:r.category,code:r.code,multiplier:Number(r.multiplier)}));
+  renderSpecialPoints();
+  $("#specialPointForm").querySelectorAll("input,select,button").forEach(el=>{el.disabled=!payload.open_session;});
+  $("#saveSpecialPointsButton").disabled=!payload.open_session;
+}
+
+async function saveSpecialPoints() {
+  try { await api("/api/special-points",{method:"POST",body:JSON.stringify({rules:state.specialPointRules})}); toast("บันทึก Point พิเศษแล้ว ระบบคำนวณย้อนหลังทั้งชุดปัจจุบัน"); await loadDashboard(); await loadReport(); }
+  catch(error){toast(`บันทึก Point ไม่สำเร็จ: ${error.message}`,true);}
+}
+
+function renderReport(payload) {
+  const root=$("#reportContent");
+  if(!payload.session){root.innerHTML=`<div class="empty">ยังไม่มีชุดยอดสำหรับรายงาน</div>`;return;}
+  if(!payload.groups.length){root.innerHTML=`<div class="empty">ยังไม่มีข้อมูลในชุดยอดนี้</div>`;return;}
+  root.innerHTML=`<div class="report-session-heading"><strong>รายงานประจำวัน ${escapeHtml(formatThaiDate(payload.session.business_date))}</strong><span>${payload.session.status === "OPEN" ? "ยอดปัจจุบัน" : `ปิด ${escapeHtml(formatBangkokTime(payload.session.closed_at))}`}</span></div>` + payload.groups.map(g=>`<section class="report-card">
+    <div class="report-title"><div><h3>${escapeHtml(g.line_group_name)}</h3><span>${escapeHtml(groupName(g.summary_group_id))}</span></div><span>${formatNumber(g.message_count)} ข้อความ</span></div>
+    <div class="report-metrics"><div><span>ยอดรับจริง</span><strong>${formatNumber(g.received_total)}</strong></div><div><span>ลด</span><strong>${formatNumber(g.reduction_pct)}%</strong></div><div><span>ยอดหลังลด</span><strong>${formatNumber(g.after_reduction)}</strong></div><div><span>Point พิเศษ</span><strong>${formatNumber(g.special_point_total)}</strong></div><div class="net"><span>ยอดสุทธิเทียบ</span><strong>${formatNumber(g.reconciliation_total)}</strong></div></div>
+    <div class="special-summary"><h4>สรุปรหัส Point พิเศษ</h4>${g.special_point_codes.length?`<div class="table-wrap"><table><thead><tr><th>รหัส</th><th class="num">จำนวนรวม</th><th class="num">ตัวคูณ</th><th class="num">Point</th></tr></thead><tbody>${g.special_point_codes.map(x=>`<tr><td><strong>${escapeHtml(x.category)}${escapeHtml(x.code)}</strong></td><td class="num">${formatNumber(x.quantity)}</td><td class="num">×${formatNumber(x.multiplier)}</td><td class="num">${formatNumber(x.points)}</td></tr>`).join("")}</tbody></table></div>`:`<div class="muted">ไม่มี Point พิเศษ</div>`}</div>
+    <div class="table-wrap"><table><thead><tr><th>ลำดับ</th><th>เวลา</th><th class="num">สรุปจำนวน</th><th>Point พิเศษ</th></tr></thead><tbody>${g.ledger.map(row=>`<tr><td>${String(row.sequence).padStart(3,"0")}</td><td>${escapeHtml(new Intl.DateTimeFormat("th-TH",{timeZone:"Asia/Bangkok",hour:"2-digit",minute:"2-digit",second:"2-digit"}).format(new Date(row.event_timestamp)))}</td><td class="num"><strong>${formatNumber(row.summary_quantity)}</strong></td><td>${row.special_points.length?`★ ${row.special_points.map(x=>`${escapeHtml(x.category)}${escapeHtml(x.code)}=${formatNumber(x.quantity)} ×${formatNumber(x.multiplier)}`).join(", ")}`:""}</td></tr>`).join("")}</tbody><tfoot><tr><th colspan="2">รวม</th><th class="num">${formatNumber(g.received_total)}</th><th></th></tr></tfoot></table></div>
+  </section>`).join("");
+}
+
+async function loadReport() {
+  const sessionId=$("#reportSessionSelect").value || state.settlement?.open_session?.id;
+  if(!sessionId){renderReport({session:null,groups:[]});return;}
+  try { const payload=await api(`/api/accounting-report?session_id=${encodeURIComponent(sessionId)}&group=${encodeURIComponent(summaryGroupSelect.value||"ALL")}&line_group=${encodeURIComponent($("#reportLineGroupSelect").value||"ALL")}`); renderReport(payload); }
+  catch(error){$("#reportContent").innerHTML=`<div class="empty">โหลดรายงานไม่สำเร็จ: ${escapeHtml(error.message)}</div>`;}
+}
+
+function bindV5Controls() {
+  $("#prepareOpenButton").addEventListener("click",()=>{
+    $("#openSettlementEditor").classList.remove("hidden");
+    setSummaryOptions($("#promotionDraftForm").elements.summary_group_id);
+    renderPromotionDrafts();
+  });
+  $("#cancelOpenSettlementButton").addEventListener("click",()=>$("#openSettlementEditor").classList.add("hidden"));
+  $("#promotionDraftForm").addEventListener("submit",event=>{event.preventDefault();const f=event.currentTarget;const rule={summary_group_id:f.elements.summary_group_id.value,category:f.elements.category.value,code:f.elements.code.value.trim(),threshold:Number(f.elements.threshold.value),destination:f.elements.destination.value.trim()||null};const existing=state.promotionDrafts.findIndex(x=>x.summary_group_id===rule.summary_group_id&&x.category===rule.category&&x.code===rule.code);if(existing>=0)state.promotionDrafts[existing]=rule;else state.promotionDrafts.push(rule);f.elements.code.value="";f.elements.threshold.value="";f.elements.destination.value="";renderPromotionDrafts();});
+  $("#openSettlementButton").addEventListener("click",openSettlement);
+  $("#closeSettlementButton").addEventListener("click",closeSettlement);
+  $("#specialPointForm").addEventListener("submit",event=>{event.preventDefault();const f=event.currentTarget;const rule={category:f.elements.category.value,code:f.elements.code.value.trim(),multiplier:Number(f.elements.multiplier.value)};const existing=state.specialPointRules.findIndex(x=>x.category===rule.category&&x.code===rule.code);if(existing>=0)state.specialPointRules[existing]=rule;else state.specialPointRules.push(rule);f.elements.code.value="";f.elements.multiplier.value="";renderSpecialPoints();});
+  $("#saveSpecialPointsButton").addEventListener("click",saveSpecialPoints);
+  $("#reportSessionSelect").addEventListener("change",loadReport);
+  $("#reportLineGroupSelect").addEventListener("change",loadReport);
+}
+
 async function loadDashboard() {
   refreshButton.disabled = true;
   refreshButton.textContent = "กำลังอัปเดต...";
@@ -565,7 +719,7 @@ async function loadDashboard() {
     state.dashboard = payload;
     state.freshnessVersion = payload.freshness?.version ?? null;
     setDashboardStale(false);
-    if (!businessDateInput.value) businessDateInput.value = payload.business_date;
+    if (!businessDateInput.value) businessDateInput.value = payload.business_date || todayBangkok();
     if (!state.groupsLoaded) {
       const current = summaryGroupSelect.value || "ALL";
       summaryGroupSelect.innerHTML = `<option value="ALL">ทุกกลุ่ม</option>`;
@@ -581,11 +735,14 @@ async function loadDashboard() {
     renderMetrics(payload.metrics);
     renderSummary(payload.summary);
     renderAllocation(payload.allocation);
+    await loadSettlement();
     const activeTab = $(".tab.active")?.dataset.tab;
     if (activeTab === "allocation") await loadAllocationHistory();
     if (activeTab === "review") await loadReviews();
     if (activeTab === "unsend") await loadUnsends();
     if (activeTab === "settings") await loadSettings();
+    if (activeTab === "points") await loadSpecialPoints();
+    if (activeTab === "report") await loadReport();
   } catch (error) {
     if (error.message !== "UNAUTHORIZED") toast(`โหลด Dashboard ไม่สำเร็จ: ${error.message}`, true);
   } finally {
@@ -602,6 +759,8 @@ function activateTab(name) {
   if (name === "review") loadReviews();
   if (name === "unsend") loadUnsends();
   if (name === "settings") loadSettings();
+  if (name === "points") loadSpecialPoints();
+  if (name === "report") loadReport();
 }
 
 loginForm.addEventListener("submit", async (event) => {
@@ -628,10 +787,11 @@ logoutButton.addEventListener("click", () => {
 refreshButton.addEventListener("click", loadDashboard);
 $("#staleRefreshButton").addEventListener("click", loadDashboard);
 $("#reloadAllocationHistoryButton").addEventListener("click", loadAllocationHistory);
-businessDateInput.addEventListener("change", loadDashboard);
-summaryGroupSelect.addEventListener("change", loadDashboard);
+businessDateInput.addEventListener("change", () => { if (!state.settlement?.open_session) renderSettlementStatus(state.settlement || {open_session:null,promotions:[],closed_sessions:[]}); });
+summaryGroupSelect.addEventListener("change", async () => { await loadDashboard(); if ($(".tab.active")?.dataset.tab === "report") await loadReport(); });
 $$(".tab").forEach((tab) => tab.addEventListener("click", () => activateTab(tab.dataset.tab)));
 bindSettingForms();
+bindV5Controls();
 
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) checkFreshness();

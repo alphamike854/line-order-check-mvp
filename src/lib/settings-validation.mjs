@@ -29,7 +29,9 @@ export function validateLineGroup(input = {}) {
   if (!/^C[A-Za-z0-9_-]{8,}$/.test(line_group_id)) throw new Error("INVALID_LINE_GROUP_ID");
   if (!line_group_name || line_group_name.length > 120) throw new Error("INVALID_LINE_GROUP_NAME");
   if (!/^[A-Z0-9_-]{1,32}$/.test(summary_group_id)) throw new Error("INVALID_SUMMARY_GROUP_ID");
-  return { line_group_id, line_group_name, summary_group_id, enabled: normalizeBoolean(input.enabled, true) };
+  const reduction_pct = Number(input.reduction_pct ?? 0);
+  if (!Number.isFinite(reduction_pct) || reduction_pct < 0 || reduction_pct > 100) throw new Error("INVALID_REDUCTION_PCT");
+  return { line_group_id, line_group_name, summary_group_id, reduction_pct, enabled: normalizeBoolean(input.enabled, true) };
 }
 
 export function validateAllocationRule(input = {}) {

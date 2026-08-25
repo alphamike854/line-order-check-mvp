@@ -68,12 +68,36 @@ async function loadParserConfig() {
   };
 }
 
+
+async function resolveOpenSettlementSession() {
+  const { data, error } = await supabase
+    .from("settlement_sessions")
+    .select("id,business_date,status")
+    .eq("status", "OPEN")
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
 async function resolveLineGroup(lineGroupId) {
   const { data, error } = await supabase
     .from("line_groups")
     .select("line_group_id,line_group_name,summary_group_id")
     .eq("line_group_id", lineGroupId)
     .eq("enabled", true)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+
+async function resolveSettlementLineGroup(sessionId, lineGroupId) {
+  if (!sessionId) return resolveLineGroup(lineGroupId);
+  const { data, error } = await supabase
+    .from("settlement_line_group_config")
+    .select("line_group_id,line_group_name,summary_group_id,reduction_pct")
+    .eq("settlement_session_id", sessionId)
+    .eq("line_group_id", lineGroupId)
     .maybeSingle();
   if (error) throw error;
   return data;
@@ -104,13 +128,14 @@ async function markWebhookProcessed(webhookEventId) {
   if (error) throw error;
 }
 
-async function createMessage({ destination, event, group, messageType, rawText = null, parseStatus = "PENDING" }) {
+async function createMessage({ destination, event, group, session, messageType, rawText = null, parseStatus = "PENDING" }) {
   const timestamp = new Date(event.timestamp).toISOString();
   const row = {
     destination,
     webhook_event_id: event.webhookEventId,
     message_id: event.message?.id ?? null,
-    business_date: bangkokBusinessDate(event.timestamp),
+    business_date: session?.business_date ?? bangkokBusinessDate(event.timestamp),
+    settlement_session_id: session?.id ?? null,
     event_timestamp: timestamp,
     line_group_id: event.source.groupId,
     summary_group_id: group?.summary_group_id ?? null,
@@ -157,6 +182,7 @@ async function persistParsedResult(message, group, result, extraMessageUpdate = 
       quantity: item.quantity,
       unsent_flag: false,
       parser_version: result.parser_version,
+      settlement_session_id: message.settlement_session_id,
     }));
 
     const { error: itemError } = await supabase.from("order_items").insert(rows);
@@ -174,9 +200,15 @@ async function persistParsedResult(message, group, result, extraMessageUpdate = 
   };
 }
 
-async function handleTextMessage(destination, event, group) {
+async function handleTextMessage(destination, event, group, session) {
   const text = event.message.text ?? "";
-  const message = await createMessage({ destination, event, group, messageType: "text", rawText: text });
+  const message = await createMessage({ destination, event, group, session, messageType: "text", rawText: text });
+
+  if (!session) {
+    await supabase.from("messages").update({ parse_status: "REVIEW" }).eq("id", message.id);
+    await saveReview(message.id, [{ code: "SETTLEMENT_NOT_OPEN", detail: "ยังไม่ได้เปิดยอด" }], []);
+    return { status: "REVIEW", reason: "SETTLEMENT_NOT_OPEN" };
+  }
 
   if (!group) {
     await supabase.from("messages").update({ parse_status: "REVIEW" }).eq("id", message.id);
@@ -193,14 +225,21 @@ async function handleTextMessage(destination, event, group) {
   return persistParsedResult(message, group, result);
 }
 
-async function handleImageMessage(destination, event, group) {
+async function handleImageMessage(destination, event, group, session) {
   const message = await createMessage({
     destination,
     event,
     group,
+    session,
     messageType: "image",
     parseStatus: "PENDING",
   });
+
+  if (!session) {
+    await supabase.from("messages").update({ parse_status: "REVIEW" }).eq("id", message.id);
+    await saveReview(message.id, [{ code: "SETTLEMENT_NOT_OPEN", detail: "ยังไม่ได้เปิดยอด" }], []);
+    return { status: "REVIEW", reason: "SETTLEMENT_NOT_OPEN" };
+  }
 
   if (!group) {
     await supabase.from("messages").update({ parse_status: "REVIEW" }).eq("id", message.id);
@@ -370,13 +409,14 @@ async function processEvent(destination, event) {
       return { skipped: "NOT_GROUP" };
     }
 
-    const group = await resolveLineGroup(event.source.groupId);
+    const session = await resolveOpenSettlementSession();
+    const group = await resolveSettlementLineGroup(session?.id, event.source.groupId);
     let result;
 
     if (event.type === "message" && event.message?.type === "text") {
-      result = await handleTextMessage(destination, event, group);
+      result = await handleTextMessage(destination, event, group, session);
     } else if (event.type === "message" && event.message?.type === "image") {
-      result = await handleImageMessage(destination, event, group);
+      result = await handleImageMessage(destination, event, group, session);
     } else if (event.type === "unsend") {
       result = await handleUnsend(destination, event);
     } else {

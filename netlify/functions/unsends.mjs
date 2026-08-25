@@ -1,26 +1,3 @@
-import {
-  fetchUnsends,
-  json,
-  normalizeBusinessDate,
-  normalizeSummaryGroup,
-  requireDashboardAccess,
-} from "../../src/lib/dashboard-api.mjs";
-
-export default async (req) => {
-  if (req.method !== "GET") return json({ ok: false, error: "METHOD_NOT_ALLOWED" }, 405);
-  const denied = requireDashboardAccess(req);
-  if (denied) return denied;
-
-  try {
-    const url = new URL(req.url);
-    const businessDate = normalizeBusinessDate(url.searchParams.get("date"));
-    const summaryGroupId = normalizeSummaryGroup(url.searchParams.get("group"));
-    const items = await fetchUnsends(businessDate, summaryGroupId);
-    return json({ ok: true, business_date: businessDate, items });
-  } catch (error) {
-    console.error("unsends failed", error);
-    return json({ ok: false, error: error?.message ?? String(error) }, 500);
-  }
-};
-
-export const config = { path: "/api/unsends" };
+import { fetchOpenSettlementSession, json, normalizeSummaryGroup, requireDashboardAccess, supabase, loadGroupConfig } from "../../src/lib/dashboard-api.mjs";
+export default async(req)=>{if(req.method!=="GET")return json({ok:false,error:"METHOD_NOT_ALLOWED"},405);const denied=requireDashboardAccess(req);if(denied)return denied;try{const session=await fetchOpenSettlementSession();if(!session)return json({ok:true,items:[]});const url=new URL(req.url);const group=normalizeSummaryGroup(url.searchParams.get("group"));let mq=supabase.from("messages").select("id,line_group_id").eq("settlement_session_id",session.id);if(group)mq=mq.eq("summary_group_id",group);const{data:messages,error:me}=await mq;if(me)throw me;const ids=(messages??[]).map(m=>m.id);if(!ids.length)return json({ok:true,items:[]});const{data,error}=await supabase.from("unsend_events").select("id,message_id,line_group_id,user_id,matched_message_record_id,derived_qty_total,unsent_at,created_at").in("matched_message_record_id",ids).order("unsent_at",{ascending:false}).limit(500);if(error)throw error;const{lineGroups}=await loadGroupConfig();const names=new Map(lineGroups.map(g=>[g.line_group_id,g.line_group_name]));return json({ok:true,settlement_session:session,items:(data??[]).map(r=>({...r,line_group_name:names.get(r.line_group_id)??r.line_group_id}))});}catch(error){console.error("unsends failed",error);return json({ok:false,error:error?.message??String(error)},500);}};
+export const config={path:"/api/unsends"};

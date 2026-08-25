@@ -4,7 +4,6 @@ import {
   verifyReviewPreviewToken,
 } from "../../src/lib/review-safety.mjs";
 import {
-  fetchCurrentSummaryGroupForLineGroup,
   fetchOpenReviewById,
   json,
   loadParserConfig,
@@ -20,6 +19,8 @@ function mapRpcError(error) {
   if (message.includes("REVIEW_NOT_OPEN")) return [409, "REVIEW_NOT_OPEN"];
   if (message.includes("MESSAGE_ALREADY_UNSENT")) return [409, "MESSAGE_ALREADY_UNSENT"];
   if (message.includes("MESSAGE_GROUP_NOT_CONFIGURED")) return [409, "MESSAGE_GROUP_NOT_CONFIGURED"];
+  if (message.includes("SETTLEMENT_NOT_OPEN")) return [409, "SETTLEMENT_NOT_OPEN"];
+  if (message.includes("MESSAGE_SETTLEMENT_NOT_ASSIGNED")) return [409, "MESSAGE_SETTLEMENT_NOT_ASSIGNED"];
   return [500, message];
 }
 
@@ -63,10 +64,9 @@ export default async (req) => {
     if (!correctedText.trim()) return json({ ok: false, error: "CORRECTED_TEXT_REQUIRED" }, 400);
     if (!previewToken) return json({ ok: false, error: "PREVIEW_REQUIRED" }, 428);
 
-    const [config, summaryGroupId] = await Promise.all([
-      loadParserConfig(),
-      fetchCurrentSummaryGroupForLineGroup(message.line_group_id),
-    ]);
+    const config = await loadParserConfig();
+    const summaryGroupId = message.summary_group_id;
+    if (!summaryGroupId) return json({ ok: false, error: "MESSAGE_GROUP_NOT_CONFIGURED" }, 409);
     const result = parseOrder(correctedText, config);
     if (result.status !== "PARSED" || !result.items.length) {
       return json({
@@ -124,7 +124,7 @@ export default async (req) => {
   } catch (error) {
     const message = error?.message ?? String(error);
     const status = message === "REVIEW_NOT_FOUND" ? 404
-      : message === "REVIEW_NOT_OPEN" || message === "MESSAGE_ALREADY_UNSENT" || message === "MESSAGE_GROUP_NOT_CONFIGURED" ? 409
+      : message === "REVIEW_NOT_OPEN" || message === "MESSAGE_ALREADY_UNSENT" || message === "MESSAGE_GROUP_NOT_CONFIGURED" || message === "SETTLEMENT_NOT_OPEN" || message === "MESSAGE_SETTLEMENT_NOT_ASSIGNED" ? 409
         : message === "REVIEW_PREVIEW_SIGNING_KEY_NOT_CONFIGURED" ? 503
           : 500;
     console.error("review-resolve failed", error);

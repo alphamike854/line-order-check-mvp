@@ -7,6 +7,7 @@ import {
 const key = "test-allocation-confirm-signing-key";
 const nowMs = Date.parse("2026-08-24T15:00:00.000Z");
 const allocation = {
+  settlement_session_id: "22222222-2222-4222-8222-222222222222",
   business_date: "2026-08-24",
   summary_group_id: "NORTH",
   category: "A",

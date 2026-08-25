@@ -60,7 +60,7 @@ export async function loadGroupConfig() {
       .order("name"),
     supabase
       .from("line_groups")
-      .select("line_group_id,line_group_name,summary_group_id")
+      .select("line_group_id,line_group_name,summary_group_id,reduction_pct")
       .eq("enabled", true)
       .order("line_group_name"),
   ]);
@@ -138,7 +138,7 @@ export async function fetchDashboardFreshness({ businessDate, summaryGroupId = n
   return freshness;
 }
 
-export async function fetchOpenReviews(businessDate, summaryGroupId = null) {
+export async function fetchOpenReviews(businessDate, summaryGroupId = null, settlementSessionId = null) {
   const { data: reviews, error: reviewError } = await supabase
     .from("review_items")
     .select("id,message_record_id,reason_codes,warnings,status,created_at")
@@ -152,7 +152,7 @@ export async function fetchOpenReviews(businessDate, summaryGroupId = null) {
 
   const { data: messages, error: messageError } = await supabase
     .from("messages")
-    .select("id,business_date,summary_group_id,line_group_id,user_id,message_type,raw_text,normalized_text,ocr_text,parse_status,created_at")
+    .select("id,business_date,settlement_session_id,summary_group_id,line_group_id,user_id,message_type,raw_text,normalized_text,ocr_text,parse_status,created_at")
     .in("id", ids);
   if (messageError) throw messageError;
 
@@ -165,6 +165,7 @@ export async function fetchOpenReviews(businessDate, summaryGroupId = null) {
       const message = messageById.get(review.message_record_id);
       if (!message) return null;
       if (message.business_date !== businessDate) return null;
+      if (settlementSessionId && message.settlement_session_id !== settlementSessionId) return null;
       if (summaryGroupId && message.summary_group_id !== summaryGroupId) return null;
       return {
         id: review.id,
@@ -248,7 +249,7 @@ export async function fetchOpenReviewById(reviewId) {
 
   const { data: message, error: messageError } = await supabase
     .from("messages")
-    .select("id,business_date,summary_group_id,line_group_id,user_id,message_type,raw_text,normalized_text,ocr_text,parse_status,unsent,created_at")
+    .select("id,business_date,settlement_session_id,summary_group_id,line_group_id,user_id,message_type,raw_text,normalized_text,ocr_text,parse_status,unsent,created_at")
     .eq("id", review.message_record_id)
     .maybeSingle();
   if (messageError) throw messageError;
@@ -260,7 +261,7 @@ export async function fetchOpenReviewById(reviewId) {
 export async function fetchSettings() {
   const [summaryResult, lineResult, allocationResult, aliasResult, eventResult] = await Promise.all([
     supabase.from("summary_groups").select("id,name,enabled,created_at").order("name"),
-    supabase.from("line_groups").select("line_group_id,line_group_name,summary_group_id,enabled,created_at,updated_at").order("line_group_name"),
+    supabase.from("line_groups").select("line_group_id,line_group_name,summary_group_id,reduction_pct,enabled,created_at,updated_at").order("line_group_name"),
     supabase.from("allocation_rules").select("summary_group_id,category,threshold,destination,enabled,created_at,updated_at").order("summary_group_id").order("category"),
     supabase.from("category_aliases").select("alias,canonical_category,enabled,created_at").order("alias"),
     supabase.from("webhook_events").select("line_group_id,received_at").not("line_group_id", "is", null).order("received_at", { ascending: false }).limit(5000),
@@ -297,4 +298,14 @@ export async function writeSettingsAudit({ entityType, entityKey, beforeData, af
     changed_by: changedBy ?? "DASHBOARD",
   });
   if (error) throw error;
+}
+
+export async function fetchOpenSettlementSession() {
+  const { data, error } = await supabase
+    .from("settlement_sessions")
+    .select("id,business_date,status,opened_at,closed_at,opened_by,closed_by")
+    .eq("status", "OPEN")
+    .maybeSingle();
+  if (error) throw error;
+  return data;
 }

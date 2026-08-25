@@ -12,6 +12,7 @@ function mappedRpcError(error) {
   if (message.includes("ALLOCATION_STALE")) return ["ALLOCATION_STALE", 409];
   if (message.includes("NO_TRANSFER_REQUIRED")) return ["NO_TRANSFER_REQUIRED", 409];
   if (message.includes("ALLOCATION_STATE_NOT_FOUND")) return ["ALLOCATION_STATE_NOT_FOUND", 404];
+  if (message.includes("SETTLEMENT_NOT_OPEN")) return ["SETTLEMENT_NOT_OPEN", 409];
   return null;
 }
 
@@ -29,8 +30,9 @@ export default async (req) => {
     }
 
     const s = verified.snapshot;
-    const { data, error } = await supabase.rpc("confirm_allocation_transfer_safe", {
+    const { data, error } = await supabase.rpc("confirm_session_allocation_transfer_safe", {
       p_request_id: verified.request_id,
+      p_settlement_session_id: s.settlement_session_id,
       p_business_date: s.business_date,
       p_summary_group_id: s.summary_group_id,
       p_category: s.category,
