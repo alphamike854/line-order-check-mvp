@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * LINE Order Parser v1.0.0
+ * LINE Order Parser v1.3.0
  * Pure JavaScript, no external dependencies.
  *
  * Design goals:
@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.2.0";
+const PARSER_VERSION = "1.3.0";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -28,7 +28,16 @@ const DEFAULT_CONFIG = {
     "ก": "C",
     "บลก": "ABC",
     "รูด": "D",
-    "รูดเบิ้ล": "DOUBLE"
+    "รูดเบิ้ล": "DOUBLE",
+    "ทุกกลับ": "PERMUTE_ALL",
+    "3ปต": "PERMUTE_ALL",
+    "3 ปต": "PERMUTE_ALL",
+    "3ประตู": "PERMUTE_ALL",
+    "3 ประตู": "PERMUTE_ALL",
+    "6ปต": "PERMUTE_ALL",
+    "6 ปต": "PERMUTE_ALL",
+    "6ประตู": "PERMUTE_ALL",
+    "6 ประตู": "PERMUTE_ALL"
   },
   defaultCategoryByCodeLength: {
     2: "A",
@@ -305,6 +314,74 @@ function isMetadataLine(line) {
   return false;
 }
 
+
+function isPermuteAllCommand(text, cfg) {
+  let raw = String(text || "").trim().replace(/\s+/g, " ");
+  if (!raw) return false;
+
+  // In 3-digit grammar a standalone * is shorthand for "ทุกกลับ".
+  // It must not affect 2-digit quantity-pair parsing.
+  let sawStar = false;
+  raw = raw.replace(/\*/g, () => {
+    sawStar = true;
+    return " ";
+  }).replace(/\s+/g, " ").trim();
+
+  if (!raw) return sawStar;
+  return resolveAlias(raw, cfg) === "PERMUTE_ALL";
+}
+
+function threeDigitDestinationCategory(prefix) {
+  if (prefix === "B" || prefix === "G") return "G";
+  if (prefix === "F") return "F";
+  return "E"; // no prefix, A, or E
+}
+
+function emitThreeDigitPermutations(acc, codes, quantity, category) {
+  const generated = new Set();
+  for (const code of codes) {
+    for (const permutation of uniquePermutations(code)) generated.add(permutation);
+  }
+  for (const code of [...generated].sort()) acc.add(category, code, quantity);
+  return generated.size;
+}
+
+function parseThreeDigitRhs(right, cfg) {
+  const raw = String(right || "").trim();
+
+  // E/F pair plus a straight permutation amount, e.g. 998=100x100x*100.
+  // Semantics: original E=first, original F=second, and every unique
+  // permutation is added to E at permuteQuantity. The original code is one
+  // of those permutations, so its E quantity legitimately accumulates.
+  let m = raw.match(/^(\d+)\s*[xX]\s*(\d+)\s*[xX]\s*\*\s*(\d+)$/u);
+  if (m) {
+    return {
+      kind: "EF_PLUS_PERMUTE",
+      first: Number(m[1]),
+      second: Number(m[2]),
+      permuteQuantity: Number(m[3]),
+    };
+  }
+
+  // Natural language / compact command, e.g.
+  // 093 998 = 100 * ทุกกลับ
+  // 998 = 100 3ปต
+  // 093 = 100 6 ประตู
+  m = raw.match(/^(\d+)\s+(.+)$/u);
+  if (m && isPermuteAllCommand(m[2], cfg)) {
+    return { kind: "PERMUTE_ALL", quantity: Number(m[1]) };
+  }
+
+  // Also allow a compact star immediately after the quantity: 998=100*ทุกกลับ
+  m = raw.match(/^(\d+)\s*(\*.+)$/u);
+  if (m && isPermuteAllCommand(m[2], cfg)) {
+    return { kind: "PERMUTE_ALL", quantity: Number(m[1]) };
+  }
+
+  const quantitySpec = parseQuantityExpression(raw);
+  return quantitySpec ? { kind: "QUANTITY", quantitySpec } : null;
+}
+
 function parseThreeDigitLine(line, cfg, acc, rules, errors) {
   const t = stripPoliteWords(normalizeLatin(line.trim()));
   const eqIndex = t.indexOf("=");
@@ -322,8 +399,8 @@ function parseThreeDigitLine(line, cfg, acc, rules, errors) {
     right = suffix[1].trim();
   }
 
-  const quantitySpec = parseQuantityExpression(right);
-  if (!quantitySpec) return false;
+  const rhs = parseThreeDigitRhs(right, cfg);
+  if (!rhs) return false;
 
   const firstDigit = left.search(/\d/);
   if (firstDigit < 0) return false;
@@ -337,6 +414,35 @@ function parseThreeDigitLine(line, cfg, acc, rules, errors) {
 
   const prefix = prefixText ? resolveThreeDigitCategory(prefixText, cfg) : null;
   if (prefixText && !prefix) return false;
+
+  if (rhs.kind === "PERMUTE_ALL") {
+    if (explicitCategory) {
+      errors.push({ code: "UNSUPPORTED_EXPLICIT_CATEGORY_PERMUTATION", detail: line });
+      rules.add("R_3DIGIT_PERMUTE_ALL");
+      return true;
+    }
+    const category = threeDigitDestinationCategory(prefix);
+    emitThreeDigitPermutations(acc, codes, rhs.quantity, category);
+    rules.add("R_3DIGIT_PERMUTE_ALL");
+    return true;
+  }
+
+  if (rhs.kind === "EF_PLUS_PERMUTE") {
+    if (explicitCategory || (prefix && !["A", "E"].includes(prefix))) {
+      errors.push({ code: "UNSUPPORTED_COMPOSITE_PERMUTATION", detail: line });
+      rules.add("R_3DIGIT_EF_PLUS_PERMUTE");
+      return true;
+    }
+    for (const code of codes) {
+      acc.add("E", code, rhs.first);
+      acc.add("F", code, rhs.second);
+    }
+    emitThreeDigitPermutations(acc, codes, rhs.permuteQuantity, "E");
+    rules.add("R_3DIGIT_EF_PLUS_PERMUTE");
+    return true;
+  }
+
+  const quantitySpec = rhs.quantitySpec;
 
   if (explicitCategory) {
     if (quantitySpec.type !== "SINGLE") {

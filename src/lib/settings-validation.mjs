@@ -1,5 +1,5 @@
 const CATEGORIES = new Set(["A", "B", "E", "F", "G"]);
-const ALIAS_TARGETS = new Set(["A", "B", "AB", "C", "ABC", "D", "E", "F", "G", "DOUBLE"]);
+const ALIAS_TARGETS = new Set(["A", "B", "AB", "C", "ABC", "D", "E", "F", "G", "DOUBLE", "PERMUTE_ALL"]);
 
 export function normalizeBoolean(value, fallback = true) {
   if (value === undefined || value === null || value === "") return fallback;

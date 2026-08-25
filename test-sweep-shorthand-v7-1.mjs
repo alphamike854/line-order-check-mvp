@@ -9,7 +9,7 @@ function total(result) {
   return result.items.reduce((sum, x) => sum + Number(x.quantity || 0), 0);
 }
 
-assert.equal(PARSER_VERSION, "1.2.0");
+assert.ok(PARSER_VERSION.startsWith("1."));
 
 // Composite operational shorthand: บล = AB, ก = reverse, บลก = ABC.
 const composite = parseOrder(`08 09

@@ -248,7 +248,7 @@
           <section class="settings-block">
             <h3>Alias หมวด / คำสั่ง</h3>
             <form id="aliasForm" class="compact-form">
-              <input name="alias" placeholder="เช่น บล, ก, บลก, รูด, รูดเบิ้ล" required />
+              <input name="alias" placeholder="เช่น บล, ก, รูด, ทุกกลับ, 3ปต" required />
               <select name="canonical_category" required>
                 <option value="A">A — หมวด A</option>
                 <option value="B">B — หมวด B</option>
@@ -260,6 +260,7 @@
                 <option value="F">F — หมวด F</option>
                 <option value="G">G — หมวด G (3 หลัก)</option>
                 <option value="DOUBLE">DOUBLE — เลขเบิ้ล</option>
+                <option value="PERMUTE_ALL">PERMUTE — สลับเลข 3 หลัก</option>
               </select>
               <label class="check"><input name="enabled" type="checkbox" checked /> ใช้งาน</label>
               <button class="button primary small" type="submit">บันทึก</button>

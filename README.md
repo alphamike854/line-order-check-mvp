@@ -178,3 +178,7 @@ Migration `011` remains in history because it may already have been applied, but
 
 ## Dashboard v6.9
 หน้าสรุปยอด ตัดยอด และหลังตัดยอดใช้ layout A/B/E/F เดียวกัน (G ด้านล่าง) และหน้าหลังตัดสรุป Received / Transferred / Retained พร้อมแต่ละรอบต่อรหัส.
+
+## v7.2 — 3-digit ทุกกลับ / ประตู parser
+
+Adds `PERMUTE_ALL` aliases (`ทุกกลับ`, `3ปต/3ประตู`, `6ปต/6ประตู`) and unique 3-digit permutation parsing, including `998=100x100x*100`. See `DASHBOARD_V7_2_SETUP.md`.

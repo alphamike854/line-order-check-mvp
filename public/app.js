@@ -75,6 +75,7 @@ function aliasTargetLabel(value) {
     F: "หมวด F",
     G: "หมวด G",
     DOUBLE: "เลขเบิ้ล",
+    PERMUTE_ALL: "สลับเลข 3 หลัก",
   };
   return labels[String(value || "").toUpperCase()] || String(value || "");
 }
