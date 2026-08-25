@@ -168,3 +168,7 @@ Migration `011` remains in history because it may already have been applied, but
 - Background refresh is silent and skips polling while the browser tab is hidden.
 - User actions still refresh immediately.
 - Operational UI copy is shortened; deeper risk details live under “ดูรายละเอียด”.
+
+
+## Dashboard v6.9
+หน้าสรุปยอด ตัดยอด และหลังตัดยอดใช้ layout A/B/E/F เดียวกัน (G ด้านล่าง) และหน้าหลังตัดสรุป Received / Transferred / Retained พร้อมแต่ละรอบต่อรหัส.

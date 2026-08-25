@@ -10,7 +10,7 @@ export default async(req)=>{
     if(sessionError) throw sessionError;if(!session)return json({ok:true,history:[]});
     let q=supabase.from("settlement_transfer_batches")
       .select("id,batch_number,distribution_run_id,summary_group_id,destination,risk_mode,adjusted_received,risk_point_total,net_safe_capacity,safety_margin,risk_pct,point_loss_tolerance,risk_budget,excess_point_risk_before,warehouse_batch_limit,projected_point_reserve,projected_excess_point_risk,confirmed_cut_before,cut_total,confirmed_by,confirmed_at")
-      .eq("settlement_session_id",session.id).order("confirmed_at",{ascending:false}).limit(100);
+      .eq("settlement_session_id",session.id).order("confirmed_at",{ascending:false}).limit(500);
     if(group&&group!=="ALL") q=q.eq("summary_group_id",group);
     const {data:batches,error}=await q;if(error)throw error;
     const ids=(batches??[]).map(b=>b.id);let items=[];

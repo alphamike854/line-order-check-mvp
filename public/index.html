@@ -88,6 +88,7 @@
       <nav class="tabs" aria-label="Dashboard sections">
         <button class="tab active" data-tab="summary">สรุปยอด</button>
         <button class="tab" data-tab="allocation">ตัดยอด</button>
+        <button class="tab" data-tab="postcut">หลังตัดยอด</button>
         <button class="tab" data-tab="points">Point พิเศษ</button>
         <button class="tab" data-tab="report">รายงานประจำวัน</button>
         <button class="tab" data-tab="review">ตรวจรายการ <span id="reviewBadge" class="badge">0</span></button>
@@ -126,6 +127,11 @@
           <div class="section-heading subheading"><div><h3>รายการที่ตัดแล้ว</h3><p class="muted">แสดงรายการที่ตัดแล้ว</p></div><button id="reloadAllocationHistoryButton" class="button ghost small">โหลดประวัติใหม่</button></div>
           <div id="allocationHistoryList" class="transfer-history"></div>
         </details>
+      </section>
+
+      <section id="postcutTab" class="tab-panel panel hidden">
+        <div class="section-heading"><div><h2>หลังตัดยอด</h2><p class="muted">รับ · ตัด · คง · รอบ</p></div></div>
+        <div id="postCutBoard" class="order-board"></div>
       </section>
 
       <section id="pointsTab" class="tab-panel panel hidden">

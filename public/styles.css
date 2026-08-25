@@ -190,3 +190,32 @@ tbody tr:hover { background: #fafcff; }
 .stale-banner span{font-size:12px}
 #freshness{font-size:12px}
 @media(max-width:700px){.group-risk-summary{justify-items:start}.group-risk-details summary{text-align:left}.group-risk-details>div{justify-content:flex-start}}
+
+
+/* v6.9: aligned Summary / Allocation / After-cut boards and denser numeric layout. */
+.board-column-head{padding:12px 14px}
+.board-code-row{padding:9px 12px}
+.board-code-main{display:grid;grid-template-columns:minmax(34px,max-content) minmax(58px,max-content);justify-content:start;gap:10px;align-items:center}
+.board-code-main span{min-width:58px;text-align:right;padding:2px 8px;border-radius:7px;background:#f5f7fa;font-weight:800}
+.board-code-row.zero .board-code-main span{background:transparent}
+.allocation-code-meta{justify-content:flex-start;gap:12px}
+.allocation-code-row .board-code-main{grid-template-columns:minmax(34px,max-content) minmax(58px,max-content)}
+.four-column-board{gap:12px}
+
+.postcut-group-header{border-left-color:#51789e!important}
+.postcut-column-head{border-left-color:#51789e}
+.postcut-code-row.has-cut{background:#f7fbff}
+.postcut-code-stats{display:flex;align-items:center;gap:5px 12px;flex-wrap:wrap;margin-top:5px;font-size:.67rem;color:#68798d;font-variant-numeric:tabular-nums}
+.postcut-code-stats strong{color:#173a5e}
+.postcut-rounds{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px}
+.round-chip{display:inline-flex;align-items:center;border:1px solid #d8e4ef;border-radius:999px;padding:3px 7px;background:#f7fafc;color:#496078;font-size:.61rem;font-weight:750;white-space:nowrap}
+.round-empty{font-size:.62rem;color:#94a3b8}
+.postcut-g-code{grid-template-columns:auto auto;gap:3px 10px}
+.postcut-g-code>span{text-align:left;background:#f5f7fa;border-radius:7px;padding:2px 7px}
+.postcut-g-code>em{grid-column:1/-1;color:#68798d}
+.postcut-g-code>small{grid-column:1/-1;color:#496078;line-height:1.45}
+
+@media(min-width:1160px){
+  .shell{max-width:1680px;padding-left:22px;padding-right:22px}
+  .tab-panel{padding:16px}
+}

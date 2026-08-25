@@ -17,6 +17,7 @@ const state = {
   promotionDrafts: [],
   transferPreview: null,
   bulkDistributionPreview: null,
+  allocationHistory: [],
   transferDestination: "",
 };
 
@@ -144,6 +145,8 @@ async function checkFreshness() {
     if (state.freshnessVersion != null && payload.freshness?.version !== state.freshnessVersion) {
       const activeTab = $(".tab.active")?.dataset.tab;
       if (activeTab === "summary") {
+        await loadDashboard({ silent: true });
+      } else if (activeTab === "postcut") {
         await loadDashboard({ silent: true });
       } else if (activeTab === "report") {
         state.freshnessVersion = payload.freshness?.version ?? state.freshnessVersion;
@@ -283,6 +286,100 @@ function renderSummary() {
     return;
   }
   board.innerHTML = [...new Set(groups)].map(renderGroupBoard).join("");
+}
+
+
+function transferRoundMap() {
+  const map = new Map();
+  for (const batch of state.allocationHistory || []) {
+    for (const item of batch.items || []) {
+      const key = `${batch.summary_group_id}|${item.category}|${item.code}`;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push({
+        batch_number: Number(batch.batch_number || 0),
+        destination: batch.destination || "-",
+        quantity: Number(item.quantity || 0),
+        confirmed_at: batch.confirmed_at || null,
+      });
+    }
+  }
+  for (const rows of map.values()) {
+    rows.sort((a, b) => a.batch_number - b.batch_number || String(a.confirmed_at || "").localeCompare(String(b.confirmed_at || "")));
+  }
+  return map;
+}
+
+function renderPostCutCategoryColumn(groupId, category, roundsByCode) {
+  const allRows = codeRowsFor(groupId, category);
+  const rows = allRows.filter((row) => Number(row.order_total || 0) > 0 || Number(row.confirmed_cut || 0) > 0);
+  const transferredTotal = allRows.reduce((sum, row) => sum + Number(row.confirmed_cut || 0), 0);
+  const receivedTotal = allRows.reduce((sum, row) => sum + Number(row.order_total || 0), 0);
+  const retainedTotal = allRows.reduce((sum, row) => sum + Number(row.retained_quantity ?? row.available_to_cut ?? row.order_total ?? 0), 0);
+  const categoryRounds = new Set();
+  for (const row of allRows) {
+    for (const round of roundsByCode.get(`${groupId}|${category}|${row.code}`) || []) categoryRounds.add(round.batch_number);
+  }
+  const header = `<div class="board-column-head postcut-column-head">
+    <div class="category-title"><strong>${escapeHtml(category)}</strong><span>ตัด ${formatNumber(transferredTotal)} · ${formatNumber(categoryRounds.size)} รอบ</span></div>
+    <div class="category-risk-mini"><span>รับ ${formatNumber(receivedTotal)}</span><span>ตัด ${formatNumber(transferredTotal)}</span><span>คง ${formatNumber(retainedTotal)}</span></div>
+  </div>`;
+
+  const list = rows.length ? rows.map((row) => {
+    const qty = Number(row.order_total || 0);
+    const cut = Number(row.confirmed_cut || 0);
+    const retained = Number(row.retained_quantity ?? row.available_to_cut ?? Math.max(0, qty - cut));
+    const rounds = roundsByCode.get(`${groupId}|${category}|${row.code}`) || [];
+    const roundHtml = rounds.length
+      ? `<div class="postcut-rounds">${rounds.map((round) => `<span class="round-chip">#${formatNumber(round.batch_number)} ${escapeHtml(round.destination)} ${formatNumber(round.quantity)}</span>`).join("")}</div>`
+      : (qty > 0 ? `<div class="postcut-rounds"><span class="round-empty">ยังไม่ตัด</span></div>` : "");
+    return `<div class="board-code-row postcut-code-row ${qty === 0 ? "zero" : ""} ${cut > 0 ? "has-cut" : ""}">
+      <div class="board-code-main"><strong>${escapeHtml(row.code)}</strong><span>${formatNumber(retained)}</span></div>
+      <div class="postcut-code-stats"><span>รับ ${formatNumber(qty)}</span><span>ตัด ${formatNumber(cut)}</span><strong>คง ${formatNumber(retained)}</strong></div>
+      ${roundHtml}
+    </div>`;
+  }).join("") : `<div class="empty compact">ยังไม่มีรายการ</div>`;
+  return `<section class="board-column postcut-board-column">${header}<div class="board-code-list">${list}</div></section>`;
+}
+
+function renderPostCutGroupBoard(groupId, roundsByCode) {
+  const rows = (state.dashboard?.risk_codes || []).filter((row) => row.summary_group_id === groupId);
+  const received = rows.reduce((sum, row) => sum + Number(row.order_total || 0), 0);
+  const transferred = rows.reduce((sum, row) => sum + Number(row.confirmed_cut || 0), 0);
+  const retained = rows.reduce((sum, row) => sum + Number(row.retained_quantity ?? row.available_to_cut ?? row.order_total ?? 0), 0);
+  const groupBatches = (state.allocationHistory || []).filter((batch) => batch.summary_group_id === groupId);
+  const cutCodes = rows.filter((row) => Number(row.confirmed_cut || 0) > 0).length;
+  const gRows = codeRowsFor(groupId, "G");
+
+  return `<section class="summary-group-board postcut-summary-board">
+    <div class="group-risk-header postcut-group-header">
+      <div><h3>${escapeHtml(groupName(groupId))}</h3><span>หลังตัดยอด</span></div>
+      <div class="group-risk-summary"><div class="group-risk-metrics"><span>รับ <strong>${formatNumber(received)}</strong></span><span>ตัด <strong>${formatNumber(transferred)}</strong></span><span>คง <strong>${formatNumber(retained)}</strong></span><span>รอบ <strong>${formatNumber(groupBatches.length)}</strong></span><span>รหัส <strong>${formatNumber(cutCodes)}</strong></span></div></div>
+    </div>
+    <div class="four-column-board">${["A","B","E","F"].map((category) => renderPostCutCategoryColumn(groupId, category, roundsByCode)).join("")}</div>
+    ${gRows.length ? `<div class="g-board postcut-g-board"><div class="category-heading"><h3>หมวด G</h3><span>หลังตัดยอด</span></div><div class="g-code-grid">${gRows.map((row) => {
+      const qty = Number(row.order_total || 0);
+      const cut = Number(row.confirmed_cut || 0);
+      const retainedQty = Number(row.retained_quantity ?? row.available_to_cut ?? Math.max(0, qty-cut));
+      const rounds = roundsByCode.get(`${groupId}|G|${row.code}`) || [];
+      return `<div class="g-code postcut-g-code ${cut > 0 ? "has-cut" : ""}"><strong>G${escapeHtml(row.code)}</strong><span>คง ${formatNumber(retainedQty)}</span><em>รับ ${formatNumber(qty)} · ตัด ${formatNumber(cut)}</em>${rounds.length ? `<small>${rounds.map((round) => `#${formatNumber(round.batch_number)} ${escapeHtml(round.destination)} ${formatNumber(round.quantity)}`).join(" · ")}</small>` : ""}</div>`;
+    }).join("")}</div></div>` : ""}
+  </section>`;
+}
+
+function renderAfterCut() {
+  const board = $("#postCutBoard");
+  if (!board) return;
+  if (!state.dashboard?.settlement_session) {
+    board.innerHTML = `<div class="empty">ยังไม่ได้เปิดยอด</div>`;
+    return;
+  }
+  const roundsByCode = transferRoundMap();
+  const selected = summaryGroupSelect.value || "ALL";
+  const groups = selected !== "ALL"
+    ? [selected]
+    : [...new Set((state.dashboard?.overall_risk || []).map((row) => row.summary_group_id))];
+  const fallback = groups.length ? groups : (state.dashboard?.summary_groups || []).map((group) => group.id);
+  board.innerHTML = fallback.map((groupId) => renderPostCutGroupBoard(groupId, roundsByCode)).join("") || `<div class="empty">ยังไม่มีข้อมูล</div>`;
 }
 
 function clearTransferPreview(message = "") {
@@ -557,17 +654,23 @@ async function runBulkDistribution() {
   }
 }
 
-async function loadAllocationHistory() {
-  const root=$("#allocationHistoryList");if(!root)return;
-  root.innerHTML=`<div class="empty compact">กำลังโหลด...</div>`;
+async function loadAllocationHistory({ silent = false } = {}) {
+  const root=$("#allocationHistoryList");
+  if(root && !silent) root.innerHTML=`<div class="empty compact">กำลังโหลด...</div>`;
   try{
     const group=summaryGroupSelect.value||"ALL";
     const payload=await api(`/api/allocation-history?group=${encodeURIComponent(group)}`);
-    if(!payload.history.length){root.innerHTML=`<div class="empty compact">ยังไม่มีรอบส่งในชุดยอดปัจจุบัน</div>`;return;}
-    root.innerHTML=payload.history.map((item)=>`<article class="history-card"><div class="history-head"><strong>รอบ #${formatNumber(item.batch_number)} · ${escapeHtml(item.destination)}</strong><span>${escapeHtml(formatBangkokTime(item.confirmed_at))}</span></div><div class="transfer-lines">${item.lines.map(line=>`<div>${escapeHtml(line)}</div>`).join("")}</div><div class="history-meta"><span>ตัด ${formatNumber(item.cut_total)}</span><span>สูงสุด ${formatNumber(item.warehouse_batch_limit || 0)}</span><span>${escapeHtml(item.confirmed_by||"-")}</span></div></article>`).join("");
-  }catch(error){root.innerHTML=`<div class="empty compact">โหลดประวัติไม่สำเร็จ</div>`;toast(`โหลดประวัติไม่สำเร็จ: ${error.message}`,true);}
+    state.allocationHistory=payload.history||[];
+    renderAfterCut();
+    if(!root)return;
+    if(!state.allocationHistory.length){root.innerHTML=`<div class="empty compact">ยังไม่มีรอบส่งในชุดยอดปัจจุบัน</div>`;return;}
+    root.innerHTML=state.allocationHistory.map((item)=>`<article class="history-card"><div class="history-head"><strong>รอบ #${formatNumber(item.batch_number)} · ${escapeHtml(item.destination)}</strong><span>${escapeHtml(formatBangkokTime(item.confirmed_at))}</span></div><div class="transfer-lines">${item.lines.map(line=>`<div>${escapeHtml(line)}</div>`).join("")}</div><div class="history-meta"><span>ตัด ${formatNumber(item.cut_total)}</span><span>สูงสุด ${formatNumber(item.warehouse_batch_limit || 0)}</span><span>${escapeHtml(item.confirmed_by||"-")}</span></div></article>`).join("");
+  }catch(error){
+    if(root && !silent) root.innerHTML=`<div class="empty compact">โหลดประวัติไม่สำเร็จ</div>`;
+    if(!silent) toast("โหลดประวัติไม่สำเร็จ",true);
+    else console.warn("silent allocation history refresh failed",error);
+  }
 }
-
 
 function reviewReasonsHtml(item) {
   return (item.reason_codes || []).map((reason) => `
@@ -1076,9 +1179,11 @@ async function loadDashboard({ silent = false } = {}) {
     renderMetrics(payload.metrics);
     renderSummary();
     renderAllocation();
+    renderAfterCut();
     await loadSettlement();
     const activeTab = $(".tab.active")?.dataset.tab;
     if (activeTab === "allocation") await loadAllocationHistory();
+    if (activeTab === "postcut") await loadAllocationHistory({ silent });
     if (activeTab === "review") await loadReviews();
     if (activeTab === "unsend") await loadUnsends();
     if (activeTab === "settings") await loadSettings();
@@ -1102,6 +1207,7 @@ function activateTab(name) {
   $$(".tab-panel").forEach((panel) => panel.classList.add("hidden"));
   $(`#${name}Tab`).classList.remove("hidden");
   if (name === "allocation") loadAllocationHistory();
+  if (name === "postcut") loadAllocationHistory();
   if (name === "review") loadReviews();
   if (name === "unsend") loadUnsends();
   if (name === "settings") loadSettings();
@@ -1134,7 +1240,11 @@ refreshButton.addEventListener("click", loadDashboard);
 $("#staleRefreshButton").addEventListener("click", loadDashboard);
 $("#reloadAllocationHistoryButton").addEventListener("click", loadAllocationHistory);
 businessDateInput.addEventListener("change", () => { if (!state.settlement?.open_session) renderSettlementStatus(state.settlement || {open_session:null,promotions:[],closed_sessions:[]}); });
-summaryGroupSelect.addEventListener("change", async () => { await loadDashboard(); if ($(".tab.active")?.dataset.tab === "report") await loadReport(); });
+summaryGroupSelect.addEventListener("change", async () => {
+  await loadDashboard();
+  const activeTab = $(".tab.active")?.dataset.tab;
+  if (activeTab === "report") await loadReport();
+});
 $$(".tab").forEach((tab) => tab.addEventListener("click", () => activateTab(tab.dataset.tab)));
 bindSettingForms();
 bindV5Controls();
