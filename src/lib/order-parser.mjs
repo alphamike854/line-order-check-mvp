@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * LINE Order Parser v1.3.0
+ * LINE Order Parser v1.3.1
  * Pure JavaScript, no external dependencies.
  *
  * Design goals:
@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.3.0";
+const PARSER_VERSION = "1.3.1";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -349,18 +349,25 @@ function emitThreeDigitPermutations(acc, codes, quantity, category) {
 function parseThreeDigitRhs(right, cfg) {
   const raw = String(right || "").trim();
 
-  // E/F pair plus a straight permutation amount, e.g. 998=100x100x*100.
-  // Semantics: original E=first, original F=second, and every unique
-  // permutation is added to E at permuteQuantity. The original code is one
-  // of those permutations, so its E quantity legitimately accumulates.
-  let m = raw.match(/^(\d+)\s*[xX]\s*(\d+)\s*[xX]\s*\*\s*(\d+)$/u);
+  // Repeated equal quantities are another spelling of "ทุกกลับ / ประตู".
+  // Example: 998=100x100x100 => 3 unique permutations at 100 each.
+  //          093=100x100x100x100x100x100 => 6 unique permutations at 100 each.
+  // This is intentionally different from the existing TWO-value E/F pair
+  // grammar such as 920=500x500.
+  let m = raw.match(/^\d+(?:\s*[xX]\s*\d+){2,5}$/u);
   if (m) {
-    return {
-      kind: "EF_PLUS_PERMUTE",
-      first: Number(m[1]),
-      second: Number(m[2]),
-      permuteQuantity: Number(m[3]),
-    };
+    const values = raw.split(/\s*[xX]\s*/u).map(Number);
+    const first = values[0];
+    if (values.every((value) => value === first)) {
+      return { kind: "REPEATED_PERMUTE", quantity: first, statedCount: values.length };
+    }
+    return { kind: "INVALID_REPEATED_QUANTITIES", values };
+  }
+
+  // v7.2 briefly accepted x* inside a quantity chain. That interpretation was
+  // based on incorrect business input and is deliberately rejected now.
+  if (/^\d+\s*[xX]\s*\d+\s*[xX]\s*\*\s*\d+$/u.test(raw)) {
+    return { kind: "INVALID_XSTAR_PERMUTATION" };
   }
 
   // Natural language / compact command, e.g.
@@ -427,18 +434,43 @@ function parseThreeDigitLine(line, cfg, acc, rules, errors) {
     return true;
   }
 
-  if (rhs.kind === "EF_PLUS_PERMUTE") {
-    if (explicitCategory || (prefix && !["A", "E"].includes(prefix))) {
-      errors.push({ code: "UNSUPPORTED_COMPOSITE_PERMUTATION", detail: line });
-      rules.add("R_3DIGIT_EF_PLUS_PERMUTE");
+  if (rhs.kind === "INVALID_XSTAR_PERMUTATION") {
+    errors.push({
+      code: "INVALID_XSTAR_PERMUTATION",
+      detail: `${line} — ใช้รูปแบบจำนวนซ้ำ เช่น 998=100x100x100`
+    });
+    rules.add("R_3DIGIT_REPEATED_PERMUTATION");
+    return true;
+  }
+
+  if (rhs.kind === "INVALID_REPEATED_QUANTITIES") {
+    errors.push({
+      code: "REPEATED_PERMUTATION_QUANTITY_MISMATCH",
+      detail: `${line} — จำนวนแต่ละประตูต้องเท่ากัน`
+    });
+    rules.add("R_3DIGIT_REPEATED_PERMUTATION");
+    return true;
+  }
+
+  if (rhs.kind === "REPEATED_PERMUTE") {
+    if (explicitCategory || codes.length !== 1) {
+      errors.push({ code: "UNSUPPORTED_REPEATED_PERMUTATION", detail: line });
+      rules.add("R_3DIGIT_REPEATED_PERMUTATION");
       return true;
     }
-    for (const code of codes) {
-      acc.add("E", code, rhs.first);
-      acc.add("F", code, rhs.second);
+    const code = codes[0];
+    const perms = uniquePermutations(code);
+    if (perms.length !== rhs.statedCount) {
+      errors.push({
+        code: "PERMUTATION_COUNT_MISMATCH",
+        detail: `${code} มี unique permutations ${perms.length} แบบ แต่ระบุจำนวนซ้ำ ${rhs.statedCount} ค่า`
+      });
+      rules.add("R_3DIGIT_REPEATED_PERMUTATION");
+      return true;
     }
-    emitThreeDigitPermutations(acc, codes, rhs.permuteQuantity, "E");
-    rules.add("R_3DIGIT_EF_PLUS_PERMUTE");
+    const category = threeDigitDestinationCategory(prefix);
+    for (const permutation of perms) acc.add(category, permutation, rhs.quantity);
+    rules.add("R_3DIGIT_REPEATED_PERMUTATION");
     return true;
   }
 

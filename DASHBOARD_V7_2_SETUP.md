@@ -1,3 +1,5 @@
+> **Correction in v7.3:** `998=100x100x*100` was based on incorrect source information and is retired. Use `998=100x100x100`, equivalent to `998=100 ทุกกลับ` / `998=100 3ปต`. See `DASHBOARD_V7_3_SETUP.md`.
+
 # Dashboard / Parser v7.2 — ทุกกลับ / ประตู
 
 v7.2 extends the deterministic 3-digit parser. It does not change dashboard risk, Point, settlement, or warehouse-distribution formulas.

@@ -181,4 +181,8 @@ Migration `011` remains in history because it may already have been applied, but
 
 ## v7.2 — 3-digit ทุกกลับ / ประตู parser
 
-Adds `PERMUTE_ALL` aliases (`ทุกกลับ`, `3ปต/3ประตู`, `6ปต/6ประตู`) and unique 3-digit permutation parsing, including `998=100x100x*100`. See `DASHBOARD_V7_2_SETUP.md`.
+Adds `PERMUTE_ALL` aliases (`ทุกกลับ`, `3ปต/3ประตู`, `6ปต/6ประตู`) and unique 3-digit permutation parsing, with the temporary v7.2 `x*` grammar corrected in v7.3. See `DASHBOARD_V7_2_SETUP.md`.
+
+## Dashboard / Parser v7.3
+
+Corrects `998=100x100x100` to mean the same as `998=100 ทุกกลับ` / `998=100 3ปต`; two-value E/F pairs remain unchanged. The erroneous v7.2 `x*` form is retired to REVIEW. See `DASHBOARD_V7_3_SETUP.md`.

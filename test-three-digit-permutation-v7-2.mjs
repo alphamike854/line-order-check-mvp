@@ -9,7 +9,7 @@ function total(result) {
   return result.items.reduce((sum, x) => sum + Number(x.quantity || 0), 0);
 }
 
-assert.equal(PARSER_VERSION, "1.3.0");
+assert.ok(PARSER_VERSION.startsWith("1.3."));
 
 // Authoritative example: each source code expands to all UNIQUE permutations.
 const mixed = parseOrder("093  998 =  100 *  ทุกกลับ");
@@ -50,18 +50,12 @@ assert.equal(pair.status, "PARSED");
 assert.equal(pair.items.length, 8);
 assert.equal(total(pair), 4000);
 
-// Composite business shorthand:
-// 998=100x100x*100 => original E 100 + original F 100 +
-// every unique straight permutation in E at 100 each.
-const composite = parseOrder("998=100x100x*100");
-assert.equal(composite.status, "PARSED");
-assert.equal(total(composite), 500);
-const c = itemMap(composite);
-assert.equal(c.E998, 200); // straight 100 + permutation 100
-assert.equal(c.F998, 100);
-assert.equal(c.E989, 100);
-assert.equal(c.E899, 100);
-assert.ok(composite.rule_ids.includes("R_3DIGIT_EF_PLUS_PERMUTE"));
+// v7.2's temporary x* composite interpretation was corrected in v7.3.
+// Keep this regression here so the old accidental grammar never becomes valid again.
+const retiredXStar = parseOrder("998=100x100x*100");
+assert.equal(retiredXStar.status, "REVIEW");
+assert.equal(retiredXStar.items.length, 0);
+assert.ok(retiredXStar.errors.some((x) => x.code === "INVALID_XSTAR_PERMUTATION"));
 
 // Custom Settings aliases can target the same command.
 assert.equal(
