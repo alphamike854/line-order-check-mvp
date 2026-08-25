@@ -219,3 +219,10 @@ tbody tr:hover { background: #fafcff; }
   .shell{max-width:1680px;padding-left:22px;padding-right:22px}
   .tab-panel{padding:16px}
 }
+
+/* v7.4: Point can be entered after close; keep report state compact and actionable. */
+.report-point-state{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border-radius:11px}
+.report-point-state.pending{background:#fff8ed;color:#79521c}
+.report-point-state.ready{background:#f1faf4;color:#276747}
+.report-point-state span{font-size:.82rem}
+@media(max-width:560px){.report-point-state{align-items:flex-start;flex-direction:column}}

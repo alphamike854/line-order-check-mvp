@@ -20,7 +20,7 @@ assert.match(html, /<strong>ข้อมูลเปลี่ยนแล้ว<
 assert.match(html, /<h2>สรุปยอด<\/h2>/);
 assert.match(html, /<h2>ตัดยอด<\/h2>/);
 assert.match(html, /เลือกรหัสได้หลายตัว ระบบแบ่งรอบให้เอง/);
-assert.match(html, /กำหนดรหัสก่อนปิดยอด/);
+assert.match(html, /(กำหนดรหัสก่อนปิดยอด|ระบุภายหลังได้)/);
 assert.match(html, /ตั้งค่ากลุ่ม, %, Point และคลัง/);
 
 assert.doesNotMatch(html, /Risk Budget/);

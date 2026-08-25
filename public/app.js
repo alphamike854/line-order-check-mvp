@@ -14,6 +14,8 @@ const state = {
   specialPointRules: [],
   specialPointProfiles: [],
   specialPointPromotions: [],
+  specialPointSessionId: null,
+  specialPointSession: null,
   promotionDrafts: [],
   transferPreview: null,
   bulkDistributionPreview: null,
@@ -1036,8 +1038,9 @@ function renderSettlementStatus(payload) {
 
 async function loadSettlement() {
   const payload=await api("/api/settlement");renderSettlementStatus(payload);
-  const select=$("#reportSessionSelect");const sessions=[payload.open_session,...(payload.closed_sessions||[])].filter(Boolean);
+  const select=$("#reportSessionSelect");const previousSessionId=select.value;const sessions=[payload.open_session,...(payload.closed_sessions||[])].filter(Boolean);
   select.innerHTML=sessions.map(s=>`<option value="${escapeHtml(s.id)}">${s.status==="OPEN"?"ยอดปัจจุบัน":"ปิด "+formatBangkokTime(s.closed_at)} · ${escapeHtml(s.business_date)}</option>`).join("")||`<option value="">ยังไม่มีรายงาน</option>`;
+  if(previousSessionId && sessions.some(s=>s.id===previousSessionId))select.value=previousSessionId;
   const lineSelect=$("#reportLineGroupSelect");const lines=state.dashboard?.line_groups||[];
   lineSelect.innerHTML=`<option value="ALL">ทุก LINE Group</option>`+lines.map(g=>`<option value="${escapeHtml(g.line_group_id)}">${escapeHtml(g.line_group_name)}</option>`).join("");
   renderProfileStrip("#openingPointProfiles",payload.company_point_profiles||payload.point_profiles||[]);
@@ -1082,41 +1085,83 @@ async function openSettlement() {
 
 async function closeSettlement() {
   const open=state.settlement?.open_session;if(!open)return;
-  if(Number(state.dashboard?.metrics?.review_open||0)>0){activateTab("review");toast(`ยังมี Review ${formatNumber(state.dashboard.metrics.review_open)} รายการ กรุณาตรวจให้เสร็จก่อนปิดยอด`,true);return;}
-  if(!state.settlement?.actual_point_status?.actual_codes_ready){activateTab("points");toast("กำหนด Point ให้ครบก่อนปิดยอด",true);return;}
-  let summaryText="";
-  try{const report=await api(`/api/accounting-report?session_id=${encodeURIComponent(open.id)}`);const received=(report.groups||[]).reduce((s,g)=>s+Number(g.received_total||0),0);const special=(report.groups||[]).reduce((s,g)=>s+Number(g.special_point_total||0),0);const net=(report.groups||[]).reduce((s,g)=>s+Number(g.reconciliation_total||0),0);summaryText=`\nยอดรับรวม ${formatNumber(received)}\nPoint พิเศษจริง ${formatNumber(special)}\nยอดสุทธิเทียบ ${formatNumber(net)}`;}catch{}
-  if(!window.confirm(`ปิดยอดปัจจุบัน?${summaryText}\n\nข้อมูลชุดนี้จะไม่สะสมกับยอดที่เปิดใหม่ และรหัส Point จริงจะถูกล็อก`))return;
+  if(Number(state.dashboard?.metrics?.review_open||0)>0){activateTab("review");toast(`ยังมีรายการต้องตรวจ ${formatNumber(state.dashboard.metrics.review_open)}`,true);return;}
+  if(!window.confirm("ปิดยอดปัจจุบัน?\nหลังปิดยังระบุ Point ได้"))return;
   $("#closeSettlementButton").disabled=true;
-  try{await api("/api/settlement",{method:"POST",body:JSON.stringify({action:"CLOSE",settlement_session_id:open.id})});toast("ปิดยอดแล้ว");await loadSettlement();await loadDashboard();}
-  catch(error){if(error.message==="SPECIAL_POINT_CODES_INCOMPLETE"){activateTab("points");toast("รหัส Point พิเศษจริงยังไม่ครบ",true);}else if(error.message==="SETTLEMENT_HAS_OPEN_REVIEW"){activateTab("review");toast("ยังมีรายการต้องตรวจ",true);}else toast(`ปิดยอดไม่สำเร็จ: ${error.message}`,true);}finally{$("#closeSettlementButton").disabled=false;}
+  try{
+    await api("/api/settlement",{method:"POST",body:JSON.stringify({action:"CLOSE",settlement_session_id:open.id})});
+    toast("ปิดยอดแล้ว");
+    state.specialPointSessionId=null;
+    await loadSettlement();
+    await loadDashboard();
+    if($("#reportSessionSelect").value) await loadReport();
+  }
+  catch(error){if(error.message==="SETTLEMENT_HAS_OPEN_REVIEW"){activateTab("review");toast("ยังมีรายการต้องตรวจ",true);}else toast(`ปิดยอดไม่สำเร็จ: ${error.message}`,true);}finally{$("#closeSettlementButton").disabled=false;}
 }
 
 function pointProfileMap() { return new Map((state.specialPointProfiles||[]).map(p=>[p.category,p])); }
 function promotionMap() { return new Map((state.specialPointPromotions||[]).map(p=>[`${p.category}|${p.code}`,Number(p.point_factor_pct)])); }
 
-function renderSpecialPoints(status = null) {
+function pointDraftReady() {
+  const counts=new Map();for(const r of state.specialPointRules)counts.set(r.category,(counts.get(r.category)||0)+1);
+  for(const p of state.specialPointProfiles||[]){
+    const count=counts.get(p.category)||0;
+    if(["A","B","E"].includes(p.category) && count!==1)return false;
+    if(p.category==="G" && count!==Number(p.max_special_codes||4))return false;
+    if(p.category==="F" && count>Number(p.max_special_codes||0))return false;
+  }
+  return Boolean((state.specialPointProfiles||[]).length);
+}
+
+function renderSpecialPoints() {
   renderProfileStrip("#specialPointProfiles",state.specialPointProfiles);
   const profileMap=pointProfileMap();const promo=promotionMap();
   const counts=new Map();for(const r of state.specialPointRules)counts.set(r.category,(counts.get(r.category)||0)+1);
-  const requirements=(state.specialPointProfiles||[]).map(p=>`${p.category}: ${formatNumber(counts.get(p.category)||0)}/${formatNumber(p.max_special_codes)}${["A","B","E"].includes(p.category)?" (ต้อง 1)":p.category==="G"?" (ต้อง 4)":" (สูงสุด)"}`).join(" · ");
-  $("#specialPointStatus").innerHTML=`<div class="point-status-line ${status?.actual_codes_ready?"ready":"pending"}"><strong>${status?.actual_codes_ready?"ครบแล้ว":"ยังไม่ครบ"}</strong><span>${escapeHtml(requirements)}</span></div>`;
+  const requirements=(state.specialPointProfiles||[]).map(p=>`${p.category} ${formatNumber(counts.get(p.category)||0)}/${formatNumber(p.max_special_codes)}`).join(" · ");
+  const ready=pointDraftReady();
+  $("#specialPointStatus").innerHTML=`<div class="point-status-line ${ready?"ready":"pending"}"><strong>${ready?"Point ครบ":"รอ Point"}</strong><span>${escapeHtml(requirements)}</span></div>`;
   const list=$("#specialPointRules");
-  if(!state.specialPointRules.length){list.innerHTML=`<div class="muted">ยังไม่ได้กำหนดรหัส Point</div>`;return;}
+  if(!state.specialPointRules.length){list.innerHTML=`<div class="muted">ยังไม่ได้ระบุ Point</div>`;return;}
   list.innerHTML=state.specialPointRules.map((r,i)=>{const p=profileMap.get(r.category);const factor=promo.get(`${r.category}|${r.code}`)??100;const effective=Number(p?.special_multiplier||0)*factor/100;return `<div class="settings-row"><span><strong>★ ${escapeHtml(r.category)}${escapeHtml(r.code)}</strong><small>×${formatNumber(effective)}${factor<100?` · Promotion ${formatNumber(factor)}%`:""}</small></span><span></span><button class="button ghost small remove-point" data-i="${i}">ลบ</button></div>`;}).join("");
-  $$(".remove-point").forEach(b=>b.addEventListener("click",()=>{state.specialPointRules.splice(Number(b.dataset.i),1);renderSpecialPoints(status);}));
+  $$(".remove-point").forEach(b=>b.addEventListener("click",()=>{state.specialPointRules.splice(Number(b.dataset.i),1);renderSpecialPoints();}));
 }
 
-async function loadSpecialPoints() {
-  const payload=await api("/api/special-points");
-  state.specialPointProfiles=payload.profiles||[];state.specialPointPromotions=payload.promotions||[];state.specialPointRules=(payload.codes||[]).map(r=>({category:r.category,code:r.code}));
-  renderSpecialPoints(payload.status);
-  $("#specialPointForm").querySelectorAll("input,select,button").forEach(el=>{el.disabled=!payload.open_session;});$("#saveSpecialPointsButton").disabled=!payload.open_session;
+async function loadSpecialPoints(sessionId = null) {
+  const targetId=sessionId || state.settlement?.open_session?.id || $("#reportSessionSelect")?.value || state.specialPointSessionId || "";
+  const query=targetId?`?session_id=${encodeURIComponent(targetId)}`:"";
+  const payload=await api(`/api/special-points${query}`);
+  state.specialPointSession=payload.session||null;
+  state.specialPointSessionId=payload.session?.id||null;
+  state.specialPointProfiles=payload.profiles||[];
+  state.specialPointPromotions=payload.promotions||[];
+  state.specialPointRules=(payload.codes||[]).map(r=>({category:r.category,code:r.code}));
+  renderSpecialPoints();
+  const enabled=Boolean(payload.session);
+  $("#specialPointForm").querySelectorAll("input,select,button").forEach(el=>{el.disabled=!enabled;});
+  $("#saveSpecialPointsButton").disabled=!enabled;
+  const context=$("#specialPointContext");
+  if(context) context.textContent=payload.session?`${payload.session.status==="CLOSED"?"ปิดยอดแล้ว":"ยอดปัจจุบัน"} · ${formatThaiDate(payload.session.business_date)}`:"ยังไม่มีชุดยอด";
 }
 
 async function saveSpecialPoints() {
-  try{await api("/api/special-points",{method:"POST",body:JSON.stringify({codes:state.specialPointRules})});toast("บันทึก Point แล้ว");await loadSpecialPoints();await loadSettlement();await loadDashboard();await loadReport();}
+  const sessionId=state.specialPointSessionId;
+  const editingStatus=state.specialPointSession?.status;
+  if(!sessionId)return toast("ยังไม่มีชุดยอด",true);
+  try{
+    await api("/api/special-points",{method:"POST",body:JSON.stringify({settlement_session_id:sessionId,codes:state.specialPointRules})});
+    toast("บันทึก Point แล้ว");
+    await loadSpecialPoints(sessionId);
+    await loadSettlement();
+    if(editingStatus==="OPEN")await loadDashboard();
+    await loadReport();
+  }
   catch(error){toast(`บันทึก Point ไม่สำเร็จ: ${error.message}`,true);}
+}
+
+function editReportPoints(sessionId) {
+  if(!sessionId)return;
+  state.specialPointSessionId=sessionId;
+  activateTab("points",{pointSessionId:sessionId});
 }
 
 
@@ -1124,13 +1169,16 @@ function renderReport(payload) {
   const root=$("#reportContent");
   if(!payload.session){root.innerHTML=`<div class="empty">ยังไม่มีชุดยอดสำหรับรายงาน</div>`;return;}
   if(!payload.groups.length){root.innerHTML=`<div class="empty">ยังไม่มีข้อมูลในชุดยอดนี้</div>`;return;}
-  const finalReady = Boolean(payload.actual_point_status?.actual_codes_ready);
-  root.innerHTML=`<div class="report-session-heading"><strong>รายงานประจำวัน ${escapeHtml(formatThaiDate(payload.session.business_date))}</strong><span>${payload.session.status === "OPEN" ? "ยอดปัจจุบัน" : `ปิด ${escapeHtml(formatBangkokTime(payload.session.closed_at))}`}</span></div>${payload.session.status === "OPEN" && !finalReady ? `<div class="risk-notice">ยังไม่กำหนด Point จริงครบ</div>` : ""}` + payload.groups.map(g=>`<section class="report-card">
+  const finalReady=Boolean(payload.actual_point_status?.actual_codes_ready);
+  const pointActionLabel=finalReady?"แก้ไข Point":"ระบุ Point";
+  const pointNotice=`<div class="report-point-state ${finalReady?"ready":"pending"}"><span><strong>${finalReady?"Point ครบ":"รอ Point"}</strong>${payload.session.status==="CLOSED"&&!finalReady?" · ปิดยอดแล้ว ระบุภายหลังได้":""}</span><button class="button ghost small edit-report-points" data-session-id="${escapeHtml(payload.session.id)}">${pointActionLabel}</button></div>`;
+  root.innerHTML=`<div class="report-session-heading"><strong>รายงานประจำวัน ${escapeHtml(formatThaiDate(payload.session.business_date))}</strong><span>${payload.session.status === "OPEN" ? "ยอดปัจจุบัน" : `ปิด ${escapeHtml(formatBangkokTime(payload.session.closed_at))}`}</span></div>${pointNotice}` + payload.groups.map(g=>`<section class="report-card">
     <div class="report-title"><div><h3>${escapeHtml(g.line_group_name)}</h3><span>${escapeHtml(groupName(g.summary_group_id))}</span></div><span>${formatNumber(g.message_count)} ข้อความ</span></div>
-    <div class="report-metrics"><div><span>ยอดรับจริง</span><strong>${formatNumber(g.received_total)}</strong></div><div><span>ลด</span><strong>${formatNumber(g.reduction_pct)}%</strong></div><div><span>ยอดหลังลด</span><strong>${formatNumber(g.after_reduction)}</strong></div><div><span>Point พิเศษ</span><strong>${formatNumber(g.special_point_total)}</strong></div><div class="net"><span>ยอดสุทธิเทียบ</span><strong>${formatNumber(g.reconciliation_total)}</strong></div></div>
-    <div class="special-summary"><h4>สรุปรหัส Point พิเศษ</h4>${g.special_point_codes.length?`<div class="table-wrap"><table><thead><tr><th>รหัส</th><th class="num">จำนวนรวม</th><th class="num">ตัวคูณ</th><th class="num">Point</th></tr></thead><tbody>${g.special_point_codes.map(x=>`<tr><td><strong>${escapeHtml(x.category)}${escapeHtml(x.code)}</strong></td><td class="num">${formatNumber(x.quantity)}</td><td class="num">×${formatNumber(x.multiplier)}</td><td class="num">${formatNumber(x.points)}</td></tr>`).join("")}</tbody></table></div>`:`<div class="muted">ไม่มี Point พิเศษ</div>`}</div>
+    <div class="report-metrics"><div><span>ยอดรับจริง</span><strong>${formatNumber(g.received_total)}</strong></div><div><span>ลด</span><strong>${formatNumber(g.reduction_pct)}%</strong></div><div><span>ยอดหลังลด</span><strong>${formatNumber(g.after_reduction)}</strong></div><div><span>Point พิเศษ</span><strong>${finalReady?formatNumber(g.special_point_total):"รอระบุ"}</strong></div><div class="net"><span>ยอดสุทธิเทียบ</span><strong>${finalReady?formatNumber(g.reconciliation_total):"—"}</strong></div></div>
+    <div class="special-summary"><h4>Point พิเศษ</h4>${g.special_point_codes.length?`<div class="table-wrap"><table><thead><tr><th>รหัส</th><th class="num">จำนวนรวม</th><th class="num">ตัวคูณ</th><th class="num">Point</th></tr></thead><tbody>${g.special_point_codes.map(x=>`<tr><td><strong>${escapeHtml(x.category)}${escapeHtml(x.code)}</strong></td><td class="num">${formatNumber(x.quantity)}</td><td class="num">×${formatNumber(x.multiplier)}</td><td class="num">${formatNumber(x.points)}</td></tr>`).join("")}</tbody></table></div>`:`<div class="muted">${finalReady?"ไม่มี Point พิเศษ":"รอระบุ"}</div>`}</div>
     <div class="table-wrap"><table><thead><tr><th>ลำดับ</th><th>เวลา</th><th class="num">สรุปจำนวน</th><th>Point พิเศษ</th></tr></thead><tbody>${g.ledger.map(row=>`<tr><td>${String(row.sequence).padStart(3,"0")}</td><td>${escapeHtml(new Intl.DateTimeFormat("th-TH",{timeZone:"Asia/Bangkok",hour:"2-digit",minute:"2-digit",second:"2-digit"}).format(new Date(row.event_timestamp)))}</td><td class="num"><strong>${formatNumber(row.summary_quantity)}</strong></td><td>${row.special_points.length?`★ ${row.special_points.map(x=>`${escapeHtml(x.category)}${escapeHtml(x.code)}=${formatNumber(x.quantity)} ×${formatNumber(x.multiplier)}`).join(", ")}`:""}</td></tr>`).join("")}</tbody><tfoot><tr><th colspan="2">รวม</th><th class="num">${formatNumber(g.received_total)}</th><th></th></tr></tfoot></table></div>
   </section>`).join("");
+  $$(".edit-report-points").forEach(button=>button.addEventListener("click",()=>editReportPoints(button.dataset.sessionId)));
 }
 
 async function loadReport(options = {}) {
@@ -1162,7 +1210,7 @@ function bindV5Controls() {
     if(!new RegExp(`^\\d{${expectedLength}}$`).test(code))return toast(`รหัส ${category} ต้องเป็น ${expectedLength} หลัก`,true);
     if(state.specialPointRules.some(x=>x.category===category&&x.code===code))return toast("มีรหัสนี้แล้ว",true);
     if(state.specialPointRules.filter(x=>x.category===category).length>=Number(p?.max_special_codes||1))return toast(`${category} กำหนดได้สูงสุด ${formatNumber(p?.max_special_codes||1)} รหัส`,true);
-    state.specialPointRules.push({category,code});f.elements.code.value="";renderSpecialPoints(state.settlement?.actual_point_status);
+    state.specialPointRules.push({category,code});f.elements.code.value="";renderSpecialPoints();
   });
   $("#saveSpecialPointsButton").addEventListener("click",saveSpecialPoints);
   $("#selectAllRecommendedButton").addEventListener("click",()=>setRecommendedSelection(true));
@@ -1220,7 +1268,7 @@ async function loadDashboard({ silent = false } = {}) {
   }
 }
 
-function activateTab(name) {
+function activateTab(name, options = {}) {
   $$(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.tab === name));
   $$(".tab-panel").forEach((panel) => panel.classList.add("hidden"));
   $(`#${name}Tab`).classList.remove("hidden");
@@ -1229,7 +1277,7 @@ function activateTab(name) {
   if (name === "review") loadReviews();
   if (name === "unsend") loadUnsends();
   if (name === "settings") loadSettings();
-  if (name === "points") loadSpecialPoints();
+  if (name === "points") loadSpecialPoints(options.pointSessionId || null);
   if (name === "report") loadReport();
 }
 
