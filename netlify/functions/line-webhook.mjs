@@ -178,7 +178,10 @@ async function persistParsedResult(message, group, result, extraMessageUpdate = 
       message_record_id: message.id,
       business_date: message.business_date,
       line_group_id: message.line_group_id,
-      summary_group_id: group.summary_group_id,
+      // The database trigger snapshots the Summary Group for the OPEN settlement.
+      // Use that returned value as the source of truth so Order Board/Risk views and
+      // the accounting report cannot diverge if live group settings change mid-session.
+      summary_group_id: message.summary_group_id ?? group.summary_group_id,
       category: item.category,
       code: item.code,
       quantity: item.quantity,
