@@ -29,18 +29,15 @@ const gReserve = selectReserveCandidates([10,8,7,5,4].map((quantity,index)=>({ c
 assert.equal(gReserve.length,4);
 assert.equal(gReserve.reduce((sum,row)=>sum+row.exposure,0),(10+8+7+5)*20);
 
-assert.deepEqual(overallRiskMetrics({ adjustedTotal: 3700, pointReserve: 2050, confirmedCut: 1000 }), {
-  adjusted_total: 3700,
-  point_reserve: 2050,
-  actual_point: null,
-  risk_point_total: 2050,
-  risk_mode: "RESERVE",
-  net_safe_capacity: 1650,
-  confirmed_cut_total: 1000,
-  remaining_safe_capacity: 650,
-  over_safe_amount: 0,
-  risk_pct: 55.41,
-});
+const overall = overallRiskMetrics({ adjustedTotal: 3700, pointReserve: 2050, confirmedCut: 1000, pointLossTolerance: 10 });
+assert.equal(overall.adjusted_total, 3700);
+assert.equal(overall.risk_point_total, 2050);
+assert.equal(overall.risk_mode, "RESERVE");
+assert.equal(overall.net_safe_capacity, 1650); // legacy alias of Safety Margin
+assert.equal(overall.safety_margin, 1650);
+assert.equal(overall.risk_pct, 55.41);
+assert.equal(overall.risk_budget, 3710);
+assert.equal(overall.excess_point_risk, 0);
 
 assert.deepEqual(compactTransferLines([
   {category:"A",code:"01",quantity:100},
@@ -64,14 +61,16 @@ console.log("PASS: Risk reserve + safe capacity v6 smoke tests");
 
 import { createRiskTransferToken, verifyRiskTransferToken } from "./src/lib/risk-transfer-safety.mjs";
 const signed = createRiskTransferToken({
-  riskState:{settlement_session_id:"11111111-1111-4111-8111-111111111111",summary_group_id:"NORTH",risk_mode:"RESERVE",adjusted_received:1000,risk_point_total:400,net_safe_capacity:600,confirmed_cut_total:100,remaining_safe_capacity:500},
+  riskState:{settlement_session_id:"11111111-1111-4111-8111-111111111111",summary_group_id:"NORTH",risk_mode:"RESERVE",adjusted_received:1000,risk_point_total:1200,safety_margin:-200,risk_pct:120,point_loss_tolerance:10,risk_budget:1010,excess_point_risk:190,confirmed_cut_total:50},
   destination:"คลัง 2",
-  items:[{category:"A",code:"01",quantity:100},{category:"B",code:"01",quantity:100}],
+  destinationLimit:5,
+  items:[{category:"A",code:"01",quantity:3,expected_retained_quantity:20,expected_effective_multiplier:14,expected_recommended_transfer:10},{category:"B",code:"01",quantity:2,expected_retained_quantity:10,expected_effective_multiplier:14,expected_recommended_transfer:5}],
   requestId:"22222222-2222-4222-8222-222222222222",
   nowMs:1_700_000_000_000,
   key:"test-key",
 });
-assert.deepEqual(signed.lines,["AB 01=100*100"]);
+assert.deepEqual(signed.lines,["AB 01=3*2"]);
 const verified=verifyRiskTransferToken({token:signed.token,nowMs:1_700_000_100_000,key:"test-key"});
 assert.equal(verified.ok,true);
-assert.equal(verified.cut_total,200);
+assert.equal(verified.cut_total,5);
+assert.equal(verified.destination_limit,5);

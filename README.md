@@ -130,13 +130,28 @@ Optional:
 
 See `DASHBOARD_SETUP.md` for deployment and testing steps.
 
-## Dashboard v6 — Risk-based allocation
+## Dashboard v6 — Risk foundation
 
-Migrations `007` + `008` add settlement reset, Point Reserve, Promotion factors, category/overall Safe Capacity, actual Point codes for final accounting, 4-column Order Board, and atomic risk-based warehouse transfer batches. See `DASHBOARD_V6_SETUP.md`.
+Migrations `007` + `008` add settlement reset, Point Reserve, Promotion factors, actual Point codes, 4-column Order Board, and atomic warehouse transfer foundations. Later migrations keep the original Safe Capacity columns only for schema compatibility; current operational risk uses retained warehouse exposure and Risk Budget.
 
 ## v6.3 — Friendly already-open settlement recovery
 Duplicate/open-race requests no longer expose `SETTLEMENT_ALREADY_OPEN` directly to the operator. The dashboard refreshes the active settlement, shows a Thai explanation, and focuses the current settlement panel. No database migration is required.
 
-### Dashboard v6.4 — simplified allocation workflow
 
-The cut/transfer screen now presents only three operator steps: see how much can still be cut, choose codes/quantities, then preview and confirm. A/B are prioritized in the UI, while E/F/G are secondary. Risk/Safe Capacity technical detail remains auditable under an expandable calculation detail. No database migration is required.
+## v6.5 — Risk policy recommended cut
+Safety Margin is now correctly treated as a diagnostic buffer, not a warehouse-cut cap. Migration `011` adds editable Risk → Cut % policy bands and computes `Recommended Cut` from Adjusted Received. Transfer confirmation is capped by `Remaining Recommended Cut` and rechecked atomically. See `DASHBOARD_V6_5_SETUP.md`.
+
+
+## v6.6 — Dynamic Risk Budget + warehouse distribution rounds
+Migration `012` supersedes the v6.5 Risk→Cut% experiment. Current operational logic is:
+
+- `Risk Budget = Adjusted Received + accepted Point loss tolerance`
+- Point Reserve is calculated from quantity still retained by our warehouse (`Received - confirmed transfer out`)
+- if Point Reserve exceeds Risk Budget, the server dynamically simulates how many units should be distributed out
+- reserve candidates are re-ranked after each unit in the simulation (A/B/E top 1, F top 6, G top 4)
+- each destination warehouse has a configurable maximum quantity per transfer round
+- every confirmed round is atomic/stale-safe, then the system recalculates before the next round
+
+Example: Adjusted=60, accepted loss=10, A01=35 at x7 → Risk Budget=70, retain target=10, distribute target=25. If the destination limit is 5/round, the current plan requires 5 rounds, with a fresh risk calculation after every confirmation.
+
+Migration `011` remains in history because it may already have been applied, but its Risk→Cut% bands are no longer used to authorize v6.6 transfers.

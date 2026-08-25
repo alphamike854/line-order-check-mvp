@@ -1,7 +1,7 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { compactTransferLines, round2 } from "./risk-engine.mjs";
 
-export const RISK_TRANSFER_TOKEN_VERSION = "v1";
+export const RISK_TRANSFER_TOKEN_VERSION = "v3";
 export const RISK_TRANSFER_TTL_SECONDS = 10 * 60;
 
 function base64urlJson(value) {
@@ -31,7 +31,17 @@ function normalizeItems(items = []) {
     const key = `${category}|${code}`;
     if (seen.has(key)) throw new Error("DUPLICATE_TRANSFER_ITEM");
     seen.add(key);
-    return { category, code, quantity };
+    const expectedRetained = Number(item.expected_retained_quantity);
+    const expectedMultiplier = Number(item.expected_effective_multiplier);
+    const expectedRecommended = Number(item.expected_recommended_transfer);
+    return {
+      category,
+      code,
+      quantity,
+      expected_retained_quantity: Number.isFinite(expectedRetained) ? expectedRetained : null,
+      expected_effective_multiplier: Number.isFinite(expectedMultiplier) ? round2(expectedMultiplier) : null,
+      expected_recommended_transfer: Number.isFinite(expectedRecommended) ? expectedRecommended : null,
+    };
   }).sort((a,b)=>a.category.localeCompare(b.category)||a.code.localeCompare(b.code));
 }
 function normalizeRiskState(state) {
@@ -41,21 +51,33 @@ function normalizeRiskState(state) {
     risk_mode: String(state.risk_mode || "RESERVE"),
     adjusted_received: round2(state.adjusted_received),
     risk_point_total: round2(state.risk_point_total),
-    net_safe_capacity: round2(state.net_safe_capacity),
+    safety_margin: round2(state.safety_margin ?? state.net_safe_capacity),
+    risk_pct: round2(state.risk_pct),
+    point_loss_tolerance: round2(state.point_loss_tolerance),
+    risk_budget: round2(state.risk_budget),
+    excess_point_risk: round2(state.excess_point_risk),
     confirmed_cut_total: round2(state.confirmed_cut_total),
-    remaining_safe_capacity: round2(state.remaining_safe_capacity),
   };
   if (!/^[0-9a-f-]{36}$/i.test(snapshot.settlement_session_id)) throw new Error("INVALID_SETTLEMENT_SESSION_ID");
   if (!snapshot.summary_group_id) throw new Error("INVALID_SUMMARY_GROUP_ID");
-  if (!["RESERVE","ACTUAL"].includes(snapshot.risk_mode)) throw new Error("INVALID_RISK_MODE");
+  if (snapshot.risk_mode !== "RESERVE") throw new Error("INVALID_RISK_MODE");
+  for (const value of [snapshot.adjusted_received,snapshot.risk_point_total,snapshot.safety_margin,snapshot.risk_pct,snapshot.point_loss_tolerance,snapshot.risk_budget,snapshot.excess_point_risk,snapshot.confirmed_cut_total]) {
+    if (!Number.isFinite(value)) throw new Error("INVALID_RISK_STATE");
+  }
   return snapshot;
 }
 
-export function createRiskTransferToken({ riskState, destination, items, requestId = randomUUID(), nowMs = Date.now(), ttlSeconds = RISK_TRANSFER_TTL_SECONDS, key }) {
+export function createRiskTransferToken({ riskState, destination, destinationLimit, items, projectedRisk = null, requestId = randomUUID(), nowMs = Date.now(), ttlSeconds = RISK_TRANSFER_TTL_SECONDS, key }) {
   const snapshot = normalizeRiskState(riskState);
+  if (snapshot.excess_point_risk <= 0) throw new Error("NO_RISK_DISTRIBUTION_REQUIRED");
   const normalizedItems = normalizeItems(items);
   const cutTotal = normalizedItems.reduce((sum,item)=>sum+item.quantity,0);
-  if (cutTotal > snapshot.remaining_safe_capacity + 1e-9) throw new Error("TRANSFER_EXCEEDS_SAFE_CAPACITY");
+  const limit = Number(destinationLimit);
+  if (!Number.isSafeInteger(limit) || limit <= 0) throw new Error("INVALID_WAREHOUSE_BATCH_LIMIT");
+  if (cutTotal > limit) throw new Error("TRANSFER_EXCEEDS_WAREHOUSE_BATCH_LIMIT");
+  for (const item of normalizedItems) {
+    if (item.expected_recommended_transfer != null && item.quantity > item.expected_recommended_transfer) throw new Error("TRANSFER_EXCEEDS_CODE_RECOMMENDATION");
+  }
   const dest = String(destination || "").trim();
   if (!dest) throw new Error("DESTINATION_REQUIRED");
   const issuedAt = Math.floor(nowMs / 1000);
@@ -64,8 +86,11 @@ export function createRiskTransferToken({ riskState, destination, items, request
     request_id: String(requestId),
     ...snapshot,
     destination: dest,
+    destination_limit: limit,
     items: normalizedItems,
     cut_total: cutTotal,
+    projected_point_reserve: projectedRisk == null ? null : round2(projectedRisk.projected_point_reserve),
+    projected_excess_point_risk: projectedRisk == null ? null : round2(projectedRisk.projected_excess_point_risk),
     iat: issuedAt,
     exp: issuedAt + Number(ttlSeconds),
   };
@@ -79,6 +104,9 @@ export function createRiskTransferToken({ riskState, destination, items, request
     lines: compactTransferLines(normalizedItems),
     snapshot,
     items: normalizedItems,
+    destination_limit: limit,
+    projected_point_reserve: payload.projected_point_reserve,
+    projected_excess_point_risk: payload.projected_excess_point_risk,
   };
 }
 
@@ -97,8 +125,20 @@ export function verifyRiskTransferToken({ token, nowMs = Date.now(), key }) {
     const snapshot = normalizeRiskState(payload);
     const items = normalizeItems(payload.items);
     const destination = String(payload.destination || "").trim();
-    if (!destination || !payload.request_id) throw new Error("INVALID");
-    return { ok:true, request_id:String(payload.request_id), snapshot, items, destination, cut_total:items.reduce((s,i)=>s+i.quantity,0), expires_at:new Date(payload.exp*1000).toISOString() };
+    const destinationLimit = Number(payload.destination_limit);
+    if (!destination || !payload.request_id || !Number.isSafeInteger(destinationLimit) || destinationLimit <= 0) throw new Error("INVALID");
+    return {
+      ok:true,
+      request_id:String(payload.request_id),
+      snapshot,
+      items,
+      destination,
+      destination_limit:destinationLimit,
+      cut_total:items.reduce((s,i)=>s+i.quantity,0),
+      projected_point_reserve:payload.projected_point_reserve == null ? null : round2(payload.projected_point_reserve),
+      projected_excess_point_risk:payload.projected_excess_point_risk == null ? null : round2(payload.projected_excess_point_risk),
+      expires_at:new Date(payload.exp*1000).toISOString(),
+    };
   } catch {
     return {ok:false,error:"CONFIRMATION_TOKEN_INVALID"};
   }

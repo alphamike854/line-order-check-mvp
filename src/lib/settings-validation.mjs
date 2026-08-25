@@ -60,3 +60,20 @@ export function validatePointProfile(input = {}) {
   if (!Number.isInteger(max_special_codes) || max_special_codes <= 0 || max_special_codes > 100) throw new Error("INVALID_POINT_CODE_LIMIT");
   return { category, special_multiplier, max_special_codes, updated_at: new Date().toISOString() };
 }
+
+
+export function validateRiskBudget(input = {}) {
+  const summary_group_id = String(input.summary_group_id ?? "").trim().toUpperCase();
+  const point_loss_tolerance = Number(input.point_loss_tolerance);
+  if (!/^[A-Z0-9_-]{1,32}$/.test(summary_group_id)) throw new Error("INVALID_SUMMARY_GROUP_ID");
+  if (!Number.isFinite(point_loss_tolerance) || point_loss_tolerance < 0 || point_loss_tolerance > 100000000) throw new Error("INVALID_POINT_LOSS_TOLERANCE");
+  return { summary_group_id, point_loss_tolerance, updated_at: new Date().toISOString() };
+}
+
+export function validateWarehouseLimit(input = {}) {
+  const destination = String(input.destination ?? "").trim();
+  const max_batch_quantity = Number(input.max_batch_quantity);
+  if (!destination || destination.length > 150) throw new Error("INVALID_DESTINATION");
+  if (!Number.isInteger(max_batch_quantity) || max_batch_quantity <= 0 || max_batch_quantity > 100000000) throw new Error("INVALID_WAREHOUSE_BATCH_LIMIT");
+  return { destination, max_batch_quantity, enabled: normalizeBoolean(input.enabled, true), updated_at: new Date().toISOString() };
+}

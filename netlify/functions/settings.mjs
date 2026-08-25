@@ -10,7 +10,9 @@ import {
   validateCategoryAlias,
   validateLineGroup,
   validatePointProfile,
+  validateRiskBudget,
   validateSummaryGroup,
+  validateWarehouseLimit,
 } from "../../src/lib/settings-validation.mjs";
 
 const OPERATOR = process.env.DASHBOARD_OPERATOR_NAME || "DASHBOARD";
@@ -85,6 +87,25 @@ async function savePointProfile(values) {
   return data;
 }
 
+async function saveRiskBudget(values) {
+  const row = validateRiskBudget(values);
+  await assertSummaryGroupExists(row.summary_group_id);
+  const before = await maybeSingle("summary_group_risk_settings", { summary_group_id: row.summary_group_id });
+  const { data, error } = await supabase.from("summary_group_risk_settings").upsert(row, { onConflict: "summary_group_id" }).select("*").single();
+  if (error) throw error;
+  await writeSettingsAudit({ entityType: "RISK_BUDGET", entityKey: row.summary_group_id, beforeData: before, afterData: data, changedBy: OPERATOR });
+  return data;
+}
+
+async function saveWarehouseLimit(values) {
+  const row = validateWarehouseLimit(values);
+  const before = await maybeSingle("warehouse_transfer_limits", { destination: row.destination });
+  const { data, error } = await supabase.from("warehouse_transfer_limits").upsert(row, { onConflict: "destination" }).select("*").single();
+  if (error) throw error;
+  await writeSettingsAudit({ entityType: "WAREHOUSE_LIMIT", entityKey: row.destination, beforeData: before, afterData: data, changedBy: OPERATOR });
+  return data;
+}
+
 async function saveAlias(values) {
   const row = validateCategoryAlias(values);
   const before = await maybeSingle("category_aliases", { alias: row.alias });
@@ -114,6 +135,8 @@ export default async (req) => {
     else if (entity === "ALLOCATION_RULE") saved = await saveAllocationRule(body.values);
     else if (entity === "CATEGORY_ALIAS") saved = await saveAlias(body.values);
     else if (entity === "POINT_PROFILE") saved = await savePointProfile(body.values);
+    else if (entity === "RISK_BUDGET") saved = await saveRiskBudget(body.values);
+    else if (entity === "WAREHOUSE_LIMIT") saved = await saveWarehouseLimit(body.values);
     else return json({ ok: false, error: "INVALID_SETTINGS_ENTITY" }, 400);
 
     return json({ ok: true, entity, saved });

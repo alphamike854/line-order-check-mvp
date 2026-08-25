@@ -6,6 +6,8 @@ import {
   validateCategoryAlias,
   validateLineGroup,
   validatePointProfile,
+  validateRiskBudget,
+  validateWarehouseLimit,
   validateSummaryGroup,
 } from "./src/lib/settings-validation.mjs";
 
@@ -48,5 +50,9 @@ assert.throws(() => validateLineGroup({ line_group_id: "C87107089a6e03db9ca197b9
 assert.equal(validatePointProfile({ category: "e", special_multiplier: 100, max_special_codes: 1 }).special_multiplier, 100);
 assert.equal(validatePointProfile({ category: "g", special_multiplier: 20, max_special_codes: 4 }).max_special_codes, 4);
 assert.throws(() => validatePointProfile({ category: "A", special_multiplier: 0, max_special_codes: 1 }), /INVALID_POINT_MULTIPLIER/);
+assert.equal(validateRiskBudget({ summary_group_id: "NORTH", point_loss_tolerance: 10 }).point_loss_tolerance, 10);
+assert.throws(() => validateRiskBudget({ summary_group_id: "NORTH", point_loss_tolerance: -1 }), /INVALID_POINT_LOSS_TOLERANCE/);
+assert.equal(validateWarehouseLimit({ destination: "คลัง 2", max_batch_quantity: 5 }).max_batch_quantity, 5);
+assert.throws(() => validateWarehouseLimit({ destination: "คลัง 2", max_batch_quantity: 0 }), /INVALID_WAREHOUSE_BATCH_LIMIT/);
 
 console.log("PASS: Review + Settings validation smoke tests");

@@ -102,19 +102,19 @@
 
       <section id="allocationTab" class="tab-panel panel hidden">
         <div class="section-heading allocation-title">
-          <div><h2>ตัดยอด</h2><p class="muted">ทำเพียง 3 ขั้นตอน: ดูว่าตัดเพิ่มได้เท่าไร → เลือกรหัสและจำนวน → ตรวจสอบก่อนยืนยัน</p></div>
+          <div><h2>กระจายยอดเพื่อลดความเสี่ยง</h2><p class="muted">ระบบคำนวณว่าคลังเราควรถือไว้เท่าไร แล้วค่อยกระจายส่วนเกินไปคลังอื่นทีละรอบตามลิมิตของคลังปลายทาง</p></div>
         </div>
         <div class="allocation-steps" aria-label="ขั้นตอนการตัดยอด">
-          <div class="allocation-step"><span>1</span><strong>ดูยอดที่ตัดได้</strong></div>
-          <div class="allocation-step"><span>2</span><strong>เลือกรหัส + จำนวน</strong></div>
+          <div class="allocation-step"><span>1</span><strong>ดูส่วนเกินที่ควรกระจาย</strong></div>
+          <div class="allocation-step"><span>2</span><strong>เลือกคลัง + ยอดรอบนี้</strong></div>
           <div class="allocation-step"><span>3</span><strong>ตรวจสอบ + ยืนยัน</strong></div>
         </div>
         <div id="allocationRiskSummary" class="risk-summary"></div>
         <div id="allocationBoard" class="allocation-board"></div>
         <section id="transferBuilder" class="transfer-builder">
           <div class="transfer-builder-head">
-            <div><div class="step-kicker">ขั้นตอน 2</div><h3>เลือกคลังปลายทาง</h3><p class="muted">ระบบจะตรวจยอดปลอดภัยอีกครั้งก่อนให้ยืนยันจริง</p></div>
-            <label>คลัง/ปลายทาง<input id="transferDestination" placeholder="เช่น คลัง 2" /></label>
+            <div><div class="step-kicker">ขั้นตอน 2</div><h3>เลือกคลังปลายทาง</h3><p class="muted">แต่ละคลังกำหนดจำนวนสูงสุดต่อรอบ ระบบจะไม่ให้ส่งเกินลิมิต และจะคำนวณความเสี่ยงใหม่หลังยืนยันทุกครั้ง</p></div>
+            <label>คลัง/ปลายทาง<select id="transferDestination"><option value="">เลือกคลังปลายทาง</option></select></label>
           </div>
           <div id="transferSelectionSummary" class="transfer-selection-bar">ยังไม่ได้เลือกรหัส</div>
           <div class="form-actions"><button id="clearTransferSelectionButton" class="button ghost" type="button">ล้างรายการ</button><button id="previewTransferButton" class="button primary" type="button">ตรวจสอบก่อนยืนยัน</button></div>
@@ -122,13 +122,13 @@
         </section>
         <details class="allocation-history-details">
           <summary>ดูประวัติการตัดยอดในชุดนี้</summary>
-          <div class="section-heading subheading"><div><h3>ประวัติรอบส่ง</h3><p class="muted">ใช้สำหรับตรวจย้อนหลัง ไม่จำเป็นต้องเปิดระหว่างทำรายการปกติ</p></div><button id="reloadAllocationHistoryButton" class="button ghost small">โหลดประวัติใหม่</button></div>
+          <div class="section-heading subheading"><div><h3>ประวัติรอบส่ง</h3><p class="muted">เก็บวงเงินความเสี่ยง, Point ที่เกิน และลิมิตของคลัง ณ เวลายืนยันแต่ละรอบ</p></div><button id="reloadAllocationHistoryButton" class="button ghost small">โหลดประวัติใหม่</button></div>
           <div id="allocationHistoryList" class="transfer-history"></div>
         </details>
       </section>
 
       <section id="pointsTab" class="tab-panel panel hidden">
-        <div class="section-heading"><div><h2>รหัส Point พิเศษจริง</h2><p class="muted">กำหนดภายหลังได้ก่อนปิดยอด ระหว่างที่ยังไม่ครบ ระบบใช้ Point Reserve แบบกรณีเสี่ยงสูงสุดเพื่อควบคุมการตัดยอด</p></div></div>
+        <div class="section-heading"><div><h2>รหัส Point พิเศษจริง</h2><p class="muted">กำหนดภายหลังได้ก่อนปิดยอด ระหว่างที่ยังไม่ครบ ระบบใช้ Point Reserve แบบกรณีเสี่ยงสูงสุดเพื่อคำนวณการกระจายความเสี่ยง</p></div></div>
         <div id="specialPointProfiles" class="profile-strip"></div>
         <div id="specialPointStatus" class="point-status"></div>
         <form id="specialPointForm" class="compact-form inline-form">
@@ -171,7 +171,7 @@
         <div class="section-heading">
           <div>
             <h2>ตั้งค่าระบบ</h2>
-            <p class="muted">ตั้งค่า LINE Group, % ลด, Alias และตัวคูณ Point ของบริษัท โดยไม่ต้องเข้า SQL Editor</p>
+            <p class="muted">ตั้งค่า LINE Group, % ลด, ตัวคูณ Point, Point ที่ยอมติดลบได้ และลิมิตการรับยอดของแต่ละคลัง โดยไม่ต้องเข้า SQL Editor</p>
           </div>
           <button id="reloadSettingsButton" class="button ghost small">โหลดใหม่</button>
         </div>
@@ -213,6 +213,29 @@
               <button class="button primary small" type="submit">บันทึก</button>
             </form>
             <div id="pointProfilesList" class="settings-list"></div>
+          </section>
+
+          <section class="settings-block">
+            <h3>Point ที่ยอมติดลบได้</h3>
+            <p class="muted small-text">Risk Budget = ยอดหลังหัก % + Point ที่บริษัทยอมรับให้ติดลบได้ ระบบจะเริ่มแนะนำให้กระจายเมื่อ Point Reserve สูงกว่า Risk Budget</p>
+            <form id="riskBudgetForm" class="compact-form">
+              <select name="summary_group_id" required></select>
+              <input name="point_loss_tolerance" type="number" min="0" step="0.01" placeholder="เช่น 10 Point" required />
+              <button class="button primary small" type="submit">บันทึก</button>
+            </form>
+            <div id="riskBudgetList" class="settings-list"></div>
+          </section>
+
+          <section class="settings-block">
+            <h3>ลิมิตคลังปลายทางต่อรอบ</h3>
+            <p class="muted small-text">กำหนดจำนวนรวมสูงสุดที่คลังนั้นรับได้ใน 1 รอบ เช่น 5 หมายถึงส่วนเกิน 25 ต้องกระจายอย่างน้อย 5 รอบ หากใช้คลังนี้เพียงคลังเดียว</p>
+            <form id="warehouseLimitForm" class="compact-form">
+              <input name="destination" placeholder="ชื่อคลัง เช่น คลัง 2" required />
+              <input name="max_batch_quantity" type="number" min="1" step="1" placeholder="สูงสุดต่อรอบ" required />
+              <label class="check"><input name="enabled" type="checkbox" checked /> ใช้งาน</label>
+              <button class="button primary small" type="submit">บันทึก</button>
+            </form>
+            <div id="warehouseLimitList" class="settings-list"></div>
           </section>
 
           <section class="settings-block">
