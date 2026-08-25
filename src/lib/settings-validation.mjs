@@ -1,4 +1,5 @@
 const CATEGORIES = new Set(["A", "B", "E", "F", "G"]);
+const ALIAS_TARGETS = new Set(["A", "B", "C", "D", "E", "F", "G", "DOUBLE"]);
 
 export function normalizeBoolean(value, fallback = true) {
   if (value === undefined || value === null || value === "") return fallback;
@@ -47,8 +48,9 @@ export function validateAllocationRule(input = {}) {
 
 export function validateCategoryAlias(input = {}) {
   const alias = String(input.alias ?? "").trim();
-  const canonical_category = normalizeCategory(input.canonical_category);
-  if (!alias || alias.length > 32) throw new Error("INVALID_ALIAS");
+  const canonical_category = String(input.canonical_category ?? "").trim().toUpperCase();
+  if (!alias || alias.length > 32 || /^\d+$/.test(alias)) throw new Error("INVALID_ALIAS");
+  if (!ALIAS_TARGETS.has(canonical_category)) throw new Error("INVALID_ALIAS_TARGET");
   return { alias, canonical_category, enabled: normalizeBoolean(input.enabled, true) };
 }
 

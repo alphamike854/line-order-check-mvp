@@ -1,8 +1,14 @@
 # LINE Order Check MVP — Netlify + Supabase
 
+## v7.0 parser aliases
+
+Alias settings support `A`, `B`, `C`, `D`, `E`, `F`, `G`, and `DOUBLE`. `C` is reverse-code, `D` is the decade generator, `G` is the 3-digit G category, and `DOUBLE` is the 2-digit double-number generator. Run migration `202608250014_expand_parser_alias_targets.sql` when upgrading from v6.9.
+
+The parser also supports multi-code 3-digit E/F pairs such as `920,202,707,101=500x500`.
+
 ## Architecture
 
-LINE Messaging API → Netlify Function `/api/line-webhook` → deterministic Parser v1 → Supabase Postgres.
+LINE Messaging API → Netlify Function `/api/line-webhook` → deterministic Parser v1.1 → Supabase Postgres.
 
 Phase 1 implements:
 - LINE webhook signature verification

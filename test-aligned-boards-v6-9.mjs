@@ -7,7 +7,7 @@ const css = fs.readFileSync("public/styles.css", "utf8");
 const historyApi = fs.readFileSync("netlify/functions/allocation-history.mjs", "utf8");
 const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
 
-assert.equal(pkg.version, "0.7.9");
+assert.ok(["0.7.9", "0.8.0"].includes(pkg.version));
 assert.match(pkg.scripts.test, /test-aligned-boards-v6-9\.mjs/);
 assert.match(html, /data-tab="summary"[\s\S]*data-tab="allocation"[\s\S]*data-tab="postcut"/);
 assert.match(html, /id="postcutTab"/);

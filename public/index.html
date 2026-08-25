@@ -246,11 +246,18 @@
           </section>
 
           <section class="settings-block">
-            <h3>Alias หมวด</h3>
+            <h3>Alias หมวด / คำสั่ง</h3>
             <form id="aliasForm" class="compact-form">
-              <input name="alias" placeholder="Alias เช่น น" required />
+              <input name="alias" placeholder="เช่น น, กลับ, สิบ, เบิ้ล" required />
               <select name="canonical_category" required>
-                <option>A</option><option>B</option><option>E</option><option>F</option><option>G</option>
+                <option value="A">A — หมวด A</option>
+                <option value="B">B — หมวด B</option>
+                <option value="C">C — กลับรหัส</option>
+                <option value="D">D — ชุดหลักสิบ</option>
+                <option value="E">E — หมวด E</option>
+                <option value="F">F — หมวด F</option>
+                <option value="G">G — หมวด G (3 หลัก)</option>
+                <option value="DOUBLE">DOUBLE — เลขเบิ้ล</option>
               </select>
               <label class="check"><input name="enabled" type="checkbox" checked /> ใช้งาน</label>
               <button class="button primary small" type="submit">บันทึก</button>

@@ -62,6 +62,21 @@ function formatBangkokClock(value) {
   }).format(new Date(value));
 }
 
+
+function aliasTargetLabel(value) {
+  const labels = {
+    A: "หมวด A",
+    B: "หมวด B",
+    C: "กลับรหัส",
+    D: "ชุดหลักสิบ",
+    E: "หมวด E",
+    F: "หมวด F",
+    G: "หมวด G",
+    DOUBLE: "เลขเบิ้ล",
+  };
+  return labels[String(value || "").toUpperCase()] || String(value || "");
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -893,7 +908,7 @@ function renderSettings() {
     <div class="settings-row"><span><strong>${escapeHtml(row.destination)}</strong><small>สูงสุด ${formatNumber(row.max_batch_quantity)} ต่อรอบ</small></span><span>${row.enabled ? "ใช้งาน" : "ปิด"}</span><button class="button ghost small edit-warehouse-limit" data-id="${escapeHtml(row.destination)}">แก้ไข</button></div>`).join("");
 
   $("#aliasesList").innerHTML = s.category_aliases.map((row) => `
-    <div class="settings-row"><span><strong>${escapeHtml(row.alias)} → ${escapeHtml(row.canonical_category)}</strong></span><span>${row.enabled ? "ใช้งาน" : "ปิด"}</span><button class="button ghost small edit-alias" data-id="${escapeHtml(row.alias)}">แก้ไข</button></div>`).join("");
+    <div class="settings-row"><span><strong>${escapeHtml(row.alias)} → ${escapeHtml(aliasTargetLabel(row.canonical_category))}</strong></span><span>${row.enabled ? "ใช้งาน" : "ปิด"}</span><button class="button ghost small edit-alias" data-id="${escapeHtml(row.alias)}">แก้ไข</button></div>`).join("");
 
   $$(".edit-summary").forEach((button) => button.addEventListener("click", () => {
     const row = s.summary_groups.find((x) => x.id === button.dataset.id); const form = $("#summaryGroupForm");

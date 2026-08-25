@@ -6,7 +6,7 @@ const html = fs.readFileSync(new URL('./public/index.html', import.meta.url), 'u
 const styles = fs.readFileSync(new URL('./public/styles.css', import.meta.url), 'utf8');
 const pkg = JSON.parse(fs.readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 
-assert.ok(['0.7.8','0.7.9'].includes(pkg.version));
+assert.ok(['0.7.8','0.7.9','0.8.0'].includes(pkg.version));
 assert.match(app, /const FRESHNESS_POLL_MS = 20_000;/);
 assert.match(app, /document\.hidden \|\| !state\.accessKey/);
 assert.match(app, /await loadDashboard\(\{ silent: true \}\)/);

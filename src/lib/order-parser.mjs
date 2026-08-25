@@ -11,15 +11,18 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.0.0";
+const PARSER_VERSION = "1.1.0";
 
 const DEFAULT_CONFIG = {
   aliases: {
     "A": "A",
     "B": "B",
+    "C": "C",
+    "D": "D",
     "E": "E",
     "F": "F",
     "G": "G",
+    "DOUBLE": "DOUBLE",
     "น": "A"
   },
   defaultCategoryByCodeLength: {
@@ -29,8 +32,13 @@ const DEFAULT_CONFIG = {
 };
 
 function mergeConfig(config = {}) {
+  const aliases = { ...DEFAULT_CONFIG.aliases };
+  for (const [alias, target] of Object.entries(config.aliases || {})) {
+    aliases[alias] = String(target).toUpperCase();
+    aliases[normalizeLatin(alias)] = String(target).toUpperCase();
+  }
   return {
-    aliases: { ...DEFAULT_CONFIG.aliases, ...(config.aliases || {}) },
+    aliases,
     defaultCategoryByCodeLength: {
       ...DEFAULT_CONFIG.defaultCategoryByCodeLength,
       ...(config.defaultCategoryByCodeLength || {})
@@ -151,38 +159,107 @@ function emitTwoDigitGroup(acc, codes, quantitySpec, modifier) {
   }
 }
 
+function mergeModifiers(...mods) {
+  const categories = [];
+  let reverse = false;
+  for (const mod of mods) {
+    if (!mod) continue;
+    for (const category of mod.categories || []) {
+      if (!categories.includes(category)) categories.push(category);
+    }
+    reverse = reverse || Boolean(mod.reverse);
+  }
+  return { categories, reverse };
+}
+
 function modifierFromToken(token, cfg) {
-  const t = normalizeLatin(String(token || "").trim());
+  const raw = String(token || "").trim();
+  const t = normalizeLatin(raw);
   if (t === "ABC") return { categories: ["A", "B"], reverse: true };
   if (t === "AB") return { categories: ["A", "B"], reverse: false };
   if (t === "A") return { categories: ["A"], reverse: false };
   if (t === "B") return { categories: ["B"], reverse: false };
+  if (t === "C") return { categories: [], reverse: true };
 
-  const resolved = resolveAlias(token, cfg);
+  const resolved = resolveAlias(raw, cfg);
   if (resolved === "A") return { categories: ["A"], reverse: false };
   if (resolved === "B") return { categories: ["B"], reverse: false };
+  if (resolved === "C") return { categories: [], reverse: true };
+
+  // Allow the reverse alias to be attached to a canonical A/B modifier,
+  // e.g. ABกลับ / Aกลับ / กลับAB. This keeps fast chat input compact.
+  const reverseAliases = Object.entries(cfg.aliases || {})
+    .filter(([alias, target]) => target === "C" && normalizeLatin(alias) !== "C")
+    .map(([alias]) => alias)
+    .sort((a, b) => b.length - a.length);
+  for (const alias of reverseAliases) {
+    const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const suffix = raw.match(new RegExp(`^(ABC|AB|A|B)${escaped}$`, "iu"));
+    if (suffix) return mergeModifiers(modifierFromToken(suffix[1], cfg), { categories: [], reverse: true });
+    const prefix = raw.match(new RegExp(`^${escaped}(ABC|AB|A|B)$`, "iu"));
+    if (prefix) return mergeModifiers({ categories: [], reverse: true }, modifierFromToken(prefix[1], cfg));
+  }
   return null;
 }
 
-function findInlineModifier(line, cfg) {
-  const tokens = line.split(/\s+/).filter(Boolean);
+function modifierFromExpression(text, cfg) {
+  const tokens = String(text || "").trim().split(/\s+/).filter(Boolean);
+  let modifier = null;
+  let matched = 0;
   for (const token of tokens) {
     const mod = modifierFromToken(token, cfg);
-    if (mod) return { token, modifier: mod };
+    if (!mod) return null;
+    modifier = mergeModifiers(modifier, mod);
+    matched += 1;
+  }
+  return matched ? modifier : null;
+}
+
+function findInlineModifier(line, cfg) {
+  const raw = String(line || "");
+
+  // Attached category/alias before a 2-digit code, e.g. A01=20 / น01=20.
+  const attached = raw.match(/^([^\d\s=]+)(?=\d{2}(?:\D|$))/u);
+  if (attached) {
+    const modifier = modifierFromToken(attached[1], cfg);
+    if (modifier && (modifier.categories || []).every((x) => ["A", "B"].includes(x))) {
+      return { tokens: [], prefix: attached[1], modifier, attached: true };
+    }
   }
 
-  // Attached 2-digit prefix, e.g. A01=20 / B01=20
-  const m = line.match(/^([AB])(?=\d{2}(?:\D|$))/i);
-  if (m) return { token: m[1], modifier: modifierFromToken(m[1], cfg), attached: true };
-
-  return null;
+  const tokens = raw.split(/\s+/).filter(Boolean);
+  const found = [];
+  let modifier = null;
+  for (const token of tokens) {
+    const mod = modifierFromToken(token, cfg);
+    if (!mod) continue;
+    found.push(token);
+    modifier = mergeModifiers(modifier, mod);
+  }
+  return modifier ? { tokens: found, modifier, attached: false } : null;
 }
 
 function removeModifierToken(line, found) {
   if (!found) return line;
-  if (found.attached) return line.slice(1);
-  const escaped = found.token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return line.replace(new RegExp(`(^|\\s)${escaped}(?=\\s|$)`, "i"), " ").trim();
+  if (found.attached) return line.slice(found.prefix.length);
+  const remove = new Set(found.tokens || []);
+  return line.split(/\s+/).filter((token) => !remove.has(token)).join(" ").trim();
+}
+
+function resolveThreeDigitCategory(token, cfg) {
+  const raw = String(token || "").trim();
+  if (!raw) return null;
+  const upper = normalizeLatin(raw);
+  if (["A", "B", "E", "F", "G"].includes(upper)) return upper;
+  const resolved = resolveAlias(raw, cfg);
+  return ["A", "B", "E", "F", "G"].includes(resolved) ? resolved : null;
+}
+
+function aliasesForTarget(cfg, target) {
+  return Object.entries(cfg.aliases || {})
+    .filter(([, value]) => value === target)
+    .map(([alias]) => alias)
+    .sort((a, b) => b.length - a.length);
 }
 
 function parseQuantityExpression(expr) {
@@ -219,38 +296,87 @@ function isMetadataLine(line) {
 }
 
 function parseThreeDigitLine(line, cfg, acc, rules, errors) {
-  let t = stripPoliteWords(normalizeLatin(line.trim()));
+  const t = stripPoliteWords(normalizeLatin(line.trim()));
+  const eqIndex = t.indexOf("=");
+  if (eqIndex < 0 || t.indexOf("=", eqIndex + 1) >= 0) return false;
 
-  let explicit = t.match(/^(\d{3})\s*=\s*(\d+)\s*\(\s*([EFG])\s*\)$/i);
-  if (explicit) {
-    acc.add(explicit[3].toUpperCase(), explicit[1], Number(explicit[2]));
+  const left = t.slice(0, eqIndex).trim();
+  let right = t.slice(eqIndex + 1).trim();
+
+  // Optional explicit suffix: 653=20(F) or alias equivalent.
+  let explicitCategory = null;
+  const suffix = right.match(/^(.*?)\(\s*([^()]+?)\s*\)\s*$/u);
+  if (suffix) {
+    explicitCategory = resolveThreeDigitCategory(suffix[2], cfg);
+    if (!explicitCategory || !["E", "F", "G"].includes(explicitCategory)) return false;
+    right = suffix[1].trim();
+  }
+
+  const quantitySpec = parseQuantityExpression(right);
+  if (!quantitySpec) return false;
+
+  const firstDigit = left.search(/\d/);
+  if (firstDigit < 0) return false;
+  const prefixText = left.slice(0, firstDigit).trim();
+  const codeText = left.slice(firstDigit).trim();
+  const codeParts = codeText.split(/[\s,/:]+/).filter(Boolean);
+  if (!codeParts.length || codeParts.some((code) => !/^\d{3}$/.test(code))) return false;
+  const residue = codeText.replace(/\d{3}/g, "").replace(/[\s,/:]/g, "");
+  if (residue) return false;
+  const codes = dedupeCodes(codeParts);
+
+  const prefix = prefixText ? resolveThreeDigitCategory(prefixText, cfg) : null;
+  if (prefixText && !prefix) return false;
+
+  if (explicitCategory) {
+    if (quantitySpec.type !== "SINGLE") {
+      errors.push({ code: "UNSUPPORTED_EXPLICIT_CATEGORY_PAIR", detail: line });
+      rules.add("R_3DIGIT_EXPLICIT_CATEGORY");
+      return true;
+    }
+    for (const code of codes) acc.add(explicitCategory, code, quantitySpec.first);
     rules.add("R_3DIGIT_EXPLICIT_CATEGORY");
     return true;
   }
 
-  const m = t.match(/^([AB])?(\d{3})\s*=\s*(\d+)(?:\s*[xX*]\s*(\d+))?$/i);
-  if (!m) return false;
-
-  const prefix = (m[1] || "").toUpperCase();
-  const code = m[2];
-  const q1 = Number(m[3]);
-  const q2 = m[4] == null ? null : Number(m[4]);
-
-  if (prefix === "B") {
-    acc.add("G", code, q1);
-    rules.add("R_3DIGIT_PREFIX_B_TO_G");
+  // B is the historical input prefix for canonical G. A maps to E.
+  // Direct E/F/G aliases are also supported in Settings.
+  if (prefix === "B" || prefix === "G") {
+    for (const code of codes) acc.add("G", code, quantitySpec.first);
+    rules.add(prefix === "B" ? "R_3DIGIT_PREFIX_B_TO_G" : "R_3DIGIT_CATEGORY_G");
     return true;
   }
 
-  if (q2 == null) {
-    acc.add("E", code, q1);
+  if (prefix === "F") {
+    if (quantitySpec.type !== "SINGLE") {
+      errors.push({ code: "UNSUPPORTED_EXPLICIT_CATEGORY_PAIR", detail: line });
+      rules.add("R_3DIGIT_CATEGORY_F");
+      return true;
+    }
+    for (const code of codes) acc.add("F", code, quantitySpec.first);
+    rules.add("R_3DIGIT_CATEGORY_F");
+    return true;
+  }
+
+  if (prefix === "E" && quantitySpec.type === "SINGLE") {
+    for (const code of codes) acc.add("E", code, quantitySpec.first);
+    rules.add("R_3DIGIT_CATEGORY_E");
+    return true;
+  }
+
+  if (quantitySpec.type === "SINGLE") {
+    for (const code of codes) acc.add("E", code, quantitySpec.first);
     rules.add(prefix === "A" ? "R_3DIGIT_PREFIX_A_TO_E" : "R_3DIGIT_DEFAULT_E");
     return true;
   }
 
-  // x1/x3/x6 are treated as permutation-count syntax.
-  // Small values <= 6 that do not match the unique permutation count go to REVIEW.
-  if (q2 <= 6) {
+  const q1 = quantitySpec.first;
+  const q2 = quantitySpec.second;
+
+  // Permutation syntax is only valid for ONE 3-digit code. A list such as
+  // 920,202,707,101=500x500 is always an E/F quantity pair for every code.
+  if (codes.length === 1 && !prefix && q2 <= 6) {
+    const code = codes[0];
     const perms = uniquePermutations(code);
     if (perms.length !== q2) {
       errors.push({
@@ -265,47 +391,87 @@ function parseThreeDigitLine(line, cfg, acc, rules, errors) {
     return true;
   }
 
-  // Otherwise interpret as E/F quantity pair.
-  acc.add("E", code, q1);
-  acc.add("F", code, q2);
-  rules.add(prefix === "A" ? "R_3DIGIT_A_EF_PAIR" : "R_3DIGIT_EF_PAIR");
+  // No category or A/E input + quantity pair => E/F pair.
+  for (const code of codes) {
+    acc.add("E", code, q1);
+    acc.add("F", code, q2);
+  }
+  rules.add(prefix === "A" || prefix === "E" ? "R_3DIGIT_A_EF_PAIR" : "R_3DIGIT_EF_PAIR");
   return true;
 }
 
 function parseSpecialTwoDigitLine(line, cfg, acc, rules, errors) {
   const t = stripPoliteWords(normalizeLatin(line.trim()));
+  const eqIndex = t.indexOf("=");
+  if (eqIndex < 0 || t.indexOf("=", eqIndex + 1) >= 0) return false;
 
-  // G = double-number set: 00,11,...99
-  let m = t.match(/^G\s*=\s*(\d+)(?:\s*[xX*\/]\s*(\d+))?\s+(ABC|AB|A|B)$/i);
-  if (m) {
-    const q1 = Number(m[1]);
-    const q2 = m[2] == null ? null : Number(m[2]);
-    const mod = modifierFromToken(m[3], cfg);
+  const left = t.slice(0, eqIndex).trim();
+  const right = t.slice(eqIndex + 1).trim();
+  const quantityMatch = right.match(/^(\d+(?:\s*[xX*\/]\s*\d+)?)(?:\s+(.*))?$/u);
+  if (!quantityMatch) return false;
+  const quantitySpec = parseQuantityExpression(quantityMatch[1]);
+  if (!quantitySpec) return false;
+  const rightModifier = quantityMatch[2] ? modifierFromExpression(quantityMatch[2], cfg) : null;
+  if (quantityMatch[2] && !rightModifier) return false;
+
+  // G is retained as the compact built-in double-number generator.
+  // Custom aliases target DOUBLE so canonical G remains available for 3-digit category G.
+  let doubleRemainder = null;
+  const literalDouble = left.match(/^G(?:\s+(.*))?$/i);
+  if (literalDouble) doubleRemainder = literalDouble[1] || "";
+  if (doubleRemainder == null) {
+    for (const alias of aliasesForTarget(cfg, "DOUBLE")) {
+      if (normalizeLatin(alias) === "DOUBLE") continue;
+      if (left === alias) { doubleRemainder = ""; break; }
+      if (left.startsWith(`${alias} `)) { doubleRemainder = left.slice(alias.length).trim(); break; }
+    }
+  }
+
+  if (doubleRemainder != null) {
+    const leftModifier = doubleRemainder ? modifierFromExpression(doubleRemainder, cfg) : null;
+    if (doubleRemainder && !leftModifier) return false;
+    const mod = mergeModifiers(leftModifier, rightModifier);
+    if (!(mod.categories || []).length) return false;
     const codes = Array.from({ length: 10 }, (_, i) => `${i}${i}`);
-    const quantitySpec = q2 == null
-      ? { type: "SINGLE", first: q1 }
-      : { type: "PAIR", first: q1, second: q2 };
     emitTwoDigitGroup(acc, codes, quantitySpec, mod);
     rules.add("R_G_DOUBLE_SET");
     return true;
   }
 
-  // D7=20x20 => 70..79
-  m = t.match(/^D([0-9])\s*=\s*(\d+)(?:\s*[xX*\/]\s*(\d+))?(?:\s+(ABC|AB|A|B))?$/i);
-  if (m) {
-    const digit = m[1];
-    const q1 = Number(m[2]);
-    const q2 = m[3] == null ? null : Number(m[3]);
-    const explicitMod = m[4] ? modifierFromToken(m[4], cfg) : null;
-    const mod = explicitMod || (q2 != null
-      ? { categories: ["A", "B"], reverse: false }
-      : { categories: ["A"], reverse: false });
-    const codes = Array.from({ length: 10 }, (_, i) => `${digit}${i}`);
-    const quantitySpec = q2 == null
-      ? { type: "SINGLE", first: q1 }
-      : { type: "PAIR", first: q1, second: q2 };
+  // D5 / custom-D-alias + 5 => decade set 50..59. Modifier may appear
+  // before or after '=': D5 ABC=20 or D5=20 ABC.
+  let decadeDigit = null;
+  let decadeRemainder = "";
+  let dm = left.match(/^D\s*([0-9])(?:\s+(.*))?$/i);
+  if (dm) {
+    decadeDigit = dm[1];
+    decadeRemainder = dm[2] || "";
+  } else {
+    for (const alias of aliasesForTarget(cfg, "D")) {
+      if (normalizeLatin(alias) === "D") continue;
+      if (!left.startsWith(alias)) continue;
+      const rest = left.slice(alias.length);
+      const am = rest.match(/^\s*([0-9])(?:\s+(.*))?$/u);
+      if (!am) continue;
+      decadeDigit = am[1];
+      decadeRemainder = am[2] || "";
+      break;
+    }
+  }
+
+  if (decadeDigit != null) {
+    const leftModifier = decadeRemainder ? modifierFromExpression(decadeRemainder, cfg) : null;
+    if (decadeRemainder && !leftModifier) return false;
+    let mod = mergeModifiers(leftModifier, rightModifier);
+    if (!(mod.categories || []).length) {
+      mod = quantitySpec.type === "PAIR"
+        ? mergeModifiers(mod, { categories: ["A", "B"], reverse: false })
+        : mergeModifiers(mod, { categories: ["A"], reverse: false });
+    }
+    const codes = Array.from({ length: 10 }, (_, i) => `${decadeDigit}${i}`);
     emitTwoDigitGroup(acc, codes, quantitySpec, mod);
     rules.add("R_D_DECADE_SET");
+    if (mod.reverse) rules.add("R_REVERSE");
     return true;
   }
 
@@ -339,8 +505,9 @@ function parseTwoDigitSegment(segment, cfg, acc, rules, warnings, errors) {
     // Exact category header.
     const exactMod = modifierFromToken(line, cfg);
     if (exactMod) {
-      contextModifier = exactMod;
+      contextModifier = mergeModifiers(contextModifier, exactMod);
       rules.add("R_CATEGORY_HEADER");
+      if (exactMod.reverse) rules.add("R_REVERSE");
       continue;
     }
 
@@ -444,7 +611,7 @@ function parseTwoDigitSegment(segment, cfg, acc, rules, warnings, errors) {
 
     // A modifier appearing without a completed quantity becomes the current context.
     if (localModifier) {
-      contextModifier = localModifier;
+      contextModifier = mergeModifiers(contextModifier, localModifier);
       if (localModifier.reverse) rules.add("R_REVERSE");
     }
 
