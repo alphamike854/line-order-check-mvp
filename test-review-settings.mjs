@@ -5,6 +5,7 @@ import {
   validateAllocationRule,
   validateCategoryAlias,
   validateLineGroup,
+  validatePointProfile,
   validateSummaryGroup,
 } from "./src/lib/settings-validation.mjs";
 
@@ -44,5 +45,8 @@ assert.throws(() => validateAllocationRule({ summary_group_id: "NORTH", category
 assert.throws(() => validateLineGroup({ line_group_id: "bad", line_group_name: "x", summary_group_id: "NORTH" }), /INVALID_LINE_GROUP_ID/);
 assert.equal(validateLineGroup({ line_group_id: "C87107089a6e03db9ca197b90d3cfebe4", line_group_name: "x", summary_group_id: "NORTH", reduction_pct: 5 }).reduction_pct, 5);
 assert.throws(() => validateLineGroup({ line_group_id: "C87107089a6e03db9ca197b90d3cfebe4", line_group_name: "x", summary_group_id: "NORTH", reduction_pct: 101 }), /INVALID_REDUCTION_PCT/);
+assert.equal(validatePointProfile({ category: "e", special_multiplier: 100, max_special_codes: 1 }).special_multiplier, 100);
+assert.equal(validatePointProfile({ category: "g", special_multiplier: 20, max_special_codes: 4 }).max_special_codes, 4);
+assert.throws(() => validatePointProfile({ category: "A", special_multiplier: 0, max_special_codes: 1 }), /INVALID_POINT_MULTIPLIER/);
 
 console.log("PASS: Review + Settings validation smoke tests");

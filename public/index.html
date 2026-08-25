@@ -47,15 +47,14 @@
           <button id="closeSettlementButton" class="button danger hidden">ปิดยอด</button>
         </div>
         <div id="openSettlementEditor" class="settlement-editor hidden">
-          <h3>โปรโมชั่นก่อนเปิดยอด</h3>
-          <p class="muted">ใส่เฉพาะรหัสที่ต้องใช้ Threshold ต่างจากค่าปกติ ถ้าไม่มีโปรโมชั่นสามารถเปิดยอดได้เลย</p>
+          <h3>Promotion ก่อนเปิดยอด</h3>
+          <p class="muted">Promotion คือสัดส่วนของ Point พิเศษของรหัสนั้น เช่น E ×100 และ Promotion 50% → ถ้ารหัสนั้นถูก Point พิเศษจะคิด ×50</p>
+          <div id="openingPointProfiles" class="profile-strip"></div>
           <form id="promotionDraftForm" class="compact-form inline-form">
-            <select name="summary_group_id" required></select>
             <select name="category"><option>A</option><option>B</option><option>E</option><option>F</option><option>G</option></select>
-            <input name="code" placeholder="รหัส เช่น 01" required />
-            <input name="threshold" type="number" min="1" step="1" placeholder="Threshold เช่น 200" required />
-            <input name="destination" placeholder="ปลายทาง/คลัง (ถ้าต้องการเปลี่ยน)" />
-            <button class="button ghost small" type="submit">เพิ่มโปรโมชั่น</button>
+            <input name="code" placeholder="รหัส เช่น 01 / 125" required />
+            <input name="point_factor_pct" type="number" min="0" max="100" step="0.1" placeholder="% Point เช่น 50" required />
+            <button class="button ghost small" type="submit">เพิ่ม Promotion</button>
           </form>
           <div id="promotionDraftList" class="settings-list"></div>
           <div class="form-actions"><button id="cancelOpenSettlementButton" class="button ghost" type="button">ยกเลิก</button><button id="openSettlementButton" class="button primary" type="button">เปิดยอด</button></div>
@@ -97,53 +96,36 @@
       </nav>
 
       <section id="summaryTab" class="tab-panel panel">
-        <div class="section-heading"><div><h2>Order Board</h2><p class="muted">แยกรหัสตามหมวด เรียงยอดรับมากไปน้อย แถบแต่ละรหัสอิง Threshold ที่ใช้จริงของชุดปัจจุบัน</p></div></div>
+        <div class="section-heading"><div><h2>Order Board</h2><p class="muted">4 คอลัมน์ A / B / E / F · A/B แสดง 00–99 ครบ · E/F แสดงเฉพาะรหัสที่มียอด · G แสดงเมื่อมีข้อมูล · เรียงยอดมาก → น้อย</p></div></div>
         <div id="summaryBoard" class="order-board"></div>
       </section>
 
       <section id="allocationTab" class="tab-panel panel hidden">
         <div class="section-heading">
-          <div>
-            <h2>รายการตัดยอด</h2>
-            <p class="muted">กดยืนยันเฉพาะเมื่อดำเนินการตัดจริงแล้ว การกด Refresh ไม่เปลี่ยนยอดยืนยัน</p>
-          </div>
+          <div><h2>ตัดยอดอย่างปลอดภัย</h2><p class="muted">ใช้ยอดหลังหัก % และ Point Reserve/Point จริงเป็น Safe Capacity กลางของกลุ่ม เลือกรหัสและจำนวนที่จะส่งคลังได้โดยไม่เกินระดับปลอดภัย</p></div>
         </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr><th>กลุ่ม</th><th>หมวด</th><th>รหัส</th><th class="num">ยอด</th><th class="num">Threshold</th><th class="num">ควรตัด</th><th class="num">ยืนยันแล้ว</th><th class="num">ตัดเพิ่ม</th><th>ปลายทาง</th><th></th></tr>
-            </thead>
-            <tbody id="allocationBody"></tbody>
-          </table>
-        </div>
-
-        <div class="section-heading subheading">
-          <div>
-            <h3>ประวัติการยืนยันตัดยอด</h3>
-            <p class="muted">ใช้ตรวจย้อนหลังว่าเวลาใด รหัสใด ถูกยืนยันไปเท่าใด และโดยใคร</p>
-          </div>
-          <button id="reloadAllocationHistoryButton" class="button ghost small">โหลดประวัติใหม่</button>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr><th>เวลา</th><th>กลุ่ม</th><th>รหัส</th><th class="num">ตัดครั้งนี้</th><th class="num">ก่อน → หลัง</th><th class="num">ยอดตอนยืนยัน</th><th>ปลายทาง</th><th>ผู้ยืนยัน</th></tr>
-            </thead>
-            <tbody id="allocationHistoryBody"></tbody>
-          </table>
-        </div>
+        <div id="allocationRiskSummary" class="risk-summary"></div>
+        <div id="allocationBoard" class="allocation-board"></div>
+        <section class="transfer-builder">
+          <div class="transfer-builder-head"><div><h3>เตรียมส่งคลัง</h3><p id="transferSelectionSummary" class="muted">ยังไม่ได้เลือกรหัส</p></div><label>คลัง/ปลายทาง<input id="transferDestination" placeholder="เช่น คลัง 2" /></label></div>
+          <div class="form-actions"><button id="clearTransferSelectionButton" class="button ghost" type="button">ล้างรายการ</button><button id="previewTransferButton" class="button primary" type="button">ตรวจและเตรียมส่ง</button></div>
+          <div id="transferPreview" class="transfer-preview"></div>
+        </section>
+        <div class="section-heading subheading"><div><h3>ประวัติรอบส่ง</h3><p class="muted">แสดงรายละเอียดแบบรวม A/B เช่น AB 01=100*100 พร้อม Safe Capacity ณ เวลายืนยัน</p></div><button id="reloadAllocationHistoryButton" class="button ghost small">โหลดประวัติใหม่</button></div>
+        <div id="allocationHistoryList" class="transfer-history"></div>
       </section>
 
       <section id="pointsTab" class="tab-panel panel hidden">
-        <div class="section-heading"><div><h2>Point พิเศษ</h2><p class="muted">กำหนดภายหลังได้ตราบใดที่ยังไม่ปิดยอด ระบบจะคำนวณย้อนหลังทั้งชุดปัจจุบัน</p></div></div>
+        <div class="section-heading"><div><h2>รหัส Point พิเศษจริง</h2><p class="muted">กำหนดภายหลังได้ก่อนปิดยอด ระหว่างที่ยังไม่ครบ ระบบใช้ Point Reserve แบบกรณีเสี่ยงสูงสุดเพื่อควบคุมการตัดยอด</p></div></div>
+        <div id="specialPointProfiles" class="profile-strip"></div>
+        <div id="specialPointStatus" class="point-status"></div>
         <form id="specialPointForm" class="compact-form inline-form">
           <select name="category"><option>A</option><option>B</option><option>E</option><option>F</option><option>G</option></select>
-          <input name="code" placeholder="รหัส เช่น 02" required />
-          <input name="multiplier" type="number" min="2" step="1" placeholder="ตัวคูณ เช่น 20" required />
-          <button class="button primary small" type="submit">เพิ่ม</button>
+          <input name="code" placeholder="รหัส Point จริง" required />
+          <button class="button primary small" type="submit">เพิ่มรหัส</button>
         </form>
         <div id="specialPointRules" class="settings-list"></div>
-        <button id="saveSpecialPointsButton" class="button primary">บันทึก Point พิเศษชุดนี้</button>
+        <button id="saveSpecialPointsButton" class="button primary">บันทึกรหัส Point พิเศษจริง</button>
       </section>
 
       <section id="reportTab" class="tab-panel panel hidden">
@@ -177,7 +159,7 @@
         <div class="section-heading">
           <div>
             <h2>ตั้งค่าระบบ</h2>
-            <p class="muted">ปรับ Mapping กลุ่ม, Alias และกฎตัดยอดโดยไม่ต้องเข้า SQL Editor การเปลี่ยนทุกครั้งมี Audit</p>
+            <p class="muted">ตั้งค่า LINE Group, % ลด, Alias และตัวคูณ Point ของบริษัท โดยไม่ต้องเข้า SQL Editor</p>
           </div>
           <button id="reloadSettingsButton" class="button ghost small">โหลดใหม่</button>
         </div>
@@ -210,18 +192,15 @@
           </section>
 
           <section class="settings-block">
-            <h3>กฎตัดยอด</h3>
-            <form id="allocationRuleForm" class="compact-form">
-              <select name="summary_group_id" required></select>
-              <select name="category" required>
-                <option>A</option><option>B</option><option>E</option><option>F</option><option>G</option>
-              </select>
-              <input name="threshold" type="number" min="1" step="1" placeholder="Threshold" required />
-              <input name="destination" placeholder="ปลายทาง/คลัง" />
-              <label class="check"><input name="enabled" type="checkbox" checked /> ใช้งาน</label>
+            <h3>ตัวคูณ Point พิเศษของบริษัท</h3>
+            <p class="muted small-text">ค่าปัจจุบันจะถูก Snapshot ตอนเปิดยอดใหม่ การแก้ระหว่างยอดเปิดจะมีผลกับชุดถัดไป</p>
+            <form id="pointProfileForm" class="compact-form">
+              <select name="category" required><option>A</option><option>B</option><option>E</option><option>F</option><option>G</option></select>
+              <input name="special_multiplier" type="number" min="0.001" step="0.001" placeholder="ตัวคูณ" required />
+              <input name="max_special_codes" type="number" min="1" step="1" placeholder="จำนวนรหัสสูงสุด" required />
               <button class="button primary small" type="submit">บันทึก</button>
             </form>
-            <div id="allocationRulesList" class="settings-list"></div>
+            <div id="pointProfilesList" class="settings-list"></div>
           </section>
 
           <section class="settings-block">

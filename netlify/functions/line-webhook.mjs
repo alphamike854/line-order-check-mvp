@@ -145,9 +145,11 @@ async function createMessage({ destination, event, group, session, messageType, 
     parse_status: parseStatus,
   };
 
-  const { data, error } = await supabase.from("messages").insert(row).select("id").single();
+  const { data, error } = await supabase.from("messages").insert(row).select("id,settlement_session_id,business_date,summary_group_id").single();
   if (error) throw error;
-  return { id: data.id, ...row };
+  // A DB trigger owns the OPEN/CLOSE boundary atomically. Returned values may
+  // therefore differ from the session snapshot read a few milliseconds earlier.
+  return { ...row, ...data };
 }
 
 async function saveReview(messageRecordId, reasonCodes, warnings = []) {
@@ -204,13 +206,17 @@ async function handleTextMessage(destination, event, group, session) {
   const text = event.message.text ?? "";
   const message = await createMessage({ destination, event, group, session, messageType: "text", rawText: text });
 
-  if (!session) {
+  if (!message.settlement_session_id) {
     await supabase.from("messages").update({ parse_status: "REVIEW" }).eq("id", message.id);
     await saveReview(message.id, [{ code: "SETTLEMENT_NOT_OPEN", detail: "ยังไม่ได้เปิดยอด" }], []);
     return { status: "REVIEW", reason: "SETTLEMENT_NOT_OPEN" };
   }
 
-  if (!group) {
+  const effectiveGroup = message.settlement_session_id === session?.id
+    ? group
+    : await resolveSettlementLineGroup(message.settlement_session_id, message.line_group_id);
+
+  if (!effectiveGroup) {
     await supabase.from("messages").update({ parse_status: "REVIEW" }).eq("id", message.id);
     await saveReview(
       message.id,
@@ -222,7 +228,7 @@ async function handleTextMessage(destination, event, group, session) {
 
   const config = await loadParserConfig();
   const result = parseOrder(text, config);
-  return persistParsedResult(message, group, result);
+  return persistParsedResult(message, effectiveGroup, result);
 }
 
 async function handleImageMessage(destination, event, group, session) {
@@ -235,13 +241,17 @@ async function handleImageMessage(destination, event, group, session) {
     parseStatus: "PENDING",
   });
 
-  if (!session) {
+  if (!message.settlement_session_id) {
     await supabase.from("messages").update({ parse_status: "REVIEW" }).eq("id", message.id);
     await saveReview(message.id, [{ code: "SETTLEMENT_NOT_OPEN", detail: "ยังไม่ได้เปิดยอด" }], []);
     return { status: "REVIEW", reason: "SETTLEMENT_NOT_OPEN" };
   }
 
-  if (!group) {
+  const effectiveGroup = message.settlement_session_id === session?.id
+    ? group
+    : await resolveSettlementLineGroup(message.settlement_session_id, message.line_group_id);
+
+  if (!effectiveGroup) {
     await supabase.from("messages").update({ parse_status: "REVIEW" }).eq("id", message.id);
     await saveReview(
       message.id,
@@ -320,7 +330,7 @@ async function handleImageMessage(destination, event, group, session) {
 
     const config = await loadParserConfig();
     const result = parseOrder(ocr.text, config);
-    return persistParsedResult(message, group, result, baseUpdate);
+    return persistParsedResult(message, effectiveGroup, result, baseUpdate);
   } catch (error) {
     const detail = error?.message ?? String(error);
     await supabase

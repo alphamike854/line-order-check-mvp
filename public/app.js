@@ -12,7 +12,10 @@ const state = {
   freshnessPollBusy: false,
   settlement: null,
   specialPointRules: [],
+  specialPointProfiles: [],
+  specialPointPromotions: [],
   promotionDrafts: [],
+  transferPreview: null,
 };
 
 const FRESHNESS_POLL_MS = 5_000;
@@ -109,10 +112,9 @@ function setDashboardStale(stale) {
   state.dashboardStale = Boolean(stale);
   const banner = $("#staleBanner");
   if (banner) banner.classList.toggle("hidden", !state.dashboardStale);
-  $$(".confirm-transfer").forEach((button) => {
-    button.disabled = state.dashboardStale;
-    button.closest("tr")?.classList.toggle("row-stale", state.dashboardStale);
-  });
+  const confirm = $(".risk-transfer-confirm");
+  if (confirm) confirm.disabled = state.dashboardStale;
+  if (state.dashboardStale) clearTransferPreview("ข้อมูลเปลี่ยนแล้ว กรุณาตรวจรายการใหม่ก่อนยืนยัน");
 }
 
 function stopFreshnessPolling() {
@@ -150,15 +152,17 @@ function startFreshnessPolling() {
 
 function renderMetrics(metrics) {
   const cards = [
-    ["ยอดรับทั้งหมด", metrics.order_total, false],
-    ["ต้องตัดเพิ่ม", metrics.transfer_now_total, metrics.transfer_now_total > 0],
-    ["ข้อความ", metrics.messages_total, false],
-    ["Review", metrics.review_open, metrics.review_open > 0],
+    ["ยอดรับจริง", metrics.gross_received, false],
+    ["ยอดหลังหัก %", metrics.adjusted_received, false],
+    ["Point Reserve", metrics.risk_point_total, Number(metrics.risk_pct) >= 80],
+    ["Safe Capacity", metrics.net_safe_capacity, Number(metrics.net_safe_capacity) < 0],
+    ["ยังตัดได้", metrics.remaining_safe_capacity, Number(metrics.over_safe_amount || 0) > 0],
+    ["Risk", `${formatNumber(metrics.risk_pct)}%`, Number(metrics.risk_pct) >= 80],
   ];
   $("#metrics").innerHTML = cards.map(([label, value, alert]) => `
-    <article class="metric ${alert ? "alert" : ""}"><div class="label">${escapeHtml(label)}</div><div class="value">${formatNumber(value)}</div></article>`).join("");
+    <article class="metric ${alert ? "alert" : ""}"><div class="label">${escapeHtml(label)}</div><div class="value">${typeof value === "string" ? escapeHtml(value) : formatNumber(value)}</div></article>`).join("");
   $("#reviewBadge").textContent = formatNumber(metrics.review_open);
-  $("#freshness").textContent = `ข้อมูลล่าสุด: ${formatBangkokTime(metrics.last_event_at)} · Pending ${formatNumber(metrics.pending)}`;
+  $("#freshness").textContent = `ข้อมูลล่าสุด: ${formatBangkokTime(metrics.last_event_at)} · ${formatNumber(metrics.messages_total)} ข้อความ · Review ${formatNumber(metrics.review_open)}`;
 }
 
 function groupName(id) {
@@ -167,126 +171,206 @@ function groupName(id) {
     || id;
 }
 
-function renderSummary(rows) {
-  const board = $("#summaryBoard");
-  if (!rows.length) { board.innerHTML = `<div class="empty">ยังไม่มีออเดอร์ในชุดยอดปัจจุบัน</div>`; return; }
-  const allocationMap = new Map((state.dashboard?.allocation || []).map((r) => [`${r.summary_group_id}|${r.category}|${r.code}`, r]));
-  const byCategory = new Map();
-  for (const row of rows) { if (!byCategory.has(row.category)) byCategory.set(row.category, []); byCategory.get(row.category).push(row); }
-  board.innerHTML = [...byCategory.entries()].map(([category, items]) => `
-    <section class="category-board">
-      <div class="category-heading"><h3>หมวด ${escapeHtml(category)}</h3><span>เรียงยอดมาก → น้อย</span></div>
-      <div class="code-stack">${items.sort((a,b)=>Number(b.order_total)-Number(a.order_total)||a.code.localeCompare(b.code)).map(row => {
-        const allocation = allocationMap.get(`${row.summary_group_id}|${row.category}|${row.code}`);
-        const threshold = Number(allocation?.threshold || 0);
-        const total = Number(row.order_total || 0);
-        const remainderPct = threshold > 0 ? Math.min(100, ((total % threshold) / threshold) * 100) : 0;
-        const segments = threshold > 0 ? Math.floor(total / threshold) : 0;
-        const special = row.special_point_multiplier ? `<span class="point-badge">★ ×${formatNumber(row.special_point_multiplier)}</span>` : "";
-        const promo = allocation?.promotion_override ? `<span class="promo-badge">PROMO T${formatNumber(threshold)}</span>` : `<span class="threshold-label">T${formatNumber(threshold)}</span>`;
-        const transfer = Number(allocation?.transfer_now || 0) > 0 ? `<strong class="transfer-due">ตัดเพิ่ม ${formatNumber(allocation.transfer_now)}</strong>` : "";
-        const thresholdClass = Number(allocation?.transfer_now || 0) > 0 ? "threshold-due" : (segments >= 1 ? "threshold-ready" : "threshold-low");
-        return `<article class="code-card ${thresholdClass} ${allocation?.promotion_override ? "is-promo" : ""}">
-          <div class="code-main"><div><span class="code-label">${escapeHtml(category)} ${escapeHtml(row.code)}</span>${special}</div><strong class="code-total">${formatNumber(total)}</strong></div>
-          <div class="code-meta">${promo}${transfer}<span>${escapeHtml(groupName(row.summary_group_id))}</span></div>
-          <div class="threshold-track" title="Threshold ${formatNumber(threshold)}"><div class="threshold-fill" style="width:${remainderPct}%"></div></div>
-          <div class="threshold-caption">ผ่าน ${formatNumber(segments)} Threshold${allocation?.destination ? ` · ${escapeHtml(allocation.destination)}` : ""}</div>
-        </article>`;
-      }).join("")}</div>
-    </section>`).join("");
+function riskClass(riskPct) {
+  const risk = Number(riskPct || 0);
+  if (risk >= 100) return "risk-critical";
+  if (risk >= 80) return "risk-high";
+  if (risk >= 60) return "risk-watch";
+  return "risk-safe";
 }
 
-function renderAllocation(rows) {
-  const body = $("#allocationBody");
-  if (!rows.length) {
-    body.innerHTML = `<tr><td colspan="10" class="empty">ยังไม่มีกฎ Allocation หรือยังไม่มีออเดอร์</td></tr>`;
+function categoryRiskFor(groupId, category) {
+  return (state.dashboard?.category_risk || []).find((r) => r.summary_group_id === groupId && r.category === category) || null;
+}
+
+function overallRiskFor(groupId) {
+  return (state.dashboard?.overall_risk || []).find((r) => r.summary_group_id === groupId) || null;
+}
+
+function profileFor(category) {
+  return (state.dashboard?.point_profiles || state.settlement?.point_profiles || []).find((r) => r.category === category) || null;
+}
+
+function codeRowsFor(groupId, category) {
+  const rows = (state.dashboard?.risk_codes || []).filter((r) => r.summary_group_id === groupId && r.category === category);
+  const map = new Map(rows.map((r) => [r.code, r]));
+  if (["A", "B"].includes(category)) {
+    for (let i = 0; i < 100; i += 1) {
+      const code = String(i).padStart(2, "0");
+      if (!map.has(code)) map.set(code, { summary_group_id: groupId, category, code, order_total: 0, adjusted_total: 0, point_exposure: 0, reserve_candidate: false, actual_special_point: false, promotion_factor_pct: 100, confirmed_cut: 0, available_to_cut: 0 });
+    }
+  }
+  return [...map.values()]
+    .filter((row) => ["A", "B"].includes(category) || Number(row.order_total) > 0)
+    .sort((a, b) => Number(b.order_total) - Number(a.order_total) || String(a.code).localeCompare(String(b.code)));
+}
+
+function renderCategoryColumn(groupId, category) {
+  const risk = categoryRiskFor(groupId, category);
+  const profile = profileFor(category);
+  const rows = codeRowsFor(groupId, category);
+  const maxQty = Math.max(1, ...rows.map((r) => Number(r.order_total || 0)));
+  const overall = overallRiskFor(groupId);
+  const orderShare = Number(overall?.gross_received || 0) > 0 ? Number(risk?.order_total || 0) / Number(overall.gross_received) * 100 : 0;
+  const useActual = overall?.risk_mode === "ACTUAL";
+  const pointValue = useActual ? Number(risk?.actual_point || 0) : Number(risk?.point_reserve || 0);
+  const categorySafe = Number(risk?.adjusted_total || 0) - pointValue;
+  const categoryRiskPct = Number(risk?.adjusted_total || 0) > 0 ? pointValue / Number(risk.adjusted_total) * 100 : (pointValue > 0 ? 100 : 0);
+  const header = `<div class="board-column-head ${riskClass(categoryRiskPct)}">
+    <div class="category-title"><strong>${escapeHtml(category)}</strong><span>×${formatNumber(profile?.special_multiplier || risk?.special_multiplier || 0)} · ${useActual ? `Point จริง ${formatNumber(risk?.actual_selected_count || 0)} รหัส` : `สำรอง ${formatNumber(profile?.max_special_codes || risk?.max_special_codes || 0)} รหัส`}</span></div>
+    <div class="category-risk-mini"><span>รับ ${formatNumber(risk?.order_total || 0)} (${formatNumber(orderShare)}%)</span><span>หลังลด ${formatNumber(risk?.adjusted_total || 0)}</span><span>${useActual ? "Point จริง" : "Reserve"} ${formatNumber(pointValue)}</span><span>Safe ${formatNumber(categorySafe)}</span><strong>Risk ${formatNumber(categoryRiskPct)}%</strong></div>
+  </div>`;
+  const list = rows.length ? rows.map((row) => {
+    const qty = Number(row.order_total || 0);
+    const width = qty > 0 ? Math.max(3, qty / maxQty * 100) : 0;
+    const promo = Number(row.promotion_factor_pct ?? 100) < 100 ? `<span class="promo-badge">PROMO ${formatNumber(row.promotion_factor_pct)}%</span>` : "";
+    const reserve = row.reserve_candidate && qty > 0 ? `<span class="reserve-badge">Reserve #${formatNumber(row.reserve_rank)}</span>` : "";
+    const actual = row.actual_special_point ? `<span class="point-badge">★ Point จริง</span>` : "";
+    return `<div class="board-code-row ${qty === 0 ? "zero" : ""} ${row.reserve_candidate ? "reserve" : ""} ${row.actual_special_point ? "actual" : ""}">
+      <div class="board-code-main"><strong>${escapeHtml(row.code)}</strong><span>${formatNumber(qty)}</span></div>
+      <div class="board-code-badges">${actual}${reserve}${promo}</div>
+      <div class="qty-track"><div class="qty-fill" style="width:${width}%"></div></div>
+    </div>`;
+  }).join("") : `<div class="empty compact">ยังไม่มีออเดอร์</div>`;
+  return `<section class="board-column">${header}<div class="board-code-list">${list}</div></section>`;
+}
+
+function renderGroupBoard(groupId) {
+  const overall = overallRiskFor(groupId);
+  const gRows = codeRowsFor(groupId, "G");
+  return `<section class="summary-group-board">
+    <div class="group-risk-header ${riskClass(overall?.risk_pct)}">
+      <div><h3>${escapeHtml(groupName(groupId))}</h3><span>${overall?.risk_mode === "ACTUAL" ? "ใช้ Point จริง" : "ใช้ Point Reserve"}</span></div>
+      <div class="group-risk-metrics"><span>รับจริง <strong>${formatNumber(overall?.gross_received || 0)}</strong></span><span>หลังลด <strong>${formatNumber(overall?.adjusted_received || 0)}</strong></span><span>Point <strong>${formatNumber(overall?.risk_point_total || 0)}</strong></span><span>Safe <strong>${formatNumber(overall?.net_safe_capacity || 0)}</strong></span><span>ตัดแล้ว <strong>${formatNumber(overall?.confirmed_cut_total || 0)}</strong></span><span>ยังตัดได้ <strong>${formatNumber(overall?.remaining_safe_capacity || 0)}</strong></span><span>Risk <strong>${formatNumber(overall?.risk_pct || 0)}%</strong></span></div>
+    </div>
+    <div class="four-column-board">${["A","B","E","F"].map((c) => renderCategoryColumn(groupId,c)).join("")}</div>
+    ${gRows.length ? `<div class="g-board"><div class="category-heading"><h3>หมวด G</h3><span>แสดงเฉพาะรหัสที่มีออเดอร์ · Point ×${formatNumber(profileFor("G")?.special_multiplier || 20)} · สูงสุด ${formatNumber(profileFor("G")?.max_special_codes || 4)} รหัส</span></div><div class="g-code-grid">${gRows.map((row)=>`<div class="g-code ${row.reserve_candidate?"reserve":""} ${row.actual_special_point?"actual":""}"><strong>G${escapeHtml(row.code)}</strong><span>${formatNumber(row.order_total)}</span>${row.actual_special_point?`<em>★</em>`:row.reserve_candidate?`<em>Reserve #${formatNumber(row.reserve_rank)}</em>`:""}${Number(row.promotion_factor_pct??100)<100?`<small>PROMO ${formatNumber(row.promotion_factor_pct)}%</small>`:""}</div>`).join("")}</div></div>` : ""}
+  </section>`;
+}
+
+function renderSummary() {
+  const board = $("#summaryBoard");
+  if (!state.dashboard?.settlement_session) { board.innerHTML = `<div class="empty">ยังไม่ได้เปิดยอด</div>`; return; }
+  const groups = (state.dashboard.overall_risk || []).map((r) => r.summary_group_id);
+  if (!groups.length) {
+    const candidate = summaryGroupSelect.value !== "ALL" ? [summaryGroupSelect.value] : (state.dashboard.summary_groups || []).map((g) => g.id);
+    board.innerHTML = candidate.map(renderGroupBoard).join("") || `<div class="empty">ยังไม่มีออเดอร์ในชุดยอดปัจจุบัน</div>`;
     return;
   }
-  const sorted = [...rows].sort((a, b) => Number(b.transfer_now) - Number(a.transfer_now) || a.category.localeCompare(b.category) || a.code.localeCompare(b.code));
-  body.innerHTML = sorted.map((row) => {
-    const required = Number(row.transfer_now) > 0;
-    const canConfirm = required && row.confirmation_token;
-    return `
-      <tr class="${state.dashboardStale && required ? "row-stale" : ""}">
-        <td>${escapeHtml(groupName(row.summary_group_id))}</td>
-        <td><strong>${escapeHtml(row.category)}</strong></td>
-        <td><strong>${escapeHtml(row.code)}</strong></td>
-        <td class="num">${formatNumber(row.order_total)}</td>
-        <td class="num">${formatNumber(row.threshold)}</td>
-        <td class="num">${formatNumber(row.should_transfer)}</td>
-        <td class="num">${formatNumber(row.confirmed_transfer)}</td>
-        <td class="num"><span class="status-pill ${required ? "required" : ""}">${formatNumber(row.transfer_now)}</span></td>
-        <td>${escapeHtml(row.destination || "-")}</td>
-        <td>${canConfirm ? `<button class="button primary small confirm-transfer" data-token="${escapeHtml(row.confirmation_token)}" data-category="${escapeHtml(row.category)}" data-code="${escapeHtml(row.code)}" data-qty="${escapeHtml(row.transfer_now)}" data-destination="${escapeHtml(row.destination || "-")}" ${state.dashboardStale ? "disabled" : ""}>ยืนยันตัด ${formatNumber(row.transfer_now)}</button>` : ""}</td>
-      </tr>`;
-  }).join("");
-  $$(".confirm-transfer").forEach((button) => button.addEventListener("click", confirmTransfer));
+  board.innerHTML = [...new Set(groups)].map(renderGroupBoard).join("");
+}
+
+function clearTransferPreview(message = "") {
+  state.transferPreview = null;
+  const root = $("#transferPreview");
+  if (!root) return;
+  root.innerHTML = message ? `<div class="preview-box warn">${escapeHtml(message)}</div>` : "";
+}
+
+function selectedTransferItems() {
+  return $$(".cut-qty").map((input) => ({ category: input.dataset.category, code: input.dataset.code, quantity: Number(input.value || 0) })).filter((x) => Number.isSafeInteger(x.quantity) && x.quantity > 0);
+}
+
+function updateTransferSelectionSummary() {
+  const items = selectedTransferItems();
+  const total = items.reduce((s, i) => s + i.quantity, 0);
+  const overall = overallRiskFor(summaryGroupSelect.value);
+  const remaining = Number(overall?.remaining_safe_capacity || 0);
+  const el = $("#transferSelectionSummary");
+  if (!items.length) el.textContent = `ยังไม่ได้เลือกรหัส · Safe Capacity คงเหลือ ${formatNumber(remaining)}`;
+  else el.textContent = `เลือก ${formatNumber(items.length)} รหัส · รวม ${formatNumber(total)} / Safe ${formatNumber(remaining)}${total > remaining ? ` · เกิน ${formatNumber(total - remaining)}` : ""}`;
+  $("#previewTransferButton").disabled = !items.length || total > remaining || state.dashboardStale;
+  clearTransferPreview();
+}
+
+function renderAllocation() {
+  const riskSummary = $("#allocationRiskSummary");
+  const board = $("#allocationBoard");
+  const groupId = summaryGroupSelect.value;
+  if (!state.dashboard?.settlement_session) {
+    riskSummary.innerHTML = ""; board.innerHTML = `<div class="empty">ยังไม่ได้เปิดยอด</div>`; return;
+  }
+  if (!groupId || groupId === "ALL") {
+    riskSummary.innerHTML = `<div class="risk-notice">เลือก <strong>กลุ่มสรุป</strong> ด้านบนก่อนตัดยอด เพราะ Safe Capacity คำนวณแยกแต่ละกลุ่ม</div>`;
+    board.innerHTML = ""; return;
+  }
+  const overall = overallRiskFor(groupId);
+  if (!overall) {
+    riskSummary.innerHTML = `<div class="risk-notice">${escapeHtml(groupName(groupId))} ยังไม่มีออเดอร์</div>`; board.innerHTML = ""; return;
+  }
+  riskSummary.innerHTML = `<div class="risk-summary-card ${riskClass(overall.risk_pct)}">
+    <div><span>โหมด</span><strong>${overall.risk_mode === "ACTUAL" ? "Point จริง" : "Point Reserve"}</strong></div>
+    <div><span>ยอดหลังหัก %</span><strong>${formatNumber(overall.adjusted_received)}</strong></div>
+    <div><span>${overall.risk_mode === "ACTUAL" ? "Point พิเศษจริง" : "Point Reserve"}</span><strong>${formatNumber(overall.risk_point_total)}</strong></div>
+    <div><span>Safe Capacity</span><strong>${formatNumber(overall.net_safe_capacity)}</strong></div>
+    <div><span>ตัดแล้ว</span><strong>${formatNumber(overall.confirmed_cut_total)}</strong></div>
+    <div><span>ยังตัดได้</span><strong>${formatNumber(overall.remaining_safe_capacity)}</strong></div>
+    <div><span>Risk</span><strong>${formatNumber(overall.risk_pct)}%</strong></div>
+    ${Number(overall.over_safe_amount) > 0 ? `<div class="risk-over"><span>เกินระดับปลอดภัย</span><strong>${formatNumber(overall.over_safe_amount)}</strong></div>` : ""}
+  </div>`;
+  const rows = (state.dashboard.risk_codes || []).filter((r) => r.summary_group_id === groupId && Number(r.order_total) > 0 && Number(r.available_to_cut) > 0);
+  const renderCutColumn = (category) => {
+    const list = rows.filter((r) => r.category === category).sort((a,b)=>Number(b.order_total)-Number(a.order_total)||a.code.localeCompare(b.code));
+    return `<section class="cut-column"><h3>${category}</h3>${list.length ? list.map((row)=>`<label class="cut-row ${row.actual_special_point?"actual":""} ${row.reserve_candidate?"reserve":""}"><div><strong>${category}${escapeHtml(row.code)}</strong><span>รับ ${formatNumber(row.order_total)} · ตัดแล้ว ${formatNumber(row.confirmed_cut)}</span></div><input class="cut-qty" data-category="${category}" data-code="${escapeHtml(row.code)}" type="number" min="0" max="${escapeHtml(row.available_to_cut)}" step="1" value="0" aria-label="จำนวนตัด ${category}${escapeHtml(row.code)}" />${row.actual_special_point?`<em>★ Point</em>`:row.reserve_candidate?`<em>Reserve #${formatNumber(row.reserve_rank)}</em>`:""}</label>`).join("") : `<div class="muted small-text">ไม่มีรหัสที่ตัดได้</div>`}</section>`;
+  };
+  board.innerHTML = `<div class="four-column-cut">${["A","B","E","F"].map(renderCutColumn).join("")}</div>${rows.some(r=>r.category==="G")?`<div class="g-cut"><h3>G</h3>${rows.filter(r=>r.category==="G").map((row)=>`<label class="cut-row"><div><strong>G${escapeHtml(row.code)}</strong><span>รับ ${formatNumber(row.order_total)} · ตัดแล้ว ${formatNumber(row.confirmed_cut)}</span></div><input class="cut-qty" data-category="G" data-code="${escapeHtml(row.code)}" type="number" min="0" max="${escapeHtml(row.available_to_cut)}" step="1" value="0" /></label>`).join("")}</div>`:""}`;
+  $$(".cut-qty").forEach((input)=>input.addEventListener("input",()=>{const max=Number(input.max||0);let value=Number(input.value||0);if(value<0)value=0;if(value>max)value=max;input.value=String(Math.floor(value));updateTransferSelectionSummary();}));
+  updateTransferSelectionSummary();
+}
+
+async function previewRiskTransfer() {
+  if (state.dashboardStale) return toast("มีข้อมูลใหม่ กรุณาอัปเดตก่อน", true);
+  const groupId = summaryGroupSelect.value;
+  const destination = $("#transferDestination").value.trim();
+  const items = selectedTransferItems();
+  if (!destination) return toast("กรุณาระบุคลัง/ปลายทาง", true);
+  if (!items.length) return toast("กรุณาระบุจำนวนที่จะตัดอย่างน้อย 1 รหัส", true);
+  $("#previewTransferButton").disabled = true;
+  try {
+    const payload = await api("/api/risk-transfer-preview", {method:"POST",body:JSON.stringify({summary_group_id:groupId,destination,items})});
+    state.transferPreview = payload;
+    $("#transferPreview").innerHTML = `<div class="preview-box ok"><div class="preview-heading"><strong>เตรียมส่ง → ${escapeHtml(destination)}</strong></div><div class="transfer-lines">${payload.lines.map((line)=>`<div>${escapeHtml(line)}</div>`).join("")}</div><div class="preview-summary">รวม ${formatNumber(payload.cut_total)} · Safe ก่อนยืนยัน ${formatNumber(payload.risk_snapshot.remaining_safe_capacity)}</div><button class="button primary risk-transfer-confirm">ยืนยันส่งคลัง</button></div>`;
+    $(".risk-transfer-confirm").addEventListener("click", confirmRiskTransfer);
+  } catch(error) {
+    if (["RISK_STATE_STALE","TRANSFER_EXCEEDS_SAFE_CAPACITY","TRANSFER_EXCEEDS_CODE_AVAILABLE"].includes(error.message)) setDashboardStale(true);
+    toast(`ตรวจรายการไม่สำเร็จ: ${error.message}`, true);
+  } finally { updateTransferSelectionSummary(); }
+}
+
+async function confirmRiskTransfer() {
+  const preview=state.transferPreview;
+  if(!preview?.confirmation_token) return toast("กรุณาตรวจรายการใหม่",true);
+  if(state.dashboardStale) return toast("ข้อมูลเปลี่ยนแล้ว กรุณาอัปเดต",true);
+  if(!window.confirm(`ยืนยันส่งคลังจำนวนรวม ${formatNumber(preview.cut_total)}?\n\n${preview.lines.join("\n")}`)) return;
+  const button=$(".risk-transfer-confirm");if(button)button.disabled=true;
+  try{
+    const payload=await api("/api/risk-transfer-confirm",{method:"POST",body:JSON.stringify({confirmation_token:preview.confirmation_token})});
+    toast(`ยืนยันรอบส่ง #${formatNumber(payload.batch?.batch_number)} จำนวน ${formatNumber(payload.batch?.cut_total)} แล้ว`);
+    clearTransferSelection();
+    await loadDashboard(); await loadAllocationHistory();
+  }catch(error){
+    if(["RISK_STATE_STALE","CONFIRMATION_EXPIRED","TRANSFER_EXCEEDS_SAFE_CAPACITY","TRANSFER_EXCEEDS_CODE_AVAILABLE"].includes(error.message)){setDashboardStale(true);toast("ยอดเปลี่ยนแล้ว กรุณาอัปเดตและตรวจรายการใหม่",true);}else toast(`ยืนยันไม่สำเร็จ: ${error.message}`,true);
+  }
+}
+
+function clearTransferSelection() {
+  $$(".cut-qty").forEach((input)=>{input.value="0";});
+  $("#transferDestination").value="";
+  clearTransferPreview();
+  updateTransferSelectionSummary();
 }
 
 async function loadAllocationHistory() {
-  const body = $("#allocationHistoryBody");
-  if (!body) return;
-  body.innerHTML = `<tr><td colspan="8" class="empty">กำลังโหลด...</td></tr>`;
-  try {
-    const payload = await api(`/api/allocation-history?${selectedQuery()}`);
-    if (!payload.items.length) {
-      body.innerHTML = `<tr><td colspan="8" class="empty">ยังไม่มีประวัติการยืนยันตัดยอดในช่วงที่เลือก</td></tr>`;
-      return;
-    }
-    body.innerHTML = payload.items.map((item) => `
-      <tr>
-        <td>${escapeHtml(formatBangkokTime(item.confirmed_at))}</td>
-        <td>${escapeHtml(groupName(item.summary_group_id))}</td>
-        <td><strong>${escapeHtml(item.category)}${escapeHtml(item.code)}</strong></td>
-        <td class="num"><strong>${formatNumber(item.delta_confirmed)}</strong></td>
-        <td class="num">${formatNumber(item.previous_confirmed)} → ${formatNumber(item.new_confirmed)}</td>
-        <td class="num">${item.order_total == null ? "-" : formatNumber(item.order_total)}</td>
-        <td>${escapeHtml(item.destination || "-")}</td>
-        <td>${escapeHtml(item.confirmed_by || "-")}</td>
-      </tr>`).join("");
-  } catch (error) {
-    body.innerHTML = `<tr><td colspan="8" class="empty">โหลดประวัติไม่สำเร็จ</td></tr>`;
-    toast(`โหลดประวัติตัดยอดไม่สำเร็จ: ${error.message}`, true);
-  }
+  const root=$("#allocationHistoryList");if(!root)return;
+  root.innerHTML=`<div class="empty compact">กำลังโหลด...</div>`;
+  try{
+    const group=summaryGroupSelect.value||"ALL";
+    const payload=await api(`/api/allocation-history?group=${encodeURIComponent(group)}`);
+    if(!payload.history.length){root.innerHTML=`<div class="empty compact">ยังไม่มีรอบส่งในชุดยอดปัจจุบัน</div>`;return;}
+    root.innerHTML=payload.history.map((item)=>`<article class="history-card"><div class="history-head"><strong>รอบส่ง #${formatNumber(item.batch_number)} · ${escapeHtml(item.destination)}</strong><span>${escapeHtml(formatBangkokTime(item.confirmed_at))}</span></div><div class="transfer-lines">${item.lines.map(line=>`<div>${escapeHtml(line)}</div>`).join("")}</div><div class="history-meta"><span>รวม ${formatNumber(item.cut_total)}</span><span>${item.risk_mode==="ACTUAL"?"Point จริง":"Reserve"}</span><span>Safe ${formatNumber(item.net_safe_capacity)}</span><span>ก่อนตัดสะสม ${formatNumber(item.confirmed_cut_before)}</span><span>${escapeHtml(item.confirmed_by||"-")}</span></div></article>`).join("");
+  }catch(error){root.innerHTML=`<div class="empty compact">โหลดประวัติไม่สำเร็จ</div>`;toast(`โหลดประวัติไม่สำเร็จ: ${error.message}`,true);}
 }
 
-async function confirmTransfer(event) {
-  const button = event.currentTarget;
-  const qty = Number(button.dataset.qty || 0);
-  const label = `${button.dataset.category}${button.dataset.code}`;
-  if (state.dashboardStale) {
-    toast("มีข้อมูลใหม่ กรุณาอัปเดต Dashboard ก่อนยืนยันตัดยอด", true);
-    return;
-  }
-  if (!button.dataset.token) {
-    toast("ข้อมูลยืนยันไม่พร้อม กรุณาอัปเดต Dashboard", true);
-    setDashboardStale(true);
-    return;
-  }
-  if (!window.confirm(`ยืนยันว่าได้ตัด ${label} จำนวน ${formatNumber(qty)} ไปยัง ${button.dataset.destination || "-"} แล้ว?`)) return;
-  button.disabled = true;
-  try {
-    const payload = await api("/api/confirm-transfer", {
-      method: "POST",
-      body: JSON.stringify({ confirmation_token: button.dataset.token }),
-    });
-    if (payload.allocation?.idempotent) {
-      toast(`คำขอยืนยัน ${label} นี้ถูกบันทึกไว้แล้ว ระบบไม่บันทึกซ้ำ`);
-    } else {
-      toast(`ยืนยันตัด ${label} จำนวน ${formatNumber(payload.allocation?.delta_confirmed ?? qty)} แล้ว`);
-    }
-    await loadDashboard();
-  } catch (error) {
-    if (["ALLOCATION_STALE", "CONFIRMATION_EXPIRED", "NO_TRANSFER_REQUIRED"].includes(error.message)) {
-      setDashboardStale(true);
-      toast("ยอดหรือสถานะเปลี่ยนแล้ว กรุณาอัปเดต Dashboard ก่อนยืนยันอีกครั้ง", true);
-    } else {
-      toast(`ยืนยันไม่สำเร็จ: ${error.message}`, true);
-    }
-  } finally {
-    if (!state.dashboardStale && document.body.contains(button)) button.disabled = false;
-  }
-}
 
 function reviewReasonsHtml(item) {
   return (item.reason_codes || []).map((reason) => `
@@ -487,13 +571,10 @@ function renderSettings() {
   ` : `<div class="muted">ไม่พบ LINE Group ที่ยังไม่ได้ตั้งค่า</div>`;
 
   $$(".use-unconfigured").forEach((button) => button.addEventListener("click", () => {
-    const form = $("#lineGroupForm");
-    form.elements.line_group_id.value = button.dataset.id;
-    form.elements.line_group_name.focus();
+    const form = $("#lineGroupForm"); form.elements.line_group_id.value = button.dataset.id; form.elements.line_group_name.focus();
   }));
 
   setSummaryOptions($("#lineGroupForm").elements.summary_group_id);
-  setSummaryOptions($("#allocationRuleForm").elements.summary_group_id);
 
   $("#summaryGroupsList").innerHTML = s.summary_groups.map((row) => `
     <div class="settings-row"><span><strong>${escapeHtml(row.name)}</strong><small>${escapeHtml(row.id)}</small></span><span>${row.enabled ? "ใช้งาน" : "ปิด"}</span><button class="button ghost small edit-summary" data-id="${escapeHtml(row.id)}">แก้ไข</button></div>`).join("");
@@ -501,31 +582,26 @@ function renderSettings() {
   $("#lineGroupsList").innerHTML = s.line_groups.map((row) => `
     <div class="settings-row"><span><strong>${escapeHtml(row.line_group_name)}</strong><small>${escapeHtml(row.line_group_id)}</small></span><span>${escapeHtml(groupName(row.summary_group_id))} · ลด ${formatNumber(row.reduction_pct || 0)}% · ${row.enabled ? "ใช้งาน" : "ปิด"}</span><button class="button ghost small edit-line" data-id="${escapeHtml(row.line_group_id)}">แก้ไข</button></div>`).join("");
 
-  $("#allocationRulesList").innerHTML = s.allocation_rules.map((row) => `
-    <div class="settings-row"><span><strong>${escapeHtml(groupName(row.summary_group_id))} / ${escapeHtml(row.category)}</strong><small>Threshold ${formatNumber(row.threshold)} · ${escapeHtml(row.destination || "ไม่ระบุปลายทาง")}</small></span><span>${row.enabled ? "ใช้งาน" : "ปิด"}</span><button class="button ghost small edit-allocation" data-key="${escapeHtml(row.summary_group_id)}|${escapeHtml(row.category)}">แก้ไข</button></div>`).join("");
+  $("#pointProfilesList").innerHTML = (s.point_profiles || []).map((row) => `
+    <div class="settings-row"><span><strong>${escapeHtml(row.category)} ×${formatNumber(row.special_multiplier)}</strong><small>Point พิเศษสูงสุด ${formatNumber(row.max_special_codes)} รหัส</small></span><span></span><button class="button ghost small edit-profile" data-id="${escapeHtml(row.category)}">แก้ไข</button></div>`).join("");
 
   $("#aliasesList").innerHTML = s.category_aliases.map((row) => `
     <div class="settings-row"><span><strong>${escapeHtml(row.alias)} → ${escapeHtml(row.canonical_category)}</strong></span><span>${row.enabled ? "ใช้งาน" : "ปิด"}</span><button class="button ghost small edit-alias" data-id="${escapeHtml(row.alias)}">แก้ไข</button></div>`).join("");
 
   $$(".edit-summary").forEach((button) => button.addEventListener("click", () => {
-    const row = s.summary_groups.find((x) => x.id === button.dataset.id);
-    const form = $("#summaryGroupForm");
+    const row = s.summary_groups.find((x) => x.id === button.dataset.id); const form = $("#summaryGroupForm");
     form.elements.id.value = row.id; form.elements.name.value = row.name; form.elements.enabled.checked = row.enabled;
   }));
   $$(".edit-line").forEach((button) => button.addEventListener("click", () => {
-    const row = s.line_groups.find((x) => x.line_group_id === button.dataset.id);
-    const form = $("#lineGroupForm");
+    const row = s.line_groups.find((x) => x.line_group_id === button.dataset.id); const form = $("#lineGroupForm");
     form.elements.line_group_id.value = row.line_group_id; form.elements.line_group_name.value = row.line_group_name; setSummaryOptions(form.elements.summary_group_id, row.summary_group_id); form.elements.reduction_pct.value = row.reduction_pct || 0; form.elements.enabled.checked = row.enabled;
   }));
-  $$(".edit-allocation").forEach((button) => button.addEventListener("click", () => {
-    const [group, category] = button.dataset.key.split("|");
-    const row = s.allocation_rules.find((x) => x.summary_group_id === group && x.category === category);
-    const form = $("#allocationRuleForm");
-    setSummaryOptions(form.elements.summary_group_id, row.summary_group_id); form.elements.category.value = row.category; form.elements.threshold.value = row.threshold; form.elements.destination.value = row.destination || ""; form.elements.enabled.checked = row.enabled;
+  $$(".edit-profile").forEach((button)=>button.addEventListener("click",()=>{
+    const row=(s.point_profiles||[]).find((x)=>x.category===button.dataset.id);const form=$("#pointProfileForm");
+    form.elements.category.value=row.category;form.elements.special_multiplier.value=row.special_multiplier;form.elements.max_special_codes.value=row.max_special_codes;
   }));
   $$(".edit-alias").forEach((button) => button.addEventListener("click", () => {
-    const row = s.category_aliases.find((x) => x.alias === button.dataset.id);
-    const form = $("#aliasForm");
+    const row = s.category_aliases.find((x) => x.alias === button.dataset.id); const form = $("#aliasForm");
     form.elements.alias.value = row.alias; form.elements.canonical_category.value = row.canonical_category; form.elements.enabled.checked = row.enabled;
   }));
 }
@@ -568,9 +644,9 @@ function bindSettingForms() {
     event.preventDefault(); const f = event.currentTarget;
     saveSetting("LINE_GROUP", { line_group_id: f.elements.line_group_id.value, line_group_name: f.elements.line_group_name.value, summary_group_id: f.elements.summary_group_id.value, reduction_pct: Number(f.elements.reduction_pct.value || 0), enabled: f.elements.enabled.checked }, f);
   });
-  $("#allocationRuleForm").addEventListener("submit", (event) => {
-    event.preventDefault(); const f = event.currentTarget;
-    saveSetting("ALLOCATION_RULE", { summary_group_id: f.elements.summary_group_id.value, category: f.elements.category.value, threshold: Number(f.elements.threshold.value), destination: f.elements.destination.value, enabled: f.elements.enabled.checked }, f);
+  $("#pointProfileForm").addEventListener("submit", (event)=>{
+    event.preventDefault();const f=event.currentTarget;
+    saveSetting("POINT_PROFILE",{category:f.elements.category.value,special_multiplier:Number(f.elements.special_multiplier.value),max_special_codes:Number(f.elements.max_special_codes.value)},f);
   });
   $("#aliasForm").addEventListener("submit", (event) => {
     event.preventDefault(); const f = event.currentTarget;
@@ -586,101 +662,101 @@ function todayBangkok() {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
+function renderProfileStrip(target, profiles = []) {
+  const root=$(target); if(!root)return;
+  root.innerHTML=(profiles||[]).map((p)=>`<span class="profile-chip"><strong>${escapeHtml(p.category)} ×${formatNumber(p.special_multiplier)}</strong><small>${escapeHtml(p.category)==="F"?`สูงสุด ${formatNumber(p.max_special_codes)} รหัส`:escapeHtml(p.category)==="G"?`${formatNumber(p.max_special_codes)} รหัส`:`${formatNumber(p.max_special_codes)} รหัส`}</small></span>`).join("");
+}
+
 function renderPromotionDrafts() {
-  const list = $("#promotionDraftList");
-  if (!state.promotionDrafts.length) { list.innerHTML = `<div class="muted">ไม่มี Promotion override — ใช้ Threshold ปกติ</div>`; return; }
-  list.innerHTML = state.promotionDrafts.map((r,i)=>`<div class="settings-row"><span><strong>${escapeHtml(r.summary_group_id)} / ${escapeHtml(r.category)}${escapeHtml(r.code)}</strong><small>T${formatNumber(r.threshold)}${r.destination?` · ${escapeHtml(r.destination)}`:""}</small></span><button class="button ghost small remove-promo" data-i="${i}">ลบ</button></div>`).join("");
+  const list=$("#promotionDraftList");
+  renderProfileStrip("#openingPointProfiles",state.settlement?.company_point_profiles||state.settlement?.point_profiles||[]);
+  if(!state.promotionDrafts.length){list.innerHTML=`<div class="muted">ไม่มี Promotion — ถ้ารหัสใดถูก Point พิเศษ จะใช้ตัวคูณเต็มของหมวด</div>`;return;}
+  const profileMap=new Map((state.settlement?.company_point_profiles||state.settlement?.point_profiles||[]).map(p=>[p.category,Number(p.special_multiplier)]));
+  list.innerHTML=state.promotionDrafts.map((r,i)=>{const effective=(profileMap.get(r.category)||0)*Number(r.point_factor_pct||0)/100;return `<div class="settings-row"><span><strong>${escapeHtml(r.category)}${escapeHtml(r.code)} · ${formatNumber(r.point_factor_pct)}% ของ Point</strong><small>ถ้าได้ Point พิเศษ → ×${formatNumber(effective)}</small></span><span></span><button class="button ghost small remove-promo" data-i="${i}">ลบ</button></div>`;}).join("");
   $$(".remove-promo").forEach(b=>b.addEventListener("click",()=>{state.promotionDrafts.splice(Number(b.dataset.i),1);renderPromotionDrafts();}));
 }
 
 function renderSettlementStatus(payload) {
-  state.settlement = payload;
-  const open = payload.open_session;
-  $("#prepareOpenButton").classList.toggle("hidden", Boolean(open));
-  $("#closeSettlementButton").classList.toggle("hidden", !open);
-  if (open) {
-    businessDateInput.value = open.business_date;
-    businessDateInput.disabled = true;
-    $("#settlementStatus").textContent = `เปิดยอดอยู่ · ${open.business_date}`;
-    $("#settlementMeta").textContent = `เริ่ม ${formatBangkokTime(open.opened_at)} · Promotion ${formatNumber((payload.promotions||[]).length)} รหัส`;
+  state.settlement=payload;
+  const open=payload.open_session;
+  $("#prepareOpenButton").classList.toggle("hidden",Boolean(open));
+  $("#closeSettlementButton").classList.toggle("hidden",!open);
+  if(open){
+    businessDateInput.value=open.business_date;businessDateInput.disabled=true;
+    $("#settlementStatus").textContent=`เปิดยอดอยู่ · ${open.business_date}`;
+    $("#settlementMeta").textContent=`เริ่ม ${formatBangkokTime(open.opened_at)} · Promotion ${formatNumber((payload.promotions||[]).length)} รหัส · ${payload.actual_point_status?.actual_codes_ready?"Point จริงครบแล้ว":"ยังใช้ Point Reserve"}`;
     $("#openSettlementEditor").classList.add("hidden");
-  } else {
-    businessDateInput.disabled = false;
-    if (!businessDateInput.value) businessDateInput.value = todayBangkok();
-    $("#settlementStatus").textContent = "ยังไม่ได้เปิดยอด";
-    $("#settlementMeta").textContent = "กำหนด Promotion ก่อนเปิดยอดได้ เมื่อเปิดแล้วจะเริ่มนับใหม่จาก 0 แม้เป็นวันที่เดิม";
+  }else{
+    businessDateInput.disabled=false;if(!businessDateInput.value)businessDateInput.value=todayBangkok();
+    $("#settlementStatus").textContent="ยังไม่ได้เปิดยอด";
+    $("#settlementMeta").textContent="กำหนด Promotion (% ของ Point พิเศษ) ก่อนเปิดยอด แล้วระบบเริ่มนับใหม่จาก 0 แม้เป็นวันที่เดิม";
   }
 }
 
 async function loadSettlement() {
-  const payload = await api("/api/settlement");
-  renderSettlementStatus(payload);
-  const select = $("#reportSessionSelect");
-  const sessions = [payload.open_session, ...(payload.closed_sessions||[])].filter(Boolean);
-  select.innerHTML = sessions.map(s=>`<option value="${escapeHtml(s.id)}">${s.status==="OPEN"?"ยอดปัจจุบัน":"ปิด "+formatBangkokTime(s.closed_at)} · ${escapeHtml(s.business_date)}</option>`).join("") || `<option value="">ยังไม่มีรายงาน</option>`;
-  const lineSelect=$("#reportLineGroupSelect");
-  const lines=state.dashboard?.line_groups||[];
+  const payload=await api("/api/settlement");renderSettlementStatus(payload);
+  const select=$("#reportSessionSelect");const sessions=[payload.open_session,...(payload.closed_sessions||[])].filter(Boolean);
+  select.innerHTML=sessions.map(s=>`<option value="${escapeHtml(s.id)}">${s.status==="OPEN"?"ยอดปัจจุบัน":"ปิด "+formatBangkokTime(s.closed_at)} · ${escapeHtml(s.business_date)}</option>`).join("")||`<option value="">ยังไม่มีรายงาน</option>`;
+  const lineSelect=$("#reportLineGroupSelect");const lines=state.dashboard?.line_groups||[];
   lineSelect.innerHTML=`<option value="ALL">ทุก LINE Group</option>`+lines.map(g=>`<option value="${escapeHtml(g.line_group_id)}">${escapeHtml(g.line_group_name)}</option>`).join("");
+  renderProfileStrip("#openingPointProfiles",payload.company_point_profiles||payload.point_profiles||[]);
   return payload;
 }
 
 async function openSettlement() {
-  const date = businessDateInput.value || todayBangkok();
-  if (!window.confirm(`เปิดยอดใหม่วันที่ ${date}?\nยอดรับ, Allocation และลำดับข้อความจะเริ่มจาก 0`)) return;
-  $("#openSettlementButton").disabled = true;
-  try {
-    await api("/api/settlement", { method:"POST", body:JSON.stringify({ action:"OPEN", business_date:date, promotions:state.promotionDrafts }) });
-    state.promotionDrafts=[]; renderPromotionDrafts(); toast("เปิดยอดใหม่แล้ว เริ่มนับจาก 0");
-    await loadSettlement(); await loadDashboard();
-  } catch(error) { toast(`เปิดยอดไม่สำเร็จ: ${error.message}`,true); }
-  finally { $("#openSettlementButton").disabled=false; }
+  const date=businessDateInput.value||todayBangkok();
+  if(!window.confirm(`เปิดยอดใหม่วันที่ ${date}?\nยอดรับ, Safe Capacity, การตัดยอด และลำดับข้อความจะเริ่มจาก 0`))return;
+  $("#openSettlementButton").disabled=true;
+  try{await api("/api/settlement",{method:"POST",body:JSON.stringify({action:"OPEN",business_date:date,promotions:state.promotionDrafts})});state.promotionDrafts=[];renderPromotionDrafts();toast("เปิดยอดใหม่แล้ว เริ่มนับจาก 0");await loadSettlement();await loadDashboard();}
+  catch(error){toast(`เปิดยอดไม่สำเร็จ: ${error.message}`,true);}finally{$("#openSettlementButton").disabled=false;}
 }
 
 async function closeSettlement() {
-  const open = state.settlement?.open_session;
-  if (!open) return;
-  let summaryText = "";
-  try {
-    const report = await api(`/api/accounting-report?session_id=${encodeURIComponent(open.id)}`);
-    const received = (report.groups||[]).reduce((s,g)=>s+Number(g.received_total||0),0);
-    const special = (report.groups||[]).reduce((s,g)=>s+Number(g.special_point_total||0),0);
-    summaryText = `\nยอดรับรวม ${formatNumber(received)}\nPoint พิเศษรวม ${formatNumber(special)}`;
-  } catch {}
-  if (!window.confirm(`ปิดยอดปัจจุบัน?${summaryText}\n\nข้อมูลชุดนี้จะไม่ถูกนำไปสะสมกับยอดที่เปิดใหม่ และจะไม่สามารถแก้ Point พิเศษของชุดนี้ได้`)) return;
+  const open=state.settlement?.open_session;if(!open)return;
+  if(Number(state.dashboard?.metrics?.review_open||0)>0){activateTab("review");toast(`ยังมี Review ${formatNumber(state.dashboard.metrics.review_open)} รายการ กรุณาตรวจให้เสร็จก่อนปิดยอด`,true);return;}
+  if(!state.settlement?.actual_point_status?.actual_codes_ready){activateTab("points");toast("ก่อนปิดยอดต้องกำหนด Point จริงให้ครบ: A 1, B 1, E 1 และ G 4 รหัส (F ได้สูงสุด 6)",true);return;}
+  let summaryText="";
+  try{const report=await api(`/api/accounting-report?session_id=${encodeURIComponent(open.id)}`);const received=(report.groups||[]).reduce((s,g)=>s+Number(g.received_total||0),0);const special=(report.groups||[]).reduce((s,g)=>s+Number(g.special_point_total||0),0);const net=(report.groups||[]).reduce((s,g)=>s+Number(g.reconciliation_total||0),0);summaryText=`\nยอดรับรวม ${formatNumber(received)}\nPoint พิเศษจริง ${formatNumber(special)}\nยอดสุทธิเทียบ ${formatNumber(net)}`;}catch{}
+  if(!window.confirm(`ปิดยอดปัจจุบัน?${summaryText}\n\nข้อมูลชุดนี้จะไม่สะสมกับยอดที่เปิดใหม่ และรหัส Point จริงจะถูกล็อก`))return;
   $("#closeSettlementButton").disabled=true;
-  try {
-    await api("/api/settlement", {method:"POST",body:JSON.stringify({action:"CLOSE",settlement_session_id:open.id})});
-    toast("ปิดยอดแล้ว สามารถเปิดยอดใหม่วันที่เดิมได้ทันที");
-    await loadSettlement(); await loadDashboard();
-  } catch(error){toast(`ปิดยอดไม่สำเร็จ: ${error.message}`,true);}
-  finally{$("#closeSettlementButton").disabled=false;}
+  try{await api("/api/settlement",{method:"POST",body:JSON.stringify({action:"CLOSE",settlement_session_id:open.id})});toast("ปิดยอดแล้ว สามารถเปิดยอดใหม่วันที่เดิมได้ทันที");await loadSettlement();await loadDashboard();}
+  catch(error){if(error.message==="SPECIAL_POINT_CODES_INCOMPLETE"){activateTab("points");toast("รหัส Point พิเศษจริงยังไม่ครบ",true);}else if(error.message==="SETTLEMENT_HAS_OPEN_REVIEW"){activateTab("review");toast("ยังมีรายการ Review ที่ต้องตรวจให้เสร็จก่อนปิดยอด",true);}else toast(`ปิดยอดไม่สำเร็จ: ${error.message}`,true);}finally{$("#closeSettlementButton").disabled=false;}
 }
 
-function renderSpecialPoints() {
+function pointProfileMap() { return new Map((state.specialPointProfiles||[]).map(p=>[p.category,p])); }
+function promotionMap() { return new Map((state.specialPointPromotions||[]).map(p=>[`${p.category}|${p.code}`,Number(p.point_factor_pct)])); }
+
+function renderSpecialPoints(status = null) {
+  renderProfileStrip("#specialPointProfiles",state.specialPointProfiles);
+  const profileMap=pointProfileMap();const promo=promotionMap();
+  const counts=new Map();for(const r of state.specialPointRules)counts.set(r.category,(counts.get(r.category)||0)+1);
+  const requirements=(state.specialPointProfiles||[]).map(p=>`${p.category}: ${formatNumber(counts.get(p.category)||0)}/${formatNumber(p.max_special_codes)}${["A","B","E"].includes(p.category)?" (ต้อง 1)":p.category==="G"?" (ต้อง 4)":" (สูงสุด)"}`).join(" · ");
+  $("#specialPointStatus").innerHTML=`<div class="point-status-line ${status?.actual_codes_ready?"ready":"pending"}"><strong>${status?.actual_codes_ready?"Point จริงครบแล้ว":"ยังใช้ Point Reserve"}</strong><span>${escapeHtml(requirements)}</span></div>`;
   const list=$("#specialPointRules");
-  if(!state.specialPointRules.length){list.innerHTML=`<div class="muted">ยังไม่มีรหัส Point พิเศษในชุดนี้ ทุกสินค้าเป็น Point ปกติ ×1</div>`;return;}
-  list.innerHTML=state.specialPointRules.map((r,i)=>`<div class="settings-row"><span><strong>★ ${escapeHtml(r.category)}${escapeHtml(r.code)}</strong><small>×${formatNumber(r.multiplier)} Point</small></span><button class="button ghost small remove-point" data-i="${i}">ลบ</button></div>`).join("");
-  $$(".remove-point").forEach(b=>b.addEventListener("click",()=>{state.specialPointRules.splice(Number(b.dataset.i),1);renderSpecialPoints();}));
+  if(!state.specialPointRules.length){list.innerHTML=`<div class="muted">ยังไม่ระบุรหัส Point จริง ระบบยังใช้ Worst-case Point Reserve เพื่อคุม Safe Capacity</div>`;return;}
+  list.innerHTML=state.specialPointRules.map((r,i)=>{const p=profileMap.get(r.category);const factor=promo.get(`${r.category}|${r.code}`)??100;const effective=Number(p?.special_multiplier||0)*factor/100;return `<div class="settings-row"><span><strong>★ ${escapeHtml(r.category)}${escapeHtml(r.code)}</strong><small>×${formatNumber(effective)}${factor<100?` · Promotion ${formatNumber(factor)}%`:""}</small></span><span></span><button class="button ghost small remove-point" data-i="${i}">ลบ</button></div>`;}).join("");
+  $$(".remove-point").forEach(b=>b.addEventListener("click",()=>{state.specialPointRules.splice(Number(b.dataset.i),1);renderSpecialPoints(status);}));
 }
 
 async function loadSpecialPoints() {
   const payload=await api("/api/special-points");
-  state.specialPointRules=(payload.rules||[]).map(r=>({category:r.category,code:r.code,multiplier:Number(r.multiplier)}));
-  renderSpecialPoints();
-  $("#specialPointForm").querySelectorAll("input,select,button").forEach(el=>{el.disabled=!payload.open_session;});
-  $("#saveSpecialPointsButton").disabled=!payload.open_session;
+  state.specialPointProfiles=payload.profiles||[];state.specialPointPromotions=payload.promotions||[];state.specialPointRules=(payload.codes||[]).map(r=>({category:r.category,code:r.code}));
+  renderSpecialPoints(payload.status);
+  $("#specialPointForm").querySelectorAll("input,select,button").forEach(el=>{el.disabled=!payload.open_session;});$("#saveSpecialPointsButton").disabled=!payload.open_session;
 }
 
 async function saveSpecialPoints() {
-  try { await api("/api/special-points",{method:"POST",body:JSON.stringify({rules:state.specialPointRules})}); toast("บันทึก Point พิเศษแล้ว ระบบคำนวณย้อนหลังทั้งชุดปัจจุบัน"); await loadDashboard(); await loadReport(); }
+  try{await api("/api/special-points",{method:"POST",body:JSON.stringify({codes:state.specialPointRules})});toast("บันทึกรหัส Point จริงแล้ว ระบบคำนวณย้อนหลังทั้งชุดปัจจุบัน");await loadSpecialPoints();await loadSettlement();await loadDashboard();await loadReport();}
   catch(error){toast(`บันทึก Point ไม่สำเร็จ: ${error.message}`,true);}
 }
+
 
 function renderReport(payload) {
   const root=$("#reportContent");
   if(!payload.session){root.innerHTML=`<div class="empty">ยังไม่มีชุดยอดสำหรับรายงาน</div>`;return;}
   if(!payload.groups.length){root.innerHTML=`<div class="empty">ยังไม่มีข้อมูลในชุดยอดนี้</div>`;return;}
-  root.innerHTML=`<div class="report-session-heading"><strong>รายงานประจำวัน ${escapeHtml(formatThaiDate(payload.session.business_date))}</strong><span>${payload.session.status === "OPEN" ? "ยอดปัจจุบัน" : `ปิด ${escapeHtml(formatBangkokTime(payload.session.closed_at))}`}</span></div>` + payload.groups.map(g=>`<section class="report-card">
+  const finalReady = Boolean(payload.actual_point_status?.actual_codes_ready);
+  root.innerHTML=`<div class="report-session-heading"><strong>รายงานประจำวัน ${escapeHtml(formatThaiDate(payload.session.business_date))}</strong><span>${payload.session.status === "OPEN" ? "ยอดปัจจุบัน" : `ปิด ${escapeHtml(formatBangkokTime(payload.session.closed_at))}`}</span></div>${payload.session.status === "OPEN" && !finalReady ? `<div class="risk-notice">รายงานนี้ยังไม่ Final — ยังไม่ได้ระบุรหัส Point พิเศษจริงครบ ระบบตัดยอดยังใช้ Point Reserve</div>` : ""}` + payload.groups.map(g=>`<section class="report-card">
     <div class="report-title"><div><h3>${escapeHtml(g.line_group_name)}</h3><span>${escapeHtml(groupName(g.summary_group_id))}</span></div><span>${formatNumber(g.message_count)} ข้อความ</span></div>
     <div class="report-metrics"><div><span>ยอดรับจริง</span><strong>${formatNumber(g.received_total)}</strong></div><div><span>ลด</span><strong>${formatNumber(g.reduction_pct)}%</strong></div><div><span>ยอดหลังลด</span><strong>${formatNumber(g.after_reduction)}</strong></div><div><span>Point พิเศษ</span><strong>${formatNumber(g.special_point_total)}</strong></div><div class="net"><span>ยอดสุทธิเทียบ</span><strong>${formatNumber(g.reconciliation_total)}</strong></div></div>
     <div class="special-summary"><h4>สรุปรหัส Point พิเศษ</h4>${g.special_point_codes.length?`<div class="table-wrap"><table><thead><tr><th>รหัส</th><th class="num">จำนวนรวม</th><th class="num">ตัวคูณ</th><th class="num">Point</th></tr></thead><tbody>${g.special_point_codes.map(x=>`<tr><td><strong>${escapeHtml(x.category)}${escapeHtml(x.code)}</strong></td><td class="num">${formatNumber(x.quantity)}</td><td class="num">×${formatNumber(x.multiplier)}</td><td class="num">${formatNumber(x.points)}</td></tr>`).join("")}</tbody></table></div>`:`<div class="muted">ไม่มี Point พิเศษ</div>`}</div>
@@ -697,18 +773,29 @@ async function loadReport() {
 
 function bindV5Controls() {
   $("#prepareOpenButton").addEventListener("click",()=>{
-    $("#openSettlementEditor").classList.remove("hidden");
-    setSummaryOptions($("#promotionDraftForm").elements.summary_group_id);
-    renderPromotionDrafts();
+    $("#openSettlementEditor").classList.remove("hidden");renderPromotionDrafts();
   });
   $("#cancelOpenSettlementButton").addEventListener("click",()=>$("#openSettlementEditor").classList.add("hidden"));
-  $("#promotionDraftForm").addEventListener("submit",event=>{event.preventDefault();const f=event.currentTarget;const rule={summary_group_id:f.elements.summary_group_id.value,category:f.elements.category.value,code:f.elements.code.value.trim(),threshold:Number(f.elements.threshold.value),destination:f.elements.destination.value.trim()||null};const existing=state.promotionDrafts.findIndex(x=>x.summary_group_id===rule.summary_group_id&&x.category===rule.category&&x.code===rule.code);if(existing>=0)state.promotionDrafts[existing]=rule;else state.promotionDrafts.push(rule);f.elements.code.value="";f.elements.threshold.value="";f.elements.destination.value="";renderPromotionDrafts();});
-  $("#openSettlementButton").addEventListener("click",openSettlement);
-  $("#closeSettlementButton").addEventListener("click",closeSettlement);
-  $("#specialPointForm").addEventListener("submit",event=>{event.preventDefault();const f=event.currentTarget;const rule={category:f.elements.category.value,code:f.elements.code.value.trim(),multiplier:Number(f.elements.multiplier.value)};const existing=state.specialPointRules.findIndex(x=>x.category===rule.category&&x.code===rule.code);if(existing>=0)state.specialPointRules[existing]=rule;else state.specialPointRules.push(rule);f.elements.code.value="";f.elements.multiplier.value="";renderSpecialPoints();});
+  $("#promotionDraftForm").addEventListener("submit",event=>{
+    event.preventDefault();const f=event.currentTarget;const category=f.elements.category.value;const code=f.elements.code.value.trim();const point_factor_pct=Number(f.elements.point_factor_pct.value);
+    const expectedLength=["A","B"].includes(category)?2:3;if(!new RegExp(`^\\d{${expectedLength}}$`).test(code))return toast(`รหัส ${category} ต้องเป็น ${expectedLength} หลัก`,true);
+    if(!Number.isFinite(point_factor_pct)||point_factor_pct<0||point_factor_pct>100)return toast("Promotion ต้องอยู่ระหว่าง 0–100%",true);
+    const rule={category,code,point_factor_pct};const existing=state.promotionDrafts.findIndex(x=>x.category===category&&x.code===code);if(existing>=0)state.promotionDrafts[existing]=rule;else state.promotionDrafts.push(rule);
+    f.elements.code.value="";f.elements.point_factor_pct.value="";renderPromotionDrafts();
+  });
+  $("#openSettlementButton").addEventListener("click",openSettlement);$("#closeSettlementButton").addEventListener("click",closeSettlement);
+  $("#specialPointForm").addEventListener("submit",event=>{
+    event.preventDefault();const f=event.currentTarget;const category=f.elements.category.value;const code=f.elements.code.value.trim();const p=pointProfileMap().get(category);const expectedLength=["A","B"].includes(category)?2:3;
+    if(!new RegExp(`^\\d{${expectedLength}}$`).test(code))return toast(`รหัส ${category} ต้องเป็น ${expectedLength} หลัก`,true);
+    if(state.specialPointRules.some(x=>x.category===category&&x.code===code))return toast("มีรหัสนี้แล้ว",true);
+    if(state.specialPointRules.filter(x=>x.category===category).length>=Number(p?.max_special_codes||1))return toast(`${category} กำหนดได้สูงสุด ${formatNumber(p?.max_special_codes||1)} รหัส`,true);
+    state.specialPointRules.push({category,code});f.elements.code.value="";renderSpecialPoints(state.settlement?.actual_point_status);
+  });
   $("#saveSpecialPointsButton").addEventListener("click",saveSpecialPoints);
-  $("#reportSessionSelect").addEventListener("change",loadReport);
-  $("#reportLineGroupSelect").addEventListener("change",loadReport);
+  $("#previewTransferButton").addEventListener("click",previewRiskTransfer);
+  $("#clearTransferSelectionButton").addEventListener("click",clearTransferSelection);
+  $("#transferDestination").addEventListener("input",()=>clearTransferPreview());
+  $("#reportSessionSelect").addEventListener("change",loadReport);$("#reportLineGroupSelect").addEventListener("change",loadReport);
 }
 
 async function loadDashboard() {
@@ -733,8 +820,8 @@ async function loadDashboard() {
       state.groupsLoaded = true;
     }
     renderMetrics(payload.metrics);
-    renderSummary(payload.summary);
-    renderAllocation(payload.allocation);
+    renderSummary();
+    renderAllocation();
     await loadSettlement();
     const activeTab = $(".tab.active")?.dataset.tab;
     if (activeTab === "allocation") await loadAllocationHistory();

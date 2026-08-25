@@ -259,15 +259,16 @@ export async function fetchOpenReviewById(reviewId) {
 }
 
 export async function fetchSettings() {
-  const [summaryResult, lineResult, allocationResult, aliasResult, eventResult] = await Promise.all([
+  const [summaryResult, lineResult, allocationResult, aliasResult, profileResult, eventResult] = await Promise.all([
     supabase.from("summary_groups").select("id,name,enabled,created_at").order("name"),
     supabase.from("line_groups").select("line_group_id,line_group_name,summary_group_id,reduction_pct,enabled,created_at,updated_at").order("line_group_name"),
     supabase.from("allocation_rules").select("summary_group_id,category,threshold,destination,enabled,created_at,updated_at").order("summary_group_id").order("category"),
     supabase.from("category_aliases").select("alias,canonical_category,enabled,created_at").order("alias"),
+    supabase.from("point_category_profiles").select("category,special_multiplier,max_special_codes,updated_at").order("category"),
     supabase.from("webhook_events").select("line_group_id,received_at").not("line_group_id", "is", null).order("received_at", { ascending: false }).limit(5000),
   ]);
 
-  for (const result of [summaryResult, lineResult, allocationResult, aliasResult, eventResult]) {
+  for (const result of [summaryResult, lineResult, allocationResult, aliasResult, profileResult, eventResult]) {
     if (result.error) throw result.error;
   }
 
@@ -284,6 +285,7 @@ export async function fetchSettings() {
     line_groups: lineResult.data ?? [],
     allocation_rules: allocationResult.data ?? [],
     category_aliases: aliasResult.data ?? [],
+    point_profiles: profileResult.data ?? [],
     unconfigured_line_groups: [...latestByGroup.entries()].map(([line_group_id, last_seen_at]) => ({ line_group_id, last_seen_at })),
   };
 }

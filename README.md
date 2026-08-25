@@ -115,3 +115,21 @@ Phase 2:
 - Keep `SUPABASE_SECRET_KEY` and `LINE_CHANNEL_SECRET` only in Netlify environment variables.
 - Do not put backend secret keys in frontend code or Git.
 - Internal tables have RLS enabled and no anon/authenticated policies in this MVP.
+
+## Dashboard MVP
+
+After migrations `001`, `002`, and `003`, Netlify also serves a protected dashboard at `/`.
+
+Required additional environment variable:
+
+- `DASHBOARD_ACCESS_KEY`
+
+Optional:
+
+- `DASHBOARD_OPERATOR_NAME`
+
+See `DASHBOARD_SETUP.md` for deployment and testing steps.
+
+## Dashboard v6 — Risk-based allocation
+
+Migrations `007` + `008` add settlement reset, Point Reserve, Promotion factors, category/overall Safe Capacity, actual Point codes for final accounting, 4-column Order Board, and atomic risk-based warehouse transfer batches. See `DASHBOARD_V6_SETUP.md`.

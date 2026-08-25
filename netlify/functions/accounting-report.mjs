@@ -1,5 +1,6 @@
 import { json, requireDashboardAccess, supabase } from "../../src/lib/dashboard-api.mjs";
 import { reducedQuantity, reconciliationTotal } from "../../src/lib/settlement-calculations.mjs";
+import { effectiveMultiplier, round2 } from "../../src/lib/risk-engine.mjs";
 
 async function resolveSession(url) {
   const explicit = url.searchParams.get("session_id");
@@ -29,67 +30,64 @@ export default async (req) => {
     if (selectedSummary && selectedSummary !== "ALL") configQuery = configQuery.eq("summary_group_id", selectedSummary);
     if (selectedLine && selectedLine !== "ALL") configQuery = configQuery.eq("line_group_id", selectedLine);
 
-    const [{ data: configs, error: configError }, { data: pointRules, error: pointError }] = await Promise.all([
+    const [configResult,profileResult,promoResult,actualResult,statusResult] = await Promise.all([
       configQuery,
-      supabase.from("settlement_special_point_rules").select("category,code,multiplier").eq("settlement_session_id", session.id),
+      supabase.from("settlement_point_profiles").select("category,special_multiplier,max_special_codes").eq("settlement_session_id",session.id),
+      supabase.from("settlement_point_promotions").select("category,code,point_factor_pct").eq("settlement_session_id",session.id),
+      supabase.from("settlement_actual_special_point_codes").select("category,code").eq("settlement_session_id",session.id),
+      supabase.from("session_actual_point_status").select("actual_codes_ready,category_counts").eq("settlement_session_id",session.id).maybeSingle(),
     ]);
-    if (configError) throw configError; if (pointError) throw pointError;
-    const pointMap = new Map((pointRules ?? []).map((r) => [`${r.category}|${r.code}`, Number(r.multiplier)]));
-    const lineIds = (configs ?? []).map((g) => g.line_group_id);
-    if (!lineIds.length) return json({ ok: true, session, special_point_rules: pointRules ?? [], groups: [] });
+    for(const r of [configResult,profileResult,promoResult,actualResult,statusResult]) if(r.error) throw r.error;
+    const configs=configResult.data??[];
+    const profiles=profileResult.data??[];
+    const promotions=promoResult.data??[];
+    const actualCodes=actualResult.data??[];
+    const profileMap=new Map(profiles.map(r=>[r.category,Number(r.special_multiplier)]));
+    const promoMap=new Map(promotions.map(r=>[`${r.category}|${r.code}`,Number(r.point_factor_pct)]));
+    const actualSet=new Set(actualCodes.map(r=>`${r.category}|${r.code}`));
+    const lineIds=configs.map(g=>g.line_group_id);
+    if(!lineIds.length) return json({ok:true,session,actual_point_status:statusResult.data??null,actual_special_codes:actualCodes,groups:[]});
 
-    const [{ data: messages, error: msgError }, { data: items, error: itemError }] = await Promise.all([
+    const [{data:messages,error:msgError},{data:items,error:itemError}] = await Promise.all([
       supabase.from("messages").select("id,line_group_id,event_timestamp,parse_status,message_type")
-        .eq("settlement_session_id", session.id).in("line_group_id", lineIds).order("event_timestamp", { ascending: true }),
+        .eq("settlement_session_id",session.id).in("line_group_id",lineIds).order("event_timestamp",{ascending:true}),
       supabase.from("order_items").select("message_record_id,line_group_id,category,code,quantity")
-        .eq("settlement_session_id", session.id).in("line_group_id", lineIds),
+        .eq("settlement_session_id",session.id).in("line_group_id",lineIds),
     ]);
-    if (msgError) throw msgError; if (itemError) throw itemError;
+    if(msgError) throw msgError;if(itemError) throw itemError;
 
-    const itemsByMessage = new Map();
-    for (const item of items ?? []) {
-      if (!itemsByMessage.has(item.message_record_id)) itemsByMessage.set(item.message_record_id, []);
-      itemsByMessage.get(item.message_record_id).push(item);
-    }
+    const itemsByMessage=new Map();
+    for(const item of items??[]){if(!itemsByMessage.has(item.message_record_id))itemsByMessage.set(item.message_record_id,[]);itemsByMessage.get(item.message_record_id).push(item);}
 
-    const groups = (configs ?? []).map((cfg) => {
-      const groupMessages = (messages ?? []).filter((m) => m.line_group_id === cfg.line_group_id);
-      let received = 0; let special = 0;
-      const specialCodeMap = new Map();
-      const ledger = groupMessages.map((message, index) => {
-        const msgItems = itemsByMessage.get(message.id) ?? [];
-        const qty = msgItems.reduce((sum, x) => sum + Number(x.quantity), 0);
-        received += qty;
-        const specialDetails = [];
-        for (const item of msgItems) {
-          const multiplier = pointMap.get(`${item.category}|${item.code}`);
-          if (!multiplier) continue;
-          const points = Number(item.quantity) * multiplier;
-          special += points;
-          const key = `${item.category}|${item.code}`;
-          const prev = specialCodeMap.get(key) ?? { category:item.category, code:item.code, quantity:0, multiplier, points:0 };
-          prev.quantity += Number(item.quantity); prev.points += points; specialCodeMap.set(key, prev);
-          specialDetails.push({ category:item.category, code:item.code, quantity:Number(item.quantity), multiplier, points });
+    const groups=configs.map(cfg=>{
+      // Accounting ledger contains order-bearing messages only. Unrelated/ignored LINE chat
+      // stays outside the ledger, while unsent orders remain because their derived items remain.
+      const groupMessages=(messages??[]).filter(m=>m.line_group_id===cfg.line_group_id && itemsByMessage.has(m.id));
+      let received=0;let special=0;const specialCodeMap=new Map();
+      const ledger=groupMessages.map((message,index)=>{
+        const msgItems=itemsByMessage.get(message.id)??[];
+        const qty=msgItems.reduce((s,x)=>s+Number(x.quantity),0);received+=qty;
+        const specialDetails=[];
+        for(const item of msgItems){
+          const key=`${item.category}|${item.code}`;
+          if(!actualSet.has(key)) continue;
+          const base=profileMap.get(item.category)??0;
+          const factor=promoMap.get(key)??100;
+          const multiplier=effectiveMultiplier(base,factor);
+          const points=round2(Number(item.quantity)*multiplier);
+          special+=points;
+          const prev=specialCodeMap.get(key)??{category:item.category,code:item.code,quantity:0,multiplier,promotion_factor_pct:factor,points:0};
+          prev.quantity+=Number(item.quantity);prev.points=round2(prev.points+points);specialCodeMap.set(key,prev);
+          specialDetails.push({category:item.category,code:item.code,quantity:Number(item.quantity),multiplier,promotion_factor_pct:factor,points});
         }
-        return { sequence:index + 1, event_timestamp:message.event_timestamp, summary_quantity:qty, has_special_point:specialDetails.length>0, special_points:specialDetails };
+        return {sequence:index+1,event_timestamp:message.event_timestamp,summary_quantity:qty,has_special_point:specialDetails.length>0,special_points:specialDetails};
       });
-      const afterReduction = reducedQuantity(received, cfg.reduction_pct);
-      return {
-        ...cfg,
-        received_total: received,
-        after_reduction: afterReduction,
-        reduction_amount: Math.round((received-afterReduction)*100)/100,
-        special_point_total: special,
-        reconciliation_total: reconciliationTotal(received, cfg.reduction_pct, special),
-        message_count: ledger.length,
-        special_point_codes: [...specialCodeMap.values()].sort((a,b)=>a.category.localeCompare(b.category)||a.code.localeCompare(b.code)),
-        ledger,
-      };
+      special=round2(special);
+      const afterReduction=reducedQuantity(received,cfg.reduction_pct);
+      return {...cfg,received_total:received,after_reduction:afterReduction,reduction_amount:round2(received-afterReduction),special_point_total:special,reconciliation_total:reconciliationTotal(received,cfg.reduction_pct,special),message_count:groupMessages.length,special_point_codes:[...specialCodeMap.values()].sort((a,b)=>a.category.localeCompare(b.category)||a.code.localeCompare(b.code)),ledger};
     });
-    return json({ ok: true, session, special_point_rules: pointRules ?? [], groups });
-  } catch (error) {
-    console.error("accounting-report failed", error);
-    return json({ ok: false, error: error?.message ?? String(error) }, 500);
-  }
+
+    return json({ok:true,session,actual_point_status:statusResult.data??null,point_profiles:profiles,promotions,actual_special_codes:actualCodes,groups});
+  } catch(error){console.error("accounting-report failed",error);return json({ok:false,error:error?.message??String(error)},500);}
 };
-export const config = { path: "/api/accounting-report" };
+export const config={path:"/api/accounting-report"};

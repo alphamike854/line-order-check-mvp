@@ -9,6 +9,7 @@ import {
   validateAllocationRule,
   validateCategoryAlias,
   validateLineGroup,
+  validatePointProfile,
   validateSummaryGroup,
 } from "../../src/lib/settings-validation.mjs";
 
@@ -74,6 +75,16 @@ async function saveAllocationRule(values) {
   return data;
 }
 
+
+async function savePointProfile(values) {
+  const row = validatePointProfile(values);
+  const before = await maybeSingle("point_category_profiles", { category: row.category });
+  const { data, error } = await supabase.from("point_category_profiles").upsert(row, { onConflict: "category" }).select("*").single();
+  if (error) throw error;
+  await writeSettingsAudit({ entityType: "POINT_PROFILE", entityKey: row.category, beforeData: before, afterData: data, changedBy: OPERATOR });
+  return data;
+}
+
 async function saveAlias(values) {
   const row = validateCategoryAlias(values);
   const before = await maybeSingle("category_aliases", { alias: row.alias });
@@ -102,6 +113,7 @@ export default async (req) => {
     else if (entity === "LINE_GROUP") saved = await saveLineGroup(body.values);
     else if (entity === "ALLOCATION_RULE") saved = await saveAllocationRule(body.values);
     else if (entity === "CATEGORY_ALIAS") saved = await saveAlias(body.values);
+    else if (entity === "POINT_PROFILE") saved = await savePointProfile(body.values);
     else return json({ ok: false, error: "INVALID_SETTINGS_ENTITY" }, 400);
 
     return json({ ok: true, entity, saved });

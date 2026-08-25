@@ -51,3 +51,12 @@ export function validateCategoryAlias(input = {}) {
   if (!alias || alias.length > 32) throw new Error("INVALID_ALIAS");
   return { alias, canonical_category, enabled: normalizeBoolean(input.enabled, true) };
 }
+
+export function validatePointProfile(input = {}) {
+  const category = normalizeCategory(input.category);
+  const special_multiplier = Number(input.special_multiplier);
+  const max_special_codes = Number(input.max_special_codes);
+  if (!Number.isFinite(special_multiplier) || special_multiplier <= 0 || special_multiplier > 1000000) throw new Error("INVALID_POINT_MULTIPLIER");
+  if (!Number.isInteger(max_special_codes) || max_special_codes <= 0 || max_special_codes > 100) throw new Error("INVALID_POINT_CODE_LIMIT");
+  return { category, special_multiplier, max_special_codes, updated_at: new Date().toISOString() };
+}
