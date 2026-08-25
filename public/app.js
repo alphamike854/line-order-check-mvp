@@ -67,7 +67,9 @@ function aliasTargetLabel(value) {
   const labels = {
     A: "หมวด A",
     B: "หมวด B",
+    AB: "A+B",
     C: "กลับรหัส",
+    ABC: "A+B+กลับ",
     D: "ชุดหลักสิบ",
     E: "หมวด E",
     F: "หมวด F",

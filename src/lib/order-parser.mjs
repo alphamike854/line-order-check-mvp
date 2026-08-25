@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.1.0";
+const PARSER_VERSION = "1.2.0";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -23,7 +23,12 @@ const DEFAULT_CONFIG = {
     "F": "F",
     "G": "G",
     "DOUBLE": "DOUBLE",
-    "น": "A"
+    "น": "A",
+    "บล": "AB",
+    "ก": "C",
+    "บลก": "ABC",
+    "รูด": "D",
+    "รูดเบิ้ล": "DOUBLE"
   },
   defaultCategoryByCodeLength: {
     2: "A",
@@ -128,10 +133,13 @@ function dedupeCodes(codes) {
   return [...new Set(codes)];
 }
 
-function emitTwoDigitGroup(acc, codes, quantitySpec, modifier) {
+function emitTwoDigitGroup(acc, codes, quantitySpec, modifier, options = {}) {
   let finalCodes = dedupeCodes(codes);
   if (modifier.reverse) {
     finalCodes = dedupeCodes(finalCodes.concat(finalCodes.map(reverseCode)));
+  }
+  if (options.excludeDoubles) {
+    finalCodes = finalCodes.filter((code) => !(code.length === 2 && code[0] === code[1]));
   }
 
   const categories = modifier.categories;
@@ -182,6 +190,8 @@ function modifierFromToken(token, cfg) {
   if (t === "C") return { categories: [], reverse: true };
 
   const resolved = resolveAlias(raw, cfg);
+  if (resolved === "ABC") return { categories: ["A", "B"], reverse: true };
+  if (resolved === "AB") return { categories: ["A", "B"], reverse: false };
   if (resolved === "A") return { categories: ["A"], reverse: false };
   if (resolved === "B") return { categories: ["B"], reverse: false };
   if (resolved === "C") return { categories: [], reverse: true };
@@ -400,6 +410,87 @@ function parseThreeDigitLine(line, cfg, acc, rules, errors) {
   return true;
 }
 
+
+function stripExcludeDoublePhrase(text) {
+  const raw = String(text || "");
+  const pattern = /(?:\(\s*)?(ไม่เอาเบิ้ล|ไม่เบิ้ล)(?:\s*\))?/giu;
+  const excludeDoubles = pattern.test(raw);
+  pattern.lastIndex = 0;
+  return {
+    text: raw.replace(pattern, " ").replace(/\s+/g, " ").trim(),
+    excludeDoubles,
+  };
+}
+
+function matchLeadingAlias(text, cfg, target, { includeCanonical = true } = {}) {
+  const raw = String(text || "").trim();
+  const candidates = aliasesForTarget(cfg, target).slice();
+  if (includeCanonical && !candidates.some((x) => normalizeLatin(x) === target)) {
+    candidates.push(target);
+  }
+  candidates.sort((a, b) => b.length - a.length);
+
+  for (const alias of candidates) {
+    const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = raw.match(new RegExp(`^${escaped}(?=$|\\s|[-=0-9])`, "iu"));
+    if (!match) continue;
+    return { alias: match[0], remainder: raw.slice(match[0].length).trim() };
+  }
+  return null;
+}
+
+function parseSweepTwoDigitLine(line, cfg, acc, rules) {
+  const t = stripPoliteWords(normalizeLatin(line.trim()));
+  const excluded = stripExcludeDoublePhrase(t);
+  const clean = excluded.text;
+
+  // Longest/specific generator first: "รูดเบิ้ล" must never be consumed as "รูด".
+  const doubleLead = matchLeadingAlias(clean, cfg, "DOUBLE");
+  if (doubleLead) {
+    const m = doubleLead.remainder.match(/^[\s]*[-=]?[\s]*(\d+(?:\s*[xX*\/]\s*\d+)?)(?:\s+(.*))?$/u);
+    if (!m) return false;
+    const quantitySpec = parseQuantityExpression(m[1]);
+    if (!quantitySpec) return false;
+    let modifier = m[2] ? modifierFromExpression(m[2], cfg) : null;
+    if (m[2] && !modifier) return false;
+    if (!modifier || !(modifier.categories || []).length) {
+      modifier = quantitySpec.type === "PAIR"
+        ? mergeModifiers(modifier, { categories: ["A", "B"], reverse: false })
+        : mergeModifiers(modifier, { categories: [cfg.defaultCategoryByCodeLength[2] || "A"], reverse: false });
+    }
+    const codes = Array.from({ length: 10 }, (_, i) => `${i}${i}`);
+    emitTwoDigitGroup(acc, codes, quantitySpec, modifier, { excludeDoubles: excluded.excludeDoubles });
+    rules.add("R_SWEEP_DOUBLE_SET");
+    if (modifier.reverse) rules.add("R_REVERSE");
+    if (excluded.excludeDoubles) rules.add("R_EXCLUDE_DOUBLE");
+    return true;
+  }
+
+  const decadeLead = matchLeadingAlias(clean, cfg, "D");
+  if (!decadeLead) return false;
+
+  // Natural chat grammar: รูด 1-300 บล / รูด 0-500 บลก (ไม่เอาเบิ้ล)
+  const m = decadeLead.remainder.match(/^([0-9])\s*[-=]\s*(\d+(?:\s*[xX*\/]\s*\d+)?)(?:\s+(.*))?$/u);
+  if (!m) return false;
+  const decadeDigit = m[1];
+  const quantitySpec = parseQuantityExpression(m[2]);
+  if (!quantitySpec) return false;
+  let modifier = m[3] ? modifierFromExpression(m[3], cfg) : null;
+  if (m[3] && !modifier) return false;
+  if (!modifier || !(modifier.categories || []).length) {
+    modifier = quantitySpec.type === "PAIR"
+      ? mergeModifiers(modifier, { categories: ["A", "B"], reverse: false })
+      : mergeModifiers(modifier, { categories: [cfg.defaultCategoryByCodeLength[2] || "A"], reverse: false });
+  }
+
+  const codes = Array.from({ length: 10 }, (_, i) => `${decadeDigit}${i}`);
+  emitTwoDigitGroup(acc, codes, quantitySpec, modifier, { excludeDoubles: excluded.excludeDoubles });
+  rules.add("R_SWEEP_DECADE_SET");
+  if (modifier.reverse) rules.add("R_REVERSE");
+  if (excluded.excludeDoubles) rules.add("R_EXCLUDE_DOUBLE");
+  return true;
+}
+
 function parseSpecialTwoDigitLine(line, cfg, acc, rules, errors) {
   const t = stripPoliteWords(normalizeLatin(line.trim()));
   const eqIndex = t.indexOf("=");
@@ -496,7 +587,11 @@ function parseTwoDigitSegment(segment, cfg, acc, rules, warnings, errors) {
     // Skip checksum line here; checksum handled at higher level.
     if (/^รวม\s+[A-Zก-๙]+\s+\d+$/iu.test(line)) continue;
 
-    // Complete special expressions.
+    // Natural sweep shorthand and complete special expressions.
+    if (parseSweepTwoDigitLine(line, cfg, acc, rules)) {
+      pendingCodes = [];
+      continue;
+    }
     if (parseSpecialTwoDigitLine(line, cfg, acc, rules, errors)) {
       pendingCodes = [];
       continue;
