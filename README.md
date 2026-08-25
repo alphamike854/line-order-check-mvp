@@ -133,3 +133,10 @@ See `DASHBOARD_SETUP.md` for deployment and testing steps.
 ## Dashboard v6 — Risk-based allocation
 
 Migrations `007` + `008` add settlement reset, Point Reserve, Promotion factors, category/overall Safe Capacity, actual Point codes for final accounting, 4-column Order Board, and atomic risk-based warehouse transfer batches. See `DASHBOARD_V6_SETUP.md`.
+
+## v6.3 — Friendly already-open settlement recovery
+Duplicate/open-race requests no longer expose `SETTLEMENT_ALREADY_OPEN` directly to the operator. The dashboard refreshes the active settlement, shows a Thai explanation, and focuses the current settlement panel. No database migration is required.
+
+### Dashboard v6.4 — simplified allocation workflow
+
+The cut/transfer screen now presents only three operator steps: see how much can still be cut, choose codes/quantities, then preview and confirm. A/B are prioritized in the UI, while E/F/G are secondary. Risk/Safe Capacity technical detail remains auditable under an expandable calculation detail. No database migration is required.

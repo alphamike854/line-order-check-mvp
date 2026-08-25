@@ -101,18 +101,30 @@
       </section>
 
       <section id="allocationTab" class="tab-panel panel hidden">
-        <div class="section-heading">
-          <div><h2>ตัดยอดอย่างปลอดภัย</h2><p class="muted">ใช้ยอดหลังหัก % และ Point Reserve/Point จริงเป็น Safe Capacity กลางของกลุ่ม เลือกรหัสและจำนวนที่จะส่งคลังได้โดยไม่เกินระดับปลอดภัย</p></div>
+        <div class="section-heading allocation-title">
+          <div><h2>ตัดยอด</h2><p class="muted">ทำเพียง 3 ขั้นตอน: ดูว่าตัดเพิ่มได้เท่าไร → เลือกรหัสและจำนวน → ตรวจสอบก่อนยืนยัน</p></div>
+        </div>
+        <div class="allocation-steps" aria-label="ขั้นตอนการตัดยอด">
+          <div class="allocation-step"><span>1</span><strong>ดูยอดที่ตัดได้</strong></div>
+          <div class="allocation-step"><span>2</span><strong>เลือกรหัส + จำนวน</strong></div>
+          <div class="allocation-step"><span>3</span><strong>ตรวจสอบ + ยืนยัน</strong></div>
         </div>
         <div id="allocationRiskSummary" class="risk-summary"></div>
         <div id="allocationBoard" class="allocation-board"></div>
-        <section class="transfer-builder">
-          <div class="transfer-builder-head"><div><h3>เตรียมส่งคลัง</h3><p id="transferSelectionSummary" class="muted">ยังไม่ได้เลือกรหัส</p></div><label>คลัง/ปลายทาง<input id="transferDestination" placeholder="เช่น คลัง 2" /></label></div>
-          <div class="form-actions"><button id="clearTransferSelectionButton" class="button ghost" type="button">ล้างรายการ</button><button id="previewTransferButton" class="button primary" type="button">ตรวจและเตรียมส่ง</button></div>
+        <section id="transferBuilder" class="transfer-builder">
+          <div class="transfer-builder-head">
+            <div><div class="step-kicker">ขั้นตอน 2</div><h3>เลือกคลังปลายทาง</h3><p class="muted">ระบบจะตรวจยอดปลอดภัยอีกครั้งก่อนให้ยืนยันจริง</p></div>
+            <label>คลัง/ปลายทาง<input id="transferDestination" placeholder="เช่น คลัง 2" /></label>
+          </div>
+          <div id="transferSelectionSummary" class="transfer-selection-bar">ยังไม่ได้เลือกรหัส</div>
+          <div class="form-actions"><button id="clearTransferSelectionButton" class="button ghost" type="button">ล้างรายการ</button><button id="previewTransferButton" class="button primary" type="button">ตรวจสอบก่อนยืนยัน</button></div>
           <div id="transferPreview" class="transfer-preview"></div>
         </section>
-        <div class="section-heading subheading"><div><h3>ประวัติรอบส่ง</h3><p class="muted">แสดงรายละเอียดแบบรวม A/B เช่น AB 01=100*100 พร้อม Safe Capacity ณ เวลายืนยัน</p></div><button id="reloadAllocationHistoryButton" class="button ghost small">โหลดประวัติใหม่</button></div>
-        <div id="allocationHistoryList" class="transfer-history"></div>
+        <details class="allocation-history-details">
+          <summary>ดูประวัติการตัดยอดในชุดนี้</summary>
+          <div class="section-heading subheading"><div><h3>ประวัติรอบส่ง</h3><p class="muted">ใช้สำหรับตรวจย้อนหลัง ไม่จำเป็นต้องเปิดระหว่างทำรายการปกติ</p></div><button id="reloadAllocationHistoryButton" class="button ghost small">โหลดประวัติใหม่</button></div>
+          <div id="allocationHistoryList" class="transfer-history"></div>
+        </details>
       </section>
 
       <section id="pointsTab" class="tab-panel panel hidden">

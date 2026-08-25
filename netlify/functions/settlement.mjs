@@ -48,9 +48,35 @@ export default async (req) => {
     if (action === "OPEN") {
       const businessDate = String(body.business_date ?? "");
       if (!/^\d{4}-\d{2}-\d{2}$/.test(businessDate)) return json({ ok: false, error: "INVALID_BUSINESS_DATE" }, 400);
+
+      // Fast path for a stale browser tab. The database RPC remains the final
+      // concurrency guard, but returning the current session here lets the UI
+      // recover without exposing a technical error code to the operator.
+      const beforeOpen = await getPayload();
+      if (beforeOpen.open_session?.id) {
+        return json({
+          ok: false,
+          error: "SETTLEMENT_ALREADY_OPEN",
+          user_message: "มียอดที่กำลังเปิดใช้งานอยู่ กรุณาปิดยอดปัจจุบันก่อนเปิดยอดใหม่",
+          current_open_session: beforeOpen.open_session,
+        }, 409);
+      }
+
       const promotions = Array.isArray(body.promotions) ? body.promotions : [];
       const { data, error } = await supabase.rpc("open_settlement_session", { p_business_date: businessDate, p_promotions: promotions, p_opened_by: OPERATOR });
-      if (error) { const [status, code] = mapError(error.message); return json({ ok: false, error: code }, status); }
+      if (error) {
+        const [status, code] = mapError(error.message);
+        if (code === "SETTLEMENT_ALREADY_OPEN") {
+          const current = await getPayload();
+          return json({
+            ok: false,
+            error: code,
+            user_message: "มียอดที่กำลังเปิดใช้งานอยู่ กรุณาปิดยอดปัจจุบันก่อนเปิดยอดใหม่",
+            current_open_session: current.open_session ?? null,
+          }, status);
+        }
+        return json({ ok: false, error: code }, status);
+      }
       return json({ ok: true, settlement_session_id: data, ...(await getPayload()) });
     }
     if (action === "CLOSE") {

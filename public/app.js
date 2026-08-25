@@ -271,16 +271,26 @@ function selectedTransferItems() {
   return $$(".cut-qty").map((input) => ({ category: input.dataset.category, code: input.dataset.code, quantity: Number(input.value || 0) })).filter((x) => Number.isSafeInteger(x.quantity) && x.quantity > 0);
 }
 
-function updateTransferSelectionSummary() {
+function updateTransferSelectionSummary(invalidatePreview = true) {
   const items = selectedTransferItems();
-  const total = items.reduce((s, i) => s + i.quantity, 0);
+  const total = items.reduce((sum, item) => sum + item.quantity, 0);
   const overall = overallRiskFor(summaryGroupSelect.value);
-  const remaining = Number(overall?.remaining_safe_capacity || 0);
+  const remaining = Math.max(0, Number(overall?.remaining_safe_capacity || 0));
+  const after = Math.max(0, remaining - total);
+  const over = Math.max(0, total - remaining);
   const el = $("#transferSelectionSummary");
-  if (!items.length) el.textContent = `ยังไม่ได้เลือกรหัส · Safe Capacity คงเหลือ ${formatNumber(remaining)}`;
-  else el.textContent = `เลือก ${formatNumber(items.length)} รหัส · รวม ${formatNumber(total)} / Safe ${formatNumber(remaining)}${total > remaining ? ` · เกิน ${formatNumber(total - remaining)}` : ""}`;
-  $("#previewTransferButton").disabled = !items.length || total > remaining || state.dashboardStale;
-  clearTransferPreview();
+  if (!items.length) {
+    el.className = "transfer-selection-bar";
+    el.innerHTML = `<span>ยังไม่ได้เลือกรหัส</span><strong>ตัดเพิ่มได้อีก ${formatNumber(remaining)}</strong>`;
+  } else if (over > 0) {
+    el.className = "transfer-selection-bar over";
+    el.innerHTML = `<span>เลือกแล้ว ${formatNumber(total)} จาก ${formatNumber(items.length)} รหัส</span><strong>เกินยอดปลอดภัย ${formatNumber(over)}</strong>`;
+  } else {
+    el.className = "transfer-selection-bar ready";
+    el.innerHTML = `<span>เลือกแล้ว ${formatNumber(total)} จาก ${formatNumber(items.length)} รหัส</span><strong>หลังรายการจะตัดได้อีก ${formatNumber(after)}</strong>`;
+  }
+  $("#previewTransferButton").disabled = !items.length || over > 0 || state.dashboardStale;
+  if (invalidatePreview) clearTransferPreview();
 }
 
 function renderAllocation() {
@@ -288,33 +298,81 @@ function renderAllocation() {
   const board = $("#allocationBoard");
   const groupId = summaryGroupSelect.value;
   if (!state.dashboard?.settlement_session) {
-    riskSummary.innerHTML = ""; board.innerHTML = `<div class="empty">ยังไม่ได้เปิดยอด</div>`; return;
+    riskSummary.innerHTML = "";
+    board.innerHTML = `<div class="empty">ยังไม่ได้เปิดยอด</div>`;
+    return;
   }
   if (!groupId || groupId === "ALL") {
-    riskSummary.innerHTML = `<div class="risk-notice">เลือก <strong>กลุ่มสรุป</strong> ด้านบนก่อนตัดยอด เพราะ Safe Capacity คำนวณแยกแต่ละกลุ่ม</div>`;
-    board.innerHTML = ""; return;
+    riskSummary.innerHTML = `<div class="risk-notice">ก่อนตัดยอด ให้เลือก <strong>กลุ่มสรุป</strong> ด้านบน 1 กลุ่ม</div>`;
+    board.innerHTML = "";
+    return;
   }
   const overall = overallRiskFor(groupId);
   if (!overall) {
-    riskSummary.innerHTML = `<div class="risk-notice">${escapeHtml(groupName(groupId))} ยังไม่มีออเดอร์</div>`; board.innerHTML = ""; return;
+    riskSummary.innerHTML = `<div class="risk-notice">${escapeHtml(groupName(groupId))} ยังไม่มีออเดอร์สำหรับตัดยอด</div>`;
+    board.innerHTML = "";
+    return;
   }
-  riskSummary.innerHTML = `<div class="risk-summary-card ${riskClass(overall.risk_pct)}">
-    <div><span>โหมด</span><strong>${overall.risk_mode === "ACTUAL" ? "Point จริง" : "Point Reserve"}</strong></div>
-    <div><span>ยอดหลังหัก %</span><strong>${formatNumber(overall.adjusted_received)}</strong></div>
-    <div><span>${overall.risk_mode === "ACTUAL" ? "Point พิเศษจริง" : "Point Reserve"}</span><strong>${formatNumber(overall.risk_point_total)}</strong></div>
-    <div><span>Safe Capacity</span><strong>${formatNumber(overall.net_safe_capacity)}</strong></div>
-    <div><span>ตัดแล้ว</span><strong>${formatNumber(overall.confirmed_cut_total)}</strong></div>
-    <div><span>ยังตัดได้</span><strong>${formatNumber(overall.remaining_safe_capacity)}</strong></div>
-    <div><span>Risk</span><strong>${formatNumber(overall.risk_pct)}%</strong></div>
-    ${Number(overall.over_safe_amount) > 0 ? `<div class="risk-over"><span>เกินระดับปลอดภัย</span><strong>${formatNumber(overall.over_safe_amount)}</strong></div>` : ""}
-  </div>`;
-  const rows = (state.dashboard.risk_codes || []).filter((r) => r.summary_group_id === groupId && Number(r.order_total) > 0 && Number(r.available_to_cut) > 0);
-  const renderCutColumn = (category) => {
-    const list = rows.filter((r) => r.category === category).sort((a,b)=>Number(b.order_total)-Number(a.order_total)||a.code.localeCompare(b.code));
-    return `<section class="cut-column"><h3>${category}</h3>${list.length ? list.map((row)=>`<label class="cut-row ${row.actual_special_point?"actual":""} ${row.reserve_candidate?"reserve":""}"><div><strong>${category}${escapeHtml(row.code)}</strong><span>รับ ${formatNumber(row.order_total)} · ตัดแล้ว ${formatNumber(row.confirmed_cut)}</span></div><input class="cut-qty" data-category="${category}" data-code="${escapeHtml(row.code)}" type="number" min="0" max="${escapeHtml(row.available_to_cut)}" step="1" value="0" aria-label="จำนวนตัด ${category}${escapeHtml(row.code)}" />${row.actual_special_point?`<em>★ Point</em>`:row.reserve_candidate?`<em>Reserve #${formatNumber(row.reserve_rank)}</em>`:""}</label>`).join("") : `<div class="muted small-text">ไม่มีรหัสที่ตัดได้</div>`}</section>`;
+
+  const rawRemaining = Number(overall.remaining_safe_capacity || 0);
+  const remaining = Math.max(0, rawRemaining);
+  const overSafe = Number(overall.over_safe_amount || 0);
+  const pointLabel = overall.risk_mode === "ACTUAL" ? "Point พิเศษจริง" : "Point สำรอง";
+  riskSummary.innerHTML = `<section class="cut-capacity-card ${overSafe > 0 || rawRemaining <= 0 ? "blocked" : ""}">
+    <div class="capacity-main">
+      <span>ขั้นตอน 1 · ${escapeHtml(groupName(groupId))}</span>
+      <strong>${formatNumber(remaining)}</strong>
+      <b>ตัดเพิ่มได้อีก</b>
+      ${overSafe > 0 ? `<em>ตัดไปแล้วเกินระดับปลอดภัยปัจจุบัน ${formatNumber(overSafe)} — งดตัดเพิ่ม</em>` : rawRemaining <= 0 ? `<em>ขณะนี้ยังไม่มียอดที่ปลอดภัยสำหรับตัดเพิ่ม</em>` : `<em>เลือกยอดรวมได้ไม่เกินจำนวนนี้</em>`}
+    </div>
+    <details class="capacity-details">
+      <summary>ดูที่มาของยอดที่ตัดได้</summary>
+      <div class="capacity-detail-grid">
+        <div><span>ยอดหลังหัก %</span><strong>${formatNumber(overall.adjusted_received)}</strong></div>
+        <div><span>${pointLabel}</span><strong>${formatNumber(overall.risk_point_total)}</strong></div>
+        <div><span>ยอดปลอดภัยก่อนตัด</span><strong>${formatNumber(overall.net_safe_capacity)}</strong></div>
+        <div><span>ตัดไปแล้ว</span><strong>${formatNumber(overall.confirmed_cut_total)}</strong></div>
+        <div><span>ความเสี่ยง</span><strong>${formatNumber(overall.risk_pct)}%</strong></div>
+        <div><span>วิธีคำนวณ</span><strong>${overall.risk_mode === "ACTUAL" ? "Point จริง" : "Point Reserve"}</strong></div>
+      </div>
+    </details>
+  </section>`;
+
+  const rows = (state.dashboard.risk_codes || [])
+    .filter((row) => row.summary_group_id === groupId && Number(row.order_total) > 0 && Number(row.available_to_cut) > 0);
+
+  const renderCutRows = (category) => {
+    const list = rows
+      .filter((row) => row.category === category)
+      .sort((a,b) => Number(b.order_total)-Number(a.order_total) || a.code.localeCompare(b.code));
+    if (!list.length) return `<div class="muted small-text cut-empty">ไม่มีรหัสที่ตัดได้</div>`;
+    return list.map((row) => {
+      const max = Math.max(0, Number(row.available_to_cut || 0));
+      const badge = row.actual_special_point
+        ? `<em class="cut-point-note">★ Point พิเศษ</em>`
+        : row.reserve_candidate
+          ? `<em class="cut-point-note">Point Reserve #${formatNumber(row.reserve_rank)}</em>`
+          : "";
+      return `<label class="cut-row-simple ${row.actual_special_point ? "actual" : ""} ${row.reserve_candidate ? "reserve" : ""}">
+        <div class="cut-code-info"><strong>${category}${escapeHtml(row.code)}</strong><span>ออเดอร์ ${formatNumber(row.order_total)} · ตัดได้สูงสุด ${formatNumber(max)}</span>${badge}</div>
+        <div class="cut-input-wrap"><span>จำนวนตัด</span><input class="cut-qty" data-category="${category}" data-code="${escapeHtml(row.code)}" type="number" min="0" max="${escapeHtml(max)}" step="1" value="0" inputmode="numeric" aria-label="จำนวนตัด ${category}${escapeHtml(row.code)}" /></div>
+      </label>`;
+    }).join("");
   };
-  board.innerHTML = `<div class="four-column-cut">${["A","B","E","F"].map(renderCutColumn).join("")}</div>${rows.some(r=>r.category==="G")?`<div class="g-cut"><h3>G</h3>${rows.filter(r=>r.category==="G").map((row)=>`<label class="cut-row"><div><strong>G${escapeHtml(row.code)}</strong><span>รับ ${formatNumber(row.order_total)} · ตัดแล้ว ${formatNumber(row.confirmed_cut)}</span></div><input class="cut-qty" data-category="G" data-code="${escapeHtml(row.code)}" type="number" min="0" max="${escapeHtml(row.available_to_cut)}" step="1" value="0" /></label>`).join("")}</div>`:""}`;
-  $$(".cut-qty").forEach((input)=>input.addEventListener("input",()=>{const max=Number(input.max||0);let value=Number(input.value||0);if(value<0)value=0;if(value>max)value=max;input.value=String(Math.floor(value));updateTransferSelectionSummary();}));
+
+  const primary = `<section class="cut-primary-section"><div class="cut-section-head"><div><span class="step-kicker">ขั้นตอน 2</span><h3>เลือกรหัสและจำนวนที่จะตัด</h3></div><span>A / B เป็นหมวดหลัก</span></div><div class="cut-primary-grid"><section class="cut-category-card"><h3>A</h3>${renderCutRows("A")}</section><section class="cut-category-card"><h3>B</h3>${renderCutRows("B")}</section></div></section>`;
+  const secondaryHasRows = ["E","F","G"].some((category) => rows.some((row) => row.category === category));
+  const secondary = secondaryHasRows ? `<details class="cut-secondary-section"><summary>หมวดอื่น E / F / G</summary><div class="cut-secondary-grid">${["E","F","G"].map((category)=>`<section class="cut-category-card"><h3>${category}</h3>${renderCutRows(category)}</section>`).join("")}</div></details>` : "";
+  board.innerHTML = rawRemaining <= 0 ? `<div class="risk-notice">ยังไม่สามารถตัดยอดเพิ่มได้ ระบบจะแสดงรายการให้เลือกเมื่อยอดปลอดภัยกลับมาเป็นบวก</div>` : `${primary}${secondary}`;
+
+  $$(".cut-qty").forEach((input) => input.addEventListener("input", () => {
+    const max = Number(input.max || 0);
+    let value = Number(input.value || 0);
+    if (!Number.isFinite(value) || value < 0) value = 0;
+    if (value > max) value = max;
+    input.value = String(Math.floor(value));
+    updateTransferSelectionSummary();
+  }));
   updateTransferSelectionSummary();
 }
 
@@ -329,23 +387,25 @@ async function previewRiskTransfer() {
   try {
     const payload = await api("/api/risk-transfer-preview", {method:"POST",body:JSON.stringify({summary_group_id:groupId,destination,items})});
     state.transferPreview = payload;
-    $("#transferPreview").innerHTML = `<div class="preview-box ok"><div class="preview-heading"><strong>เตรียมส่ง → ${escapeHtml(destination)}</strong></div><div class="transfer-lines">${payload.lines.map((line)=>`<div>${escapeHtml(line)}</div>`).join("")}</div><div class="preview-summary">รวม ${formatNumber(payload.cut_total)} · Safe ก่อนยืนยัน ${formatNumber(payload.risk_snapshot.remaining_safe_capacity)}</div><button class="button primary risk-transfer-confirm">ยืนยันส่งคลัง</button></div>`;
+    const safeBefore = Number(payload.risk_snapshot.remaining_safe_capacity || 0);
+    const safeAfter = Math.max(0, safeBefore - Number(payload.cut_total || 0));
+    $("#transferPreview").innerHTML = `<div class="preview-box ok transfer-confirm-card"><div class="step-kicker">ขั้นตอน 3</div><div class="preview-heading"><strong>ตรวจสอบก่อนยืนยัน</strong><span>ปลายทาง ${escapeHtml(destination)}</span></div><div class="transfer-lines">${payload.lines.map((line)=>`<div>${escapeHtml(line)}</div>`).join("")}</div><div class="confirm-totals"><div><span>ตัดได้ก่อนรายการ</span><strong>${formatNumber(safeBefore)}</strong></div><div><span>รายการนี้</span><strong>${formatNumber(payload.cut_total)}</strong></div><div><span>คงเหลือหลังรายการ</span><strong>${formatNumber(safeAfter)}</strong></div></div><button class="button primary risk-transfer-confirm">ยืนยันตัดยอด</button></div>`;
     $(".risk-transfer-confirm").addEventListener("click", confirmRiskTransfer);
   } catch(error) {
     if (["RISK_STATE_STALE","TRANSFER_EXCEEDS_SAFE_CAPACITY","TRANSFER_EXCEEDS_CODE_AVAILABLE"].includes(error.message)) setDashboardStale(true);
     toast(`ตรวจรายการไม่สำเร็จ: ${error.message}`, true);
-  } finally { updateTransferSelectionSummary(); }
+  } finally { updateTransferSelectionSummary(false); }
 }
 
 async function confirmRiskTransfer() {
   const preview=state.transferPreview;
   if(!preview?.confirmation_token) return toast("กรุณาตรวจรายการใหม่",true);
   if(state.dashboardStale) return toast("ข้อมูลเปลี่ยนแล้ว กรุณาอัปเดต",true);
-  if(!window.confirm(`ยืนยันส่งคลังจำนวนรวม ${formatNumber(preview.cut_total)}?\n\n${preview.lines.join("\n")}`)) return;
+  if(!window.confirm(`ยืนยันตัดยอดจำนวนรวม ${formatNumber(preview.cut_total)}?\n\n${preview.lines.join("\n")}`)) return;
   const button=$(".risk-transfer-confirm");if(button)button.disabled=true;
   try{
     const payload=await api("/api/risk-transfer-confirm",{method:"POST",body:JSON.stringify({confirmation_token:preview.confirmation_token})});
-    toast(`ยืนยันรอบส่ง #${formatNumber(payload.batch?.batch_number)} จำนวน ${formatNumber(payload.batch?.cut_total)} แล้ว`);
+    toast(`ตัดยอดสำเร็จ ${formatNumber(payload.batch?.cut_total)} · รอบ #${formatNumber(payload.batch?.batch_number)}`);
     clearTransferSelection();
     await loadDashboard(); await loadAllocationHistory();
   }catch(error){
@@ -703,12 +763,40 @@ async function loadSettlement() {
   return payload;
 }
 
+function focusCurrentSettlement() {
+  const panel = $("#settlementPanel");
+  if (!panel) return;
+  panel.classList.remove("settlement-attention");
+  // Force a reflow so repeated conflict recovery replays the highlight.
+  void panel.offsetWidth;
+  panel.classList.add("settlement-attention");
+  panel.scrollIntoView({ behavior: "smooth", block: "start" });
+  setTimeout(() => panel.classList.remove("settlement-attention"), 1800);
+}
+
+async function recoverAlreadyOpenSettlement(error = null) {
+  try {
+    await loadSettlement();
+    await loadDashboard();
+  } catch (reloadError) {
+    console.warn("failed to refresh current settlement after open conflict", reloadError);
+  }
+  const open = state.settlement?.open_session || error?.payload?.current_open_session || null;
+  const dateText = open?.business_date ? ` (${open.business_date})` : "";
+  toast(`มียอดที่กำลังเปิดใช้งานอยู่${dateText} กรุณาปิดยอดปัจจุบันก่อนเปิดยอดใหม่`, true);
+  focusCurrentSettlement();
+}
+
 async function openSettlement() {
+  if (state.settlement?.open_session) {
+    await recoverAlreadyOpenSettlement();
+    return;
+  }
   const date=businessDateInput.value||todayBangkok();
   if(!window.confirm(`เปิดยอดใหม่วันที่ ${date}?\nยอดรับ, Safe Capacity, การตัดยอด และลำดับข้อความจะเริ่มจาก 0`))return;
   $("#openSettlementButton").disabled=true;
   try{await api("/api/settlement",{method:"POST",body:JSON.stringify({action:"OPEN",business_date:date,promotions:state.promotionDrafts})});state.promotionDrafts=[];renderPromotionDrafts();toast("เปิดยอดใหม่แล้ว เริ่มนับจาก 0");await loadSettlement();await loadDashboard();}
-  catch(error){toast(`เปิดยอดไม่สำเร็จ: ${error.message}`,true);}finally{$("#openSettlementButton").disabled=false;}
+  catch(error){if(error.message==="SETTLEMENT_ALREADY_OPEN")await recoverAlreadyOpenSettlement(error);else toast(`เปิดยอดไม่สำเร็จ: ${error.payload?.user_message||error.message}`,true);}finally{$("#openSettlementButton").disabled=false;}
 }
 
 async function closeSettlement() {
