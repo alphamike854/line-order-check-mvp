@@ -16,6 +16,7 @@ const state = {
   specialPointPromotions: [],
   promotionDrafts: [],
   transferPreview: null,
+  bulkDistributionPreview: null,
   transferDestination: "",
 };
 
@@ -115,7 +116,9 @@ function setDashboardStale(stale) {
   if (banner) banner.classList.toggle("hidden", !state.dashboardStale);
   const confirm = $(".risk-transfer-confirm");
   if (confirm) confirm.disabled = state.dashboardStale;
-  if (state.dashboardStale) clearTransferPreview("ข้อมูลเปลี่ยนแล้ว กรุณาตรวจรายการใหม่ก่อนยืนยัน");
+  const bulkButton = $("#runBulkDistributionButton");
+  if (bulkButton && state.dashboardStale) bulkButton.disabled = true;
+  if (state.dashboardStale) clearTransferPreview("ข้อมูลเปลี่ยนแล้ว กรุณาอัปเดต Dashboard ก่อนกระจายยอด");
 }
 
 function stopFreshnessPolling() {
@@ -273,45 +276,123 @@ function renderSummary() {
 
 function clearTransferPreview(message = "") {
   state.transferPreview = null;
+  state.bulkDistributionPreview = null;
   const root = $("#transferPreview");
   if (!root) return;
   root.innerHTML = message ? `<div class="preview-box warn">${escapeHtml(message)}</div>` : "";
 }
 
-function selectedTransferItems() {
-  return $$(".cut-qty").map((input) => ({ category: input.dataset.category, code: input.dataset.code, quantity: Number(input.value || 0) })).filter((x) => Number.isSafeInteger(x.quantity) && x.quantity > 0);
+function recommendationMapFor(groupId) {
+  return new Map((distributionPlanFor(groupId)?.recommendations || []).map((row) => [`${row.category}|${row.code}`, row]));
 }
 
-function updateTransferSelectionSummary(invalidatePreview = true) {
-  const items = selectedTransferItems();
-  const total = items.reduce((sum, item) => sum + item.quantity, 0);
-  const groupId = summaryGroupSelect.value;
-  const plan = distributionPlanFor(groupId);
-  const required = Math.max(0, Number(plan?.transfer_required_total || 0));
-  const destination = $("#transferDestination").value.trim();
-  const warehouse = warehouseLimitFor(destination);
-  const limit = Number(warehouse?.max_batch_quantity || 0);
-  const overLimit = destination && warehouse ? Math.max(0, total - limit) : 0;
-  const el = $("#transferSelectionSummary");
+function selectedRecommendedCodes() {
+  return $$(".allocation-code-select:checked").map((input) => ({
+    category: input.dataset.category,
+    code: input.dataset.code,
+  }));
+}
 
-  if (!destination) {
-    el.className = "transfer-selection-bar";
-    el.innerHTML = `<span>เลือกคลังปลายทางก่อน</span><strong>ควรกระจาย ${formatNumber(required)}</strong>`;
-  } else if (!warehouse) {
-    el.className = "transfer-selection-bar over";
-    el.innerHTML = `<span>${escapeHtml(destination)}</span><strong>ยังไม่ได้ตั้งลิมิตคลัง</strong>`;
-  } else if (!items.length) {
-    el.className = "transfer-selection-bar";
-    el.innerHTML = `<span>${escapeHtml(destination)} · รอบนี้ได้สูงสุด ${formatNumber(limit)}</span><strong>ควรกระจาย ${formatNumber(required)}</strong>`;
-  } else if (overLimit > 0) {
-    el.className = "transfer-selection-bar over";
-    el.innerHTML = `<span>เลือกแล้ว ${formatNumber(total)} · ลิมิตรอบนี้ ${formatNumber(limit)}</span><strong>เกินลิมิต ${formatNumber(overLimit)}</strong>`;
-  } else {
-    const approxRemaining = Math.max(0, required - total);
-    el.className = "transfer-selection-bar ready";
-    el.innerHTML = `<span>รอบนี้ ${formatNumber(total)} / ${formatNumber(limit)} · ${formatNumber(items.length)} รหัส</span><strong>จากแผนปัจจุบันเหลือประมาณ ${formatNumber(approxRemaining)}</strong>`;
+function selectedWarehouseNames() {
+  return $$(".warehouse-choice-input:checked").map((input) => input.value);
+}
+
+function setRecommendedSelection(checked) {
+  $$(".allocation-code-select").forEach((input) => { input.checked = checked; });
+  updateBulkDistributionSummary(true);
+}
+
+function persistWarehouseSelection() {
+  const selected = selectedWarehouseNames();
+  sessionStorage.setItem("lineOrderDistributionWarehouses", JSON.stringify(selected));
+}
+
+function savedWarehouseSelection(warehouses) {
+  let saved = [];
+  try { saved = JSON.parse(sessionStorage.getItem("lineOrderDistributionWarehouses") || "[]"); } catch {}
+  const enabled = new Set((warehouses || []).map((row) => row.destination));
+  const valid = (Array.isArray(saved) ? saved : []).filter((name) => enabled.has(name));
+  return valid.length ? new Set(valid) : new Set((warehouses || []).map((row) => row.destination));
+}
+
+function renderWarehouseChoices(warehouses) {
+  const root = $("#warehouseChoices");
+  if (!root) return;
+  if (!warehouses.length) {
+    root.innerHTML = `<div class="risk-notice">ยังไม่ได้ตั้งค่าคลังปลายทาง กรุณาไปที่ <strong>ตั้งค่า → ลิมิตคลังปลายทางต่อรอบ</strong></div>`;
+    return;
   }
-  $("#previewTransferButton").disabled = !destination || !warehouse || !items.length || overLimit > 0 || required <= 0 || state.dashboardStale;
+  const selected = savedWarehouseSelection(warehouses);
+  root.innerHTML = warehouses.map((row) => `<label class="warehouse-choice">
+    <input class="warehouse-choice-input" type="checkbox" value="${escapeHtml(row.destination)}" ${selected.has(row.destination) ? "checked" : ""} />
+    <span><strong>${escapeHtml(row.destination)}</strong><small>สูงสุด ${formatNumber(row.max_batch_quantity)} / รอบ</small></span>
+  </label>`).join("");
+  $$(".warehouse-choice-input").forEach((input) => input.addEventListener("change", () => {
+    persistWarehouseSelection();
+    clearTransferPreview();
+    updateBulkDistributionSummary(false);
+  }));
+}
+
+function renderAllocationCategoryColumn(groupId, category) {
+  const profile = profileFor(category);
+  const risk = categoryRiskFor(groupId, category);
+  const recommendations = recommendationMapFor(groupId);
+  const rows = codeRowsFor(groupId, category);
+  const maxQty = Math.max(1, ...rows.map((r) => Number(r.order_total || 0)));
+  const recommendedTotal = rows.reduce((sum, row) => sum + Number(recommendations.get(`${category}|${row.code}`)?.recommended_transfer || 0), 0);
+  const header = `<div class="board-column-head ${riskClass(risk?.reserve_risk_pct || 0)}">
+    <div class="category-title"><strong>${escapeHtml(category)}</strong><span>×${formatNumber(profile?.special_multiplier || risk?.special_multiplier || 0)} · แนะนำกระจาย ${formatNumber(recommendedTotal)}</span></div>
+    <div class="category-risk-mini"><span>รับ ${formatNumber(risk?.order_total || 0)}</span><span>หลังลด ${formatNumber(risk?.adjusted_total || 0)}</span><span>Reserve ${formatNumber(risk?.point_reserve || 0)}</span></div>
+  </div>`;
+  const list = rows.map((row) => {
+    const qty = Number(row.order_total || 0);
+    const retained = Number(row.retained_quantity ?? row.available_to_cut ?? 0);
+    const rec = recommendations.get(`${category}|${row.code}`);
+    const recommended = Math.min(retained, Number(rec?.recommended_transfer || 0));
+    const width = qty > 0 ? Math.max(3, qty / maxQty * 100) : 0;
+    const promo = Number(row.promotion_factor_pct ?? 100) < 100 ? `<span class="promo-badge">PROMO ${formatNumber(row.promotion_factor_pct)}%</span>` : "";
+    const reserve = row.reserve_candidate && qty > 0 ? `<span class="reserve-badge">Reserve #${formatNumber(row.reserve_rank)}</span>` : "";
+    const transferred = Number(row.confirmed_cut || 0) > 0 ? `<span class="promo-badge">ส่งแล้ว ${formatNumber(row.confirmed_cut)}</span>` : "";
+    return `<label class="board-code-row allocation-code-row ${qty === 0 ? "zero" : ""} ${recommended > 0 ? "recommended" : ""} ${row.reserve_candidate ? "reserve" : ""}">
+      <div class="allocation-code-check">
+        ${recommended > 0 ? `<input class="allocation-code-select" type="checkbox" checked data-category="${escapeHtml(category)}" data-code="${escapeHtml(row.code)}" aria-label="เลือก ${escapeHtml(category)}${escapeHtml(row.code)}" />` : `<span class="allocation-code-spacer"></span>`}
+      </div>
+      <div class="allocation-code-content">
+        <div class="board-code-main"><strong>${escapeHtml(row.code)}</strong><span>${formatNumber(qty)}</span></div>
+        <div class="board-code-badges">${reserve}${promo}${transferred}</div>
+        <div class="allocation-code-meta"><span>คงคลัง ${formatNumber(retained)}</span>${recommended > 0 ? `<strong>ตัด ${formatNumber(recommended)}</strong>` : `<span>—</span>`}</div>
+        <div class="qty-track"><div class="qty-fill" style="width:${width}%"></div></div>
+      </div>
+    </label>`;
+  }).join("");
+  return `<section class="board-column allocation-board-column">${header}<div class="board-code-list">${list}</div></section>`;
+}
+
+function updateBulkDistributionSummary(invalidatePreview = true) {
+  const groupId = summaryGroupSelect.value;
+  const recommendations = recommendationMapFor(groupId);
+  const codes = selectedRecommendedCodes();
+  const warehouses = selectedWarehouseNames();
+  const selectedQty = codes.reduce((sum, item) => sum + Number(recommendations.get(`${item.category}|${item.code}`)?.recommended_transfer || 0), 0);
+  const required = Number(distributionPlanFor(groupId)?.transfer_required_total || 0);
+  const root = $("#bulkDistributionSummary");
+  const button = $("#runBulkDistributionButton");
+
+  if (!required) {
+    root.className = "transfer-selection-bar";
+    root.innerHTML = `<span>Risk Budget ยังรองรับ Point Reserve ปัจจุบัน</span><strong>ยังไม่ต้องตัดยอด</strong>`;
+  } else if (!codes.length) {
+    root.className = "transfer-selection-bar over";
+    root.innerHTML = `<span>ควรกระจายรวม ${formatNumber(required)}</span><strong>เลือกรหัสอย่างน้อย 1 รหัส</strong>`;
+  } else if (!warehouses.length) {
+    root.className = "transfer-selection-bar over";
+    root.innerHTML = `<span>เลือก ${formatNumber(codes.length)} รหัส · ${formatNumber(selectedQty)} หน่วย</span><strong>เลือกคลังปลายทาง</strong>`;
+  } else {
+    root.className = "transfer-selection-bar ready";
+    root.innerHTML = `<span>เลือก ${formatNumber(codes.length)} รหัส · เป้าหมาย ${formatNumber(selectedQty)} หน่วย</span><strong>${formatNumber(warehouses.length)} คลัง · ระบบแบ่งรอบให้อัตโนมัติ</strong>`;
+  }
+  button.disabled = state.dashboardStale || required <= 0 || !codes.length || !warehouses.length;
   if (invalidatePreview) clearTransferPreview();
 }
 
@@ -319,27 +400,30 @@ function renderAllocation() {
   const riskSummary = $("#allocationRiskSummary");
   const board = $("#allocationBoard");
   const groupId = summaryGroupSelect.value;
-  const destinationSelect = $("#transferDestination");
-
   const warehouses = state.dashboard?.warehouse_limits || [];
-  destinationSelect.innerHTML = `<option value="">เลือกคลังปลายทาง</option>${warehouses.map((row)=>`<option value="${escapeHtml(row.destination)}">${escapeHtml(row.destination)} · สูงสุด ${formatNumber(row.max_batch_quantity)}/รอบ</option>`).join("")}`;
-  if (state.transferDestination && warehouses.some((row)=>row.destination===state.transferDestination)) destinationSelect.value=state.transferDestination;
 
   if (!state.dashboard?.settlement_session) {
     riskSummary.innerHTML = "";
+    $("#warehouseChoices").innerHTML = "";
     board.innerHTML = `<div class="empty">ยังไม่ได้เปิดยอด</div>`;
+    updateBulkDistributionSummary(false);
     return;
   }
   if (!groupId || groupId === "ALL") {
-    riskSummary.innerHTML = `<div class="risk-notice">ก่อนกระจายยอด ให้เลือก <strong>กลุ่มสรุป</strong> ด้านบน 1 กลุ่ม ระบบคำนวณ Risk Budget แยกแต่ละกลุ่ม</div>`;
+    riskSummary.innerHTML = `<div class="risk-notice">เลือก <strong>กลุ่มสรุป</strong> ด้านบน 1 กลุ่มก่อนตัดยอด</div>`;
+    $("#warehouseChoices").innerHTML = "";
     board.innerHTML = "";
+    updateBulkDistributionSummary(false);
     return;
   }
+
   const overall = overallRiskFor(groupId);
   const plan = distributionPlanFor(groupId);
   if (!overall || !plan) {
-    riskSummary.innerHTML = `<div class="risk-notice">${escapeHtml(groupName(groupId))} ยังไม่มีออเดอร์สำหรับคำนวณความเสี่ยง</div>`;
+    riskSummary.innerHTML = `<div class="risk-notice">${escapeHtml(groupName(groupId))} ยังไม่มีออเดอร์สำหรับคำนวณ</div>`;
+    $("#warehouseChoices").innerHTML = "";
     board.innerHTML = "";
+    updateBulkDistributionSummary(false);
     return;
   }
 
@@ -350,122 +434,116 @@ function renderAllocation() {
 
   riskSummary.innerHTML = `<section class="cut-capacity-card ${blocked ? "blocked" : ""}">
     <div class="capacity-main">
-      <span>ขั้นตอน 1 · ${escapeHtml(groupName(groupId))}</span>
+      <span>${escapeHtml(groupName(groupId))}</span>
       <strong>${formatNumber(required)}</strong>
       <b>ยอดที่ควรกระจายออกจากคลังเรา</b>
       ${blocked
-        ? `<em>Point Reserve ยังอยู่ในวงเงินความเสี่ยงที่บริษัทกำหนด — ยังไม่ต้องกระจายเพิ่ม</em>`
-        : `<em>เป็นเป้าหมายจากยอดปัจจุบัน ระบบจะคำนวณใหม่หลังยืนยันแต่ละรอบ</em>`}
+        ? `<em>Point Reserve ยังอยู่ใน Risk Budget — ยังไม่ต้องตัดยอดเพิ่ม</em>`
+        : `<em>ระบบคำนวณรหัสและจำนวนให้แล้ว เลือกคลังแล้วกดยืนยันได้ทันที</em>`}
     </div>
-    <details class="capacity-details" open>
+    <details class="capacity-details">
       <summary>ดูที่มาของการคำนวณ</summary>
       <div class="capacity-detail-grid risk-policy-detail-grid">
         <div><span>ยอดหลังหัก %</span><strong>${formatNumber(overall.adjusted_received)}</strong></div>
         <div><span>ยอมติดลบได้</span><strong>${formatNumber(overall.point_loss_tolerance)} Point</strong></div>
         <div><span>Risk Budget</span><strong>${formatNumber(overall.risk_budget)}</strong></div>
-        <div><span>Point Reserve ปัจจุบัน</span><strong>${formatNumber(overall.risk_point_total)}</strong></div>
-        <div class="${excessPoint > 0 ? "danger-value" : ""}"><span>Point ที่เกินวงเงิน</span><strong>${formatNumber(excessPoint)}</strong></div>
-        <div class="${safetyMargin < 0 ? "danger-value" : ""}"><span>ส่วนต่างจากจุดคุ้มทุน</span><strong>${formatNumber(safetyMargin)}</strong></div>
-        <div><span>Risk</span><strong>${formatNumber(overall.risk_pct)}%</strong></div>
-        <div><span>กระจายแล้ว</span><strong>${formatNumber(overall.confirmed_cut_total)}</strong></div>
+        <div><span>Point Reserve</span><strong>${formatNumber(overall.risk_point_total)}</strong></div>
+        <div class="${excessPoint > 0 ? "danger-value" : ""}"><span>Point เกินวงเงิน</span><strong>${formatNumber(excessPoint)}</strong></div>
+        <div class="${safetyMargin < 0 ? "danger-value" : ""}"><span>ส่วนต่าง</span><strong>${formatNumber(safetyMargin)}</strong></div>
       </div>
-      <p class="capacity-formula">Risk Budget = ยอดหลังหัก % + Point ที่ยอมติดลบได้ · การกระจายจะลด <strong>Retained Point Exposure</strong> แต่ไม่ลด Received ในรายงาน</p>
     </details>
   </section>`;
 
-  if (!warehouses.length) {
-    board.innerHTML = `<div class="risk-notice">ยังไม่ได้ตั้งค่าคลังปลายทาง กรุณาไปที่ <strong>ตั้งค่า → ลิมิตคลังปลายทางต่อรอบ</strong> ก่อนเริ่มกระจายยอด</div>`;
-    updateTransferSelectionSummary(false);
-    return;
-  }
+  renderWarehouseChoices(warehouses);
+
   if (blocked) {
     board.innerHTML = `<div class="risk-notice">ยังไม่มีส่วนเกินที่ต้องกระจาย ระบบจะติดตามยอดใหม่และคำนวณให้อัตโนมัติ</div>`;
-    updateTransferSelectionSummary(false);
+    updateBulkDistributionSummary(false);
     return;
   }
 
-  const codeMap = new Map((state.dashboard.risk_codes || []).filter((row)=>row.summary_group_id===groupId).map((row)=>[`${row.category}|${row.code}`,row]));
-  const recommendationRows = (plan.recommendations || []).map((rec)=>({ ...rec, state:codeMap.get(`${rec.category}|${rec.code}`) })).filter((row)=>row.state && Number(row.recommended_transfer)>0);
-  const currentRows = recommendationRows.filter((row)=>row.reserve_candidate_now && row.state.reserve_candidate);
-  const futureRows = recommendationRows.filter((row)=>!currentRows.includes(row));
-
-  const renderRec = (row, actionable=true) => {
-    const st=row.state;
-    const retained=Number(st.retained_quantity ?? st.available_to_cut ?? 0);
-    const recommendation=Math.min(retained,Number(row.recommended_transfer||0));
-    return `<label class="cut-row-simple reserve ${actionable ? "" : "future-risk-row"}">
-      <div class="cut-code-info"><strong>${escapeHtml(row.category)}${escapeHtml(row.code)}</strong><span>รับ ${formatNumber(st.order_total)} · กระจายแล้ว ${formatNumber(st.confirmed_cut)} · คลังเรายังถือ ${formatNumber(retained)}</span><em class="cut-point-note">×${formatNumber(st.effective_multiplier)} · แผนปัจจุบันควรกระจาย ${formatNumber(recommendation)}</em></div>
-      ${actionable ? `<div class="cut-input-wrap"><span>รอบนี้</span><input class="cut-qty" data-category="${escapeHtml(row.category)}" data-code="${escapeHtml(row.code)}" type="number" min="0" max="${escapeHtml(recommendation)}" step="1" value="0" inputmode="numeric" aria-label="จำนวนกระจาย ${escapeHtml(row.category)}${escapeHtml(row.code)}" /></div>` : `<div class="cut-input-wrap"><span>รอคำนวณรอบถัดไป</span><strong>${formatNumber(recommendation)}</strong></div>`}
-    </label>`;
-  };
-
-  board.innerHTML = `<section class="cut-primary-section"><div class="cut-section-head"><div><span class="step-kicker">ขั้นตอน 2</span><h3>เลือกรหัสสำหรับรอบนี้</h3></div><span>ระบบให้เลือกเฉพาะรหัสที่เป็น Worst-case Candidate ณ ตอนนี้</span></div>
-    <div class="cut-category-card">${currentRows.length ? currentRows.map((row)=>renderRec(row,true)).join("") : `<div class="muted small-text">กำลังรอการจัดอันดับใหม่ กรุณาอัปเดต Dashboard</div>`}</div>
-    ${futureRows.length ? `<details class="cut-secondary-section"><summary>ดูแผนรอบถัดไปจากยอดปัจจุบัน (${formatNumber(futureRows.length)} รหัส)</summary><div class="cut-category-card">${futureRows.map((row)=>renderRec(row,false)).join("")}</div></details>` : ""}
+  const gRows = codeRowsFor(groupId, "G");
+  const gRecommendations = recommendationMapFor(groupId);
+  board.innerHTML = `<section class="summary-group-board allocation-summary-board">
+    <div class="four-column-board">${["A","B","E","F"].map((category) => renderAllocationCategoryColumn(groupId,category)).join("")}</div>
+    ${gRows.length ? `<div class="g-board allocation-g-board"><div class="category-heading"><h3>หมวด G</h3><span>Point ×${formatNumber(profileFor("G")?.special_multiplier || 0)}</span></div><div class="g-code-grid">${gRows.map((row) => {
+      const rec = gRecommendations.get(`G|${row.code}`);
+      const recommended = Math.min(Number(row.retained_quantity ?? row.available_to_cut ?? 0),Number(rec?.recommended_transfer || 0));
+      return `<label class="g-code allocation-g-code ${recommended > 0 ? "recommended" : ""}">
+        ${recommended > 0 ? `<input class="allocation-code-select" type="checkbox" checked data-category="G" data-code="${escapeHtml(row.code)}" aria-label="เลือก G${escapeHtml(row.code)}" />` : `<span></span>`}
+        <strong>G${escapeHtml(row.code)}</strong><span>รับ ${formatNumber(row.order_total)} · คง ${formatNumber(row.retained_quantity ?? 0)}</span>${recommended > 0 ? `<em>ตัด ${formatNumber(recommended)}</em>` : ""}
+      </label>`;
+    }).join("")}</div></div>` : ""}
   </section>`;
 
-  $$(".cut-qty").forEach((input) => input.addEventListener("input", () => {
-    const max = Number(input.max || 0);
-    let value = Number(input.value || 0);
-    if (!Number.isFinite(value) || value < 0) value = 0;
-    if (value > max) value = max;
-    input.value = String(Math.floor(value));
-    updateTransferSelectionSummary();
-  }));
-  updateTransferSelectionSummary(false);
+  $$(".allocation-code-select").forEach((input) => input.addEventListener("change", () => updateBulkDistributionSummary(true)));
+  updateBulkDistributionSummary(false);
 }
 
-async function previewRiskTransfer() {
+async function runBulkDistribution() {
   if (state.dashboardStale) return toast("มีข้อมูลใหม่ กรุณาอัปเดตก่อน", true);
   const groupId = summaryGroupSelect.value;
-  const destination = $("#transferDestination").value.trim();
-  const items = selectedTransferItems();
-  if (!destination) return toast("กรุณาเลือกคลังปลายทาง", true);
-  if (!items.length) return toast("กรุณาระบุจำนวนที่จะกระจายอย่างน้อย 1 รหัส", true);
-  $("#previewTransferButton").disabled = true;
+  const selectedCodes = selectedRecommendedCodes();
+  const destinations = selectedWarehouseNames();
+  if (!groupId || groupId === "ALL") return toast("กรุณาเลือกกลุ่มสรุป", true);
+  if (!selectedCodes.length) return toast("กรุณาเลือกรหัสที่ต้องการตัด", true);
+  if (!destinations.length) return toast("กรุณาเลือกคลังปลายทาง", true);
+
+  const button = $("#runBulkDistributionButton");
+  button.disabled = true;
+  button.textContent = "กำลังจัดแผน...";
   try {
-    const payload = await api("/api/risk-transfer-preview", {method:"POST",body:JSON.stringify({summary_group_id:groupId,destination,items})});
-    state.transferPreview = payload;
-    const beforeExcess = Number(payload.risk_snapshot.excess_point_risk || 0);
-    const afterExcess = Number(payload.projected_excess_point_risk || 0);
-    $("#transferPreview").innerHTML = `<div class="preview-box ok transfer-confirm-card"><div class="step-kicker">ขั้นตอน 3</div><div class="preview-heading"><strong>ตรวจสอบก่อนยืนยัน</strong><span>${escapeHtml(destination)} · ลิมิต ${formatNumber(payload.destination_limit)}/รอบ</span></div><div class="transfer-lines">${payload.lines.map((line)=>`<div>${escapeHtml(line)}</div>`).join("")}</div><div class="confirm-totals"><div><span>Point เกินวงเงินก่อนรอบนี้</span><strong>${formatNumber(beforeExcess)}</strong></div><div><span>ยอดที่กระจายรอบนี้</span><strong>${formatNumber(payload.cut_total)}</strong></div><div><span>Point เกินวงเงินหลังรอบนี้</span><strong>${formatNumber(afterExcess)}</strong></div></div><div class="preview-policy-note">Point Reserve ${formatNumber(payload.risk_snapshot.risk_point_total)} → ประมาณ ${formatNumber(payload.projected_point_reserve)} · หลังยืนยันระบบจะคำนวณแผนใหม่อีกครั้ง</div><button class="button primary risk-transfer-confirm">ยืนยันกระจายรอบนี้</button></div>`;
-    $(".risk-transfer-confirm").addEventListener("click", confirmRiskTransfer);
-  } catch(error) {
-    const staleErrors=["RISK_STATE_STALE","TRANSFER_EXCEEDS_CODE_AVAILABLE","TRANSFER_CODE_NOT_CURRENT_RISK_CANDIDATE","TRANSFER_EXCEEDS_CODE_RECOMMENDATION"];
-    if (staleErrors.includes(error.message)) setDashboardStale(true);
-    const friendly = {
-      DESTINATION_LIMIT_NOT_CONFIGURED:"คลังนี้ยังไม่ได้ตั้งลิมิตต่อรอบ",
-      TRANSFER_EXCEEDS_WAREHOUSE_BATCH_LIMIT:"ยอดที่เลือกเกินลิมิตของคลังในรอบนี้",
-      NO_RISK_DISTRIBUTION_REQUIRED:"ความเสี่ยงปัจจุบันอยู่ในวงเงินแล้ว ไม่ต้องกระจายเพิ่ม",
-      TRANSFER_CODE_NOT_CURRENT_RISK_CANDIDATE:"รหัสที่เลือกไม่ใช่ Worst-case Candidate ปัจจุบัน กรุณาอัปเดต",
-      TRANSFER_EXCEEDS_CODE_RECOMMENDATION:"ยอดรหัสที่เลือกเกินแผนปัจจุบัน",
-    }[error.message] || error.message;
-    toast(`ตรวจรายการไม่สำเร็จ: ${friendly}`, true);
-  } finally { updateTransferSelectionSummary(false); }
-}
+    const preview = await api("/api/risk-distribution-preview", {
+      method:"POST",
+      body:JSON.stringify({ summary_group_id:groupId, destinations, selected_codes:selectedCodes }),
+    });
+    state.bulkDistributionPreview = preview;
+    const roundsPreview = (preview.rounds || []).slice(0,8).map((round) =>
+      `รอบ ${formatNumber(round.round_index)} · ${round.destination} · ${formatNumber(round.quantity)}`
+    ).join("\n");
+    const extraRounds = Math.max(0, Number(preview.planned_rounds || 0) - 8);
+    $("#transferPreview").innerHTML = `<div class="preview-box ok transfer-confirm-card">
+      <div class="preview-heading"><strong>แผนอัตโนมัติพร้อมยืนยัน</strong><span>${formatNumber(preview.selected_code_count)} รหัส · ${formatNumber(preview.selected_warehouse_count)} คลัง</span></div>
+      <div class="confirm-totals"><div><span>ยอดที่จะกระจาย</span><strong>${formatNumber(preview.planned_quantity)}</strong></div><div><span>จำนวนรอบ</span><strong>${formatNumber(preview.planned_rounds)}</strong></div><div><span>Point เกินหลังแผน</span><strong>${formatNumber(preview.projected_excess_point_risk)}</strong></div></div>
+      <div class="preview-policy-note">ระบบแบ่งตามลิมิตแต่ละคลังให้อัตโนมัติ และยืนยันทุก Round ในธุรกรรมเดียว</div>
+    </div>`;
 
-async function confirmRiskTransfer() {
-  const preview=state.transferPreview;
-  if(!preview?.confirmation_token) return toast("กรุณาตรวจรายการใหม่",true);
-  if(state.dashboardStale) return toast("ข้อมูลเปลี่ยนแล้ว กรุณาอัปเดต",true);
-  if(!window.confirm(`ยืนยันกระจายยอดรอบนี้ ${formatNumber(preview.cut_total)}?\n\n${preview.lines.join("\n")}`)) return;
-  const button=$(".risk-transfer-confirm");if(button)button.disabled=true;
-  try{
-    const payload=await api("/api/risk-transfer-confirm",{method:"POST",body:JSON.stringify({confirmation_token:preview.confirmation_token})});
-    toast(`ยืนยันรอบส่ง #${formatNumber(payload.batch?.batch_number)} จำนวน ${formatNumber(payload.batch?.cut_total)} แล้ว · ระบบคำนวณความเสี่ยงใหม่แล้ว`);
-    clearTransferSelection(true);
-    await loadDashboard(); await loadAllocationHistory();
-  }catch(error){
-    const staleErrors=["RISK_STATE_STALE","CONFIRMATION_EXPIRED","TRANSFER_EXCEEDS_CODE_AVAILABLE","TRANSFER_CODE_NOT_CURRENT_RISK_CANDIDATE","TRANSFER_EXCEEDS_CODE_RECOMMENDATION","TRANSFER_EXCEEDS_WAREHOUSE_BATCH_LIMIT"];
-    if(staleErrors.includes(error.message)){setDashboardStale(true);toast("ยอด, Candidate หรือลิมิตคลังเปลี่ยนแล้ว กรุณาอัปเดตและตรวจรายการใหม่",true);}else toast(`ยืนยันไม่สำเร็จ: ${error.message}`,true);
+    const confirmed = window.confirm(
+      `ยืนยันกระจายตามแผน?\n\n` +
+      `รหัส ${formatNumber(preview.selected_code_count)} รายการ\n` +
+      `รวม ${formatNumber(preview.planned_quantity)} หน่วย\n` +
+      `แบ่ง ${formatNumber(preview.planned_rounds)} รอบ\n\n` +
+      `${roundsPreview}${extraRounds ? `\n...อีก ${formatNumber(extraRounds)} รอบ` : ""}`
+    );
+    if (!confirmed) return;
+
+    button.textContent = "กำลังยืนยันทุกรอบ...";
+    const payload = await api("/api/risk-distribution-confirm", {
+      method:"POST",
+      body:JSON.stringify({ confirmation_token:preview.confirmation_token }),
+    });
+    const run = payload.run || {};
+    toast(`กระจายสำเร็จ ${formatNumber(run.confirmed_quantity || 0)} หน่วย · ${formatNumber(run.confirmed_rounds || 0)} รอบ`);
+    clearTransferPreview();
+    await loadDashboard();
+    await loadAllocationHistory();
+  } catch (error) {
+    const stale = ["RISK_STATE_STALE","CONFIRMATION_EXPIRED","TRANSFER_EXCEEDS_CODE_AVAILABLE","DESTINATION_LIMIT_NOT_CONFIGURED"].includes(error.message);
+    if (stale) {
+      setDashboardStale(true);
+      toast("ยอด ตัวคูณ หรือลิมิตคลังเปลี่ยนแล้ว กรุณาอัปเดตและกดกระจายใหม่", true);
+    } else {
+      const friendly = {
+        NO_RISK_DISTRIBUTION_REQUIRED:"ความเสี่ยงปัจจุบันอยู่ในวงเงินแล้ว ไม่ต้องกระจายเพิ่ม",
+        NO_SELECTED_DISTRIBUTION_TARGETS:"รหัสที่เลือกไม่มีส่วนเกินตามแผนปัจจุบัน",
+        WAREHOUSE_SELECTION_REQUIRED:"กรุณาเลือกคลังปลายทาง",
+      }[error.message] || error.message;
+      toast(`กระจายไม่สำเร็จ: ${friendly}`, true);
+    }
+  } finally {
+    button.textContent = "กระจายยอดที่เลือกตามแผน";
+    updateBulkDistributionSummary(false);
   }
-}
-
-function clearTransferSelection(keepDestination = false) {
-  $$(".cut-qty").forEach((input)=>{input.value="0";});
-  if (!keepDestination) { $("#transferDestination").value=""; state.transferDestination=""; }
-  clearTransferPreview();
-  updateTransferSelectionSummary(false);
 }
 
 async function loadAllocationHistory() {
@@ -475,7 +553,7 @@ async function loadAllocationHistory() {
     const group=summaryGroupSelect.value||"ALL";
     const payload=await api(`/api/allocation-history?group=${encodeURIComponent(group)}`);
     if(!payload.history.length){root.innerHTML=`<div class="empty compact">ยังไม่มีรอบส่งในชุดยอดปัจจุบัน</div>`;return;}
-    root.innerHTML=payload.history.map((item)=>`<article class="history-card"><div class="history-head"><strong>รอบส่ง #${formatNumber(item.batch_number)} · ${escapeHtml(item.destination)}</strong><span>${escapeHtml(formatBangkokTime(item.confirmed_at))}</span></div><div class="transfer-lines">${item.lines.map(line=>`<div>${escapeHtml(line)}</div>`).join("")}</div><div class="history-meta"><span>รอบนี้ ${formatNumber(item.cut_total)} / ลิมิต ${formatNumber(item.warehouse_batch_limit || 0)}</span><span>Risk Budget ${formatNumber(item.risk_budget || 0)}</span><span>Point เกินก่อน ${formatNumber(item.excess_point_risk_before || 0)}</span><span>หลังรอบ ${formatNumber(item.projected_excess_point_risk || 0)}</span><span>${escapeHtml(item.confirmed_by||"-")}</span></div></article>`).join("");
+    root.innerHTML=payload.history.map((item)=>`<article class="history-card"><div class="history-head"><strong>รอบส่ง #${formatNumber(item.batch_number)} · ${escapeHtml(item.destination)}${item.distribution_run_id ? " · อัตโนมัติ" : ""}</strong><span>${escapeHtml(formatBangkokTime(item.confirmed_at))}</span></div><div class="transfer-lines">${item.lines.map(line=>`<div>${escapeHtml(line)}</div>`).join("")}</div><div class="history-meta"><span>รอบนี้ ${formatNumber(item.cut_total)} / ลิมิต ${formatNumber(item.warehouse_batch_limit || 0)}</span><span>Risk Budget ${formatNumber(item.risk_budget || 0)}</span><span>Point เกินก่อน ${formatNumber(item.excess_point_risk_before || 0)}</span><span>หลังรอบ ${formatNumber(item.projected_excess_point_risk || 0)}</span><span>${escapeHtml(item.confirmed_by||"-")}</span></div></article>`).join("");
   }catch(error){root.innerHTML=`<div class="empty compact">โหลดประวัติไม่สำเร็จ</div>`;toast(`โหลดประวัติไม่สำเร็จ: ${error.message}`,true);}
 }
 
@@ -951,9 +1029,9 @@ function bindV5Controls() {
     state.specialPointRules.push({category,code});f.elements.code.value="";renderSpecialPoints(state.settlement?.actual_point_status);
   });
   $("#saveSpecialPointsButton").addEventListener("click",saveSpecialPoints);
-  $("#previewTransferButton").addEventListener("click",previewRiskTransfer);
-  $("#clearTransferSelectionButton").addEventListener("click",clearTransferSelection);
-  $("#transferDestination").addEventListener("change",()=>{state.transferDestination=$("#transferDestination").value;clearTransferPreview();updateTransferSelectionSummary(false);});
+  $("#selectAllRecommendedButton").addEventListener("click",()=>setRecommendedSelection(true));
+  $("#clearRecommendedButton").addEventListener("click",()=>setRecommendedSelection(false));
+  $("#runBulkDistributionButton").addEventListener("click",runBulkDistribution);
   $("#reportSessionSelect").addEventListener("change",loadReport);$("#reportLineGroupSelect").addEventListener("change",loadReport);
 }
 

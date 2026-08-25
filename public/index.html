@@ -102,27 +102,28 @@
 
       <section id="allocationTab" class="tab-panel panel hidden">
         <div class="section-heading allocation-title">
-          <div><h2>กระจายยอดเพื่อลดความเสี่ยง</h2><p class="muted">ระบบคำนวณว่าคลังเราควรถือไว้เท่าไร แล้วค่อยกระจายส่วนเกินไปคลังอื่นทีละรอบตามลิมิตของคลังปลายทาง</p></div>
-        </div>
-        <div class="allocation-steps" aria-label="ขั้นตอนการตัดยอด">
-          <div class="allocation-step"><span>1</span><strong>ดูส่วนเกินที่ควรกระจาย</strong></div>
-          <div class="allocation-step"><span>2</span><strong>เลือกคลัง + ยอดรอบนี้</strong></div>
-          <div class="allocation-step"><span>3</span><strong>ตรวจสอบ + ยืนยัน</strong></div>
+          <div><h2>ตัดยอด / กระจายความเสี่ยง</h2><p class="muted">ดูรหัสเหมือนหน้า Order Board เลือกได้หลายรหัส แล้วให้ระบบแบ่งเป็นหลายรอบตามลิมิตของคลังให้อัตโนมัติ</p></div>
         </div>
         <div id="allocationRiskSummary" class="risk-summary"></div>
-        <div id="allocationBoard" class="allocation-board"></div>
-        <section id="transferBuilder" class="transfer-builder">
-          <div class="transfer-builder-head">
-            <div><div class="step-kicker">ขั้นตอน 2</div><h3>เลือกคลังปลายทาง</h3><p class="muted">แต่ละคลังกำหนดจำนวนสูงสุดต่อรอบ ระบบจะไม่ให้ส่งเกินลิมิต และจะคำนวณความเสี่ยงใหม่หลังยืนยันทุกครั้ง</p></div>
-            <label>คลัง/ปลายทาง<select id="transferDestination"><option value="">เลือกคลังปลายทาง</option></select></label>
+        <section id="bulkDistributionControls" class="bulk-distribution-controls">
+          <div class="bulk-control-head">
+            <div><h3>คลังปลายทาง</h3><p class="muted">เลือกได้มากกว่า 1 คลัง ระบบจะสลับคลังและแบ่งรอบอัตโนมัติ เช่น ส่วนเกิน 25 / ลิมิต 5 = 5 รอบ</p></div>
+            <div class="bulk-actions">
+              <button id="selectAllRecommendedButton" class="button ghost small" type="button">เลือกทั้งหมดที่แนะนำ</button>
+              <button id="clearRecommendedButton" class="button ghost small" type="button">ล้างที่เลือก</button>
+            </div>
           </div>
-          <div id="transferSelectionSummary" class="transfer-selection-bar">ยังไม่ได้เลือกรหัส</div>
-          <div class="form-actions"><button id="clearTransferSelectionButton" class="button ghost" type="button">ล้างรายการ</button><button id="previewTransferButton" class="button primary" type="button">ตรวจสอบก่อนยืนยัน</button></div>
+          <div id="warehouseChoices" class="warehouse-choices"></div>
+          <div id="bulkDistributionSummary" class="transfer-selection-bar">ยังไม่มีรายการที่ต้องกระจาย</div>
+          <div class="form-actions">
+            <button id="runBulkDistributionButton" class="button primary" type="button">กระจายยอดที่เลือกตามแผน</button>
+          </div>
           <div id="transferPreview" class="transfer-preview"></div>
         </section>
+        <div id="allocationBoard" class="allocation-board allocation-order-board"></div>
         <details class="allocation-history-details">
           <summary>ดูประวัติการตัดยอดในชุดนี้</summary>
-          <div class="section-heading subheading"><div><h3>ประวัติรอบส่ง</h3><p class="muted">เก็บวงเงินความเสี่ยง, Point ที่เกิน และลิมิตของคลัง ณ เวลายืนยันแต่ละรอบ</p></div><button id="reloadAllocationHistoryButton" class="button ghost small">โหลดประวัติใหม่</button></div>
+          <div class="section-heading subheading"><div><h3>ประวัติรอบส่ง</h3><p class="muted">หนึ่งครั้งที่ผู้ใช้ยืนยัน อาจถูกแบ่งเป็นหลายรอบตามลิมิตของแต่ละคลัง</p></div><button id="reloadAllocationHistoryButton" class="button ghost small">โหลดประวัติใหม่</button></div>
           <div id="allocationHistoryList" class="transfer-history"></div>
         </details>
       </section>
@@ -205,7 +206,7 @@
 
           <section class="settings-block">
             <h3>ตัวคูณ Point พิเศษของบริษัท</h3>
-            <p class="muted small-text">ค่าปัจจุบันจะถูก Snapshot ตอนเปิดยอดใหม่ การแก้ระหว่างยอดเปิดจะมีผลกับชุดถัดไป</p>
+            <p class="muted small-text">ค่าบริษัทใช้กับยอดที่กำลัง OPEN ทันทีเมื่อบันทึก ส่วนชุดที่ CLOSED จะเก็บค่าเดิมไว้เป็นประวัติ</p>
             <form id="pointProfileForm" class="compact-form">
               <select name="category" required><option>A</option><option>B</option><option>E</option><option>F</option><option>G</option></select>
               <input name="special_multiplier" type="number" min="0.001" step="0.001" placeholder="ตัวคูณ" required />

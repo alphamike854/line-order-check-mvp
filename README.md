@@ -155,3 +155,9 @@ Migration `012` supersedes the v6.5 Risk→Cut% experiment. Current operational 
 Example: Adjusted=60, accepted loss=10, A01=35 at x7 → Risk Budget=70, retain target=10, distribute target=25. If the destination limit is 5/round, the current plan requires 5 rounds, with a fresh risk calculation after every confirmation.
 
 Migration `011` remains in history because it may already have been applied, but its Risk→Cut% bands are no longer used to authorize v6.6 transfers.
+
+## Dashboard v6.7
+
+- Point multiplier edits apply immediately to the current OPEN settlement; CLOSED reports keep their snapshot.
+- Allocation uses a Summary-like A/B/E/F board (G below), preselects recommended codes, supports multiple warehouses, and automatically splits one approved distribution into bounded warehouse rounds.
+- See `DASHBOARD_V6_7_SETUP.md` and migration `202608250013_sync_live_point_profiles_and_bulk_distribution.sql`.
