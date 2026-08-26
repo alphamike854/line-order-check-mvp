@@ -331,6 +331,71 @@ function isPermuteAllCommand(text, cfg) {
   return resolveAlias(raw, cfg) === "PERMUTE_ALL";
 }
 
+function isThreeDigitPermuteMarker(text, cfg) {
+  const raw = String(text || "").trim();
+  if (!raw) return false;
+  if (isPermuteAllCommand(raw, cfg)) return true;
+  // In 3-digit chat grammar the existing reverse alias (e.g. ก -> C)
+  // means "กลับทุกตำแหน่ง" / permutation. This is context-specific;
+  // the same alias remains the 2-digit reverse modifier elsewhere.
+  return resolveAlias(raw, cfg) === "C" || normalizeLatin(raw) === "C";
+}
+
+function splitThreeDigitCodeList(line) {
+  const raw = String(line || "").trim();
+  if (!raw) return null;
+  const parts = raw.split(/[\s,/:]+/u).filter(Boolean);
+  if (!parts.length || parts.some((part) => !/^\d{3}$/.test(part))) return null;
+  const residue = raw.replace(/\d{3}/g, "").replace(/[\s,/:]/g, "");
+  return residue ? null : parts;
+}
+
+function coalesceThreeDigitLines(lines) {
+  const out = [];
+  let pendingCodes = [];
+
+  const flushPending = () => {
+    if (!pendingCodes.length) return;
+    out.push(pendingCodes.join(" "));
+    pendingCodes = [];
+  };
+
+  for (const rawLine of lines) {
+    const line = String(rawLine || "").trim();
+    if (!line) continue;
+
+    const codesOnly = splitThreeDigitCodeList(line);
+    if (codesOnly) {
+      pendingCodes.push(...codesOnly);
+      continue;
+    }
+
+    if (pendingCodes.length && /^=/u.test(line)) {
+      out.push(`${pendingCodes.join(" ")}${line}`);
+      pendingCodes = [];
+      continue;
+    }
+
+    // Natural pending form:
+    // 396\n394\n364\n964-10*10
+    // means the four 3-digit codes share the final quantity expression.
+    if (pendingCodes.length) {
+      const finalWithDashQty = line.match(/^(\d{3})\s*-\s*(\d+(?:\s*[xX*\/]\s*\d+)?(?:\s+.+)?)$/u);
+      if (finalWithDashQty) {
+        out.push(`${pendingCodes.concat(finalWithDashQty[1]).join(" ")}=${finalWithDashQty[2].trim()}`);
+        pendingCodes = [];
+        continue;
+      }
+    }
+
+    flushPending();
+    out.push(line);
+  }
+
+  flushPending();
+  return out;
+}
+
 function threeDigitDestinationCategory(prefix) {
   if (prefix === "B" || prefix === "G") return "G";
   if (prefix === "F") return "F";
@@ -349,12 +414,20 @@ function emitThreeDigitPermutations(acc, codes, quantity, category) {
 function parseThreeDigitRhs(right, cfg) {
   const raw = String(right || "").trim();
 
+  // Explicit permutation count + reverse marker, including multiple source codes:
+  // 397 349 796=50*6 ก  => each source must have 6 unique permutations at 50 each.
+  // The marker disambiguates this from the ordinary E/F quantity pair grammar.
+  let m = raw.match(/^(\d+)\s*[xX*]\s*([136])\s+(.+)$/u);
+  if (m && isThreeDigitPermuteMarker(m[3], cfg)) {
+    return { kind: "COUNTED_PERMUTE", quantity: Number(m[1]), statedCount: Number(m[2]) };
+  }
+
   // Repeated equal quantities are another spelling of "ทุกกลับ / ประตู".
   // Example: 998=100x100x100 => 3 unique permutations at 100 each.
   //          093=100x100x100x100x100x100 => 6 unique permutations at 100 each.
   // This is intentionally different from the existing TWO-value E/F pair
   // grammar such as 920=500x500.
-  let m = raw.match(/^\d+(?:\s*[xX]\s*\d+){2,5}$/u);
+  m = raw.match(/^\d+(?:\s*[xX]\s*\d+){2,5}$/u);
   if (m) {
     const values = raw.split(/\s*[xX]\s*/u).map(Number);
     const first = values[0];
@@ -421,6 +494,31 @@ function parseThreeDigitLine(line, cfg, acc, rules, errors) {
 
   const prefix = prefixText ? resolveThreeDigitCategory(prefixText, cfg) : null;
   if (prefixText && !prefix) return false;
+
+  if (rhs.kind === "COUNTED_PERMUTE") {
+    if (explicitCategory) {
+      errors.push({ code: "UNSUPPORTED_EXPLICIT_CATEGORY_PERMUTATION", detail: line });
+      rules.add("R_3DIGIT_COUNTED_PERMUTE");
+      return true;
+    }
+
+    const mismatches = codes
+      .map((code) => ({ code, actual: uniquePermutations(code).length }))
+      .filter((entry) => entry.actual !== rhs.statedCount);
+    if (mismatches.length) {
+      errors.push({
+        code: "PERMUTATION_COUNT_MISMATCH",
+        detail: mismatches.map((entry) => `${entry.code} มี unique permutations ${entry.actual} แบบ แต่ระบุ *${rhs.statedCount}`).join("; ")
+      });
+      rules.add("R_3DIGIT_COUNTED_PERMUTE");
+      return true;
+    }
+
+    const category = threeDigitDestinationCategory(prefix);
+    emitThreeDigitPermutations(acc, codes, rhs.quantity, category);
+    rules.add("R_3DIGIT_COUNTED_PERMUTE");
+    return true;
+  }
 
   if (rhs.kind === "PERMUTE_ALL") {
     if (explicitCategory) {
@@ -813,10 +911,22 @@ function parseTwoDigitSegment(segment, cfg, acc, rules, warnings, errors) {
       if (qm) quantitySpec = parseQuantityExpression(qm[1]);
     } else {
       // Inline pair at end: "01-05 AB 20x20" / "... 5*5"
-      const qm = working.match(/(?:^|\s)(\d+\s*[xX*]\s*\d+)\s*$/);
+      let qm = working.match(/(?:^|\s)(\d+\s*[xX*]\s*\d+)\s*$/);
       if (qm) {
         quantitySpec = parseQuantityExpression(qm[1]);
         codePart = working.slice(0, qm.index).trim();
+      } else if (localModifier) {
+        // Fast chat form with an explicit modifier followed by one quantity:
+        // 39/36//94/64/34 บลก 10
+        // 96 บลก 20
+        qm = working.match(/(?:^|\s)(\d+)\s*$/);
+        if (qm) {
+          const candidateCodePart = working.slice(0, qm.index).trim();
+          if (extractTwoDigitCodes(candidateCodePart).length) {
+            quantitySpec = parseQuantityExpression(qm[1]);
+            codePart = candidateCodePart;
+          }
+        }
       }
     }
 
@@ -894,7 +1004,7 @@ function parseOrder(inputText, config = {}) {
     const segment = segmentRaw.trim();
     if (!segment) continue;
 
-    const lines = segment.split("\n");
+    const lines = coalesceThreeDigitLines(segment.split("\n"));
     const remaining = [];
     let threeDigitConsumed = false;
 
@@ -940,6 +1050,14 @@ function parseOrder(inputText, config = {}) {
         detail: `${check.category}: expected ${check.expected}, actual ${actual}`
       });
     }
+  }
+
+  // Never silently discard text that strongly looks like an order. If grammar is
+  // not recognized, route it to Review instead of returning IGNORE.
+  const hasOrderLikeWarning = warnings.some((warning) => warning.code === "UNRECOGNIZED_ORDER_LIKE_TEXT");
+  const stronglyOrderLike = /\d{2,3}(?:[\s,/:\-]+\d{2,3})*\s*(?:\n\s*)?=/u.test(normalized);
+  if (!items.length && !errors.length && hasOrderLikeWarning && stronglyOrderLike) {
+    errors.push({ code: "UNRECOGNIZED_ORDER_SYNTAX", detail: normalized });
   }
 
   let status = "PARSED";
