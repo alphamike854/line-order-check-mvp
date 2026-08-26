@@ -241,3 +241,19 @@ tbody tr:hover { background: #fafcff; }
 .postcut-one-digit-board .board-code-list{max-height:none}
 @media(max-width:900px){.pool-status-strip{grid-template-columns:1fr}.one-digit-code-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:700px){.one-digit-board{grid-template-columns:1fr}.one-digit-code-grid{grid-template-columns:repeat(5,minmax(0,1fr))}}
+
+/* v7.9: comfortable inner gutters for code columns without reintroducing wide center gaps. */
+.board-column-head{padding-left:16px;padding-right:16px}
+.board-code-row{padding-left:16px;padding-right:16px}
+.g-board{padding-left:16px;padding-right:16px}
+.g-code{padding-left:12px;padding-right:12px}
+.cut-category-card>h3{padding-left:14px;padding-right:14px}
+.cut-row-simple{padding-left:14px;padding-right:14px}
+.one-digit-category .board-column-head{padding-left:16px;padding-right:16px}
+.one-digit-code{padding-left:12px;padding-right:12px}
+@media(max-width:700px){
+  .board-column-head{padding-left:14px;padding-right:14px}
+  .board-code-row{padding-left:14px;padding-right:14px}
+  .g-board{padding-left:14px;padding-right:14px}
+  .one-digit-code{padding-left:10px;padding-right:10px}
+}

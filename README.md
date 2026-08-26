@@ -197,3 +197,6 @@ Adds natural 3-digit chat grammar: dot-separated seed lists, `โต๊ด` as F
 ## Dashboard v7.8 — contextual บน/บ and ล่าง/ล
 
 v7.8 treats `บน=บ` and `ล่าง=ล` as contextual parser keywords rather than fixed aliases. 2-digit TOP/BOTTOM map to A/B, 3-digit TOP maps to E (or E/F for a quantity pair), 3-digit BOTTOM maps to G, and `วิ่งบน/วิ่งล่าง` keep their H/L one-digit meaning. It also prevents a multi-block message from being silently marked PARSED when an order-like block is still unrecognized. See `DASHBOARD_V7_8_SETUP.md`.
+
+## v7.9 — Code Column Inner Gutters
+เพิ่มระยะภายในซ้าย/ขวาของข้อมูลรหัสใน Summary / Allocation / After-cut รวมถึง G และ H/L เพื่อไม่ให้ตัวเลขชิดขอบ โดยไม่เพิ่มช่องว่างตรงกลางระหว่างรหัสกับยอด
