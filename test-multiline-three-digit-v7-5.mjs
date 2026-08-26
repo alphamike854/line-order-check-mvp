@@ -59,5 +59,5 @@ function itemMap(result) {
   assert.ok(result.errors.some((error) => error.code === "UNRECOGNIZED_ORDER_SYNTAX"));
 }
 
-assert.ok(PARSER_VERSION.startsWith("1.3."));
+assert.ok(PARSER_VERSION.startsWith("1."));
 console.log("PASS: multiline 3-digit + counted permutation + no-silent-ignore v7.5 smoke tests");

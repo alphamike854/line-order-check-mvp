@@ -7,7 +7,7 @@ function mapRpc(message) {
   for (const code of [
     'RISK_STATE_STALE','NO_RISK_DISTRIBUTION_REQUIRED','DESTINATION_LIMIT_NOT_CONFIGURED',
     'TRANSFER_EXCEEDS_WAREHOUSE_BATCH_LIMIT','TRANSFER_EXCEEDS_CODE_AVAILABLE',
-    'TRANSFER_CODE_NOT_FOUND','SETTLEMENT_NOT_OPEN','DISTRIBUTION_ROUNDS_REQUIRED'
+    'TRANSFER_CODE_NOT_FOUND','SETTLEMENT_NOT_OPEN','DISTRIBUTION_ROUNDS_REQUIRED','POINT_MULTIPLIER_NOT_CONFIGURED','INVALID_RISK_POOL'
   ]) {
     if (message.includes(code)) return [code,409];
   }
@@ -22,7 +22,8 @@ export default async (req) => {
     const verified = verifyDistributionRunToken({ token:body.confirmation_token });
     if (!verified.ok) return json({ ok:false,error:verified.error },verified.error === 'CONFIRMATION_EXPIRED' ? 409 : 400);
     const s = verified.snapshot;
-    const { data,error } = await supabase.rpc('confirm_risk_distribution_run_budget_safe',{
+    const rpcName = s.risk_pool === 'MAIN' ? 'confirm_risk_distribution_run_budget_safe' : 'confirm_separate_risk_distribution_run';
+    const args = {
       p_request_id:verified.request_id,
       p_settlement_session_id:s.settlement_session_id,
       p_summary_group_id:s.summary_group_id,
@@ -37,7 +38,9 @@ export default async (req) => {
       p_expected_confirmed_cut_total:s.confirmed_cut_total,
       p_rounds:verified.rounds,
       p_confirmed_by:OPERATOR,
-    });
+    };
+    if (s.risk_pool !== 'MAIN') args.p_risk_pool = s.risk_pool;
+    const { data,error } = await supabase.rpc(rpcName,args);
     if (error) {
       const mapped = mapRpc(String(error.message || ''));
       if (mapped) return json({ ok:false,error:mapped[0] },mapped[1]);

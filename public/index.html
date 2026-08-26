@@ -51,7 +51,7 @@
           <p class="muted">กำหนดเฉพาะรหัสที่มี Promotion</p>
           <div id="openingPointProfiles" class="profile-strip"></div>
           <form id="promotionDraftForm" class="compact-form inline-form">
-            <select name="category"><option>A</option><option>B</option><option>E</option><option>F</option><option>G</option></select>
+            <select name="category"><option>A</option><option>B</option><option>E</option><option>F</option><option>G</option><option>H</option><option>L</option></select>
             <input name="code" placeholder="รหัส เช่น 01 / 125" required />
             <input name="point_factor_pct" type="number" min="0" max="100" step="0.1" placeholder="% Point เช่น 50" required />
             <button class="button ghost small" type="submit">เพิ่ม Promotion</button>
@@ -139,7 +139,7 @@
         <div id="specialPointProfiles" class="profile-strip"></div>
         <div id="specialPointStatus" class="point-status"></div>
         <form id="specialPointForm" class="compact-form inline-form">
-          <select name="category"><option>A</option><option>B</option><option>E</option><option>F</option><option>G</option></select>
+          <select name="category"><option>A</option><option>B</option><option>E</option><option>F</option><option>G</option><option>H</option><option>L</option></select>
           <input name="code" placeholder="รหัส" required />
           <button class="button primary small" type="submit">เพิ่มรหัส</button>
         </form>
@@ -214,8 +214,8 @@
             <h3>ตัวคูณ Point พิเศษของบริษัท</h3>
             <p class="muted small-text">มีผลกับยอดที่เปิดอยู่ทันที</p>
             <form id="pointProfileForm" class="compact-form">
-              <select name="category" required><option>A</option><option>B</option><option>E</option><option>F</option><option>G</option></select>
-              <input name="special_multiplier" type="number" min="0.001" step="0.001" placeholder="ตัวคูณ" required />
+              <select name="category" required><option>A</option><option>B</option><option>E</option><option>F</option><option>G</option><option>H</option><option>L</option></select>
+              <input name="special_multiplier" type="number" min="0" step="0.001" placeholder="ตัวคูณ" required />
               <input name="max_special_codes" type="number" min="1" step="1" placeholder="จำนวนรหัสสูงสุด" required />
               <button class="button primary small" type="submit">บันทึก</button>
             </form>
@@ -227,7 +227,12 @@
             <p class="muted small-text">กำหนดส่วนเผื่อของแต่ละกลุ่ม</p>
             <form id="riskBudgetForm" class="compact-form">
               <select name="summary_group_id" required></select>
-              <input name="point_loss_tolerance" type="number" min="0" step="0.01" placeholder="เช่น 10 Point" required />
+              <select name="risk_pool" required>
+                <option value="MAIN">หมวดหลัก A/B/E/F/G</option>
+                <option value="H">H — วิ่งบน</option>
+                <option value="L">L — วิ่งล่าง</option>
+              </select>
+              <input name="point_loss_tolerance" type="number" min="0" step="0.01" placeholder="Point ที่ยอมขาดทุน" required />
               <button class="button primary small" type="submit">บันทึก</button>
             </form>
             <div id="riskBudgetList" class="settings-list"></div>
@@ -259,6 +264,8 @@
                 <option value="E">E — หมวด E</option>
                 <option value="F">F — หมวด F</option>
                 <option value="G">G — หมวด G (3 หลัก)</option>
+                <option value="H">H — วิ่งบน (1 หลัก)</option>
+                <option value="L">L — วิ่งล่าง (1 หลัก)</option>
                 <option value="DOUBLE">DOUBLE — เลขเบิ้ล</option>
                 <option value="PERMUTE_ALL">PERMUTE — สลับเลข 3 หลัก</option>
               </select>

@@ -226,3 +226,18 @@ tbody tr:hover { background: #fafcff; }
 .report-point-state.ready{background:#f1faf4;color:#276747}
 .report-point-state span{font-size:.82rem}
 @media(max-width:560px){.report-point-state{align-items:flex-start;flex-direction:column}}
+/* v7.7 — H/L one-digit categories + independent risk pools */
+.one-digit-board{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px}
+.one-digit-category{border:1px solid #e1e7ef;border-radius:14px;background:#fff;overflow:hidden}
+.one-digit-category.risk-active{box-shadow:0 0 0 1px rgba(185,72,55,.16)}
+.one-digit-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;padding:11px 12px;border-bottom:1px solid #e5eaf1}
+.one-digit-head>div:first-child{display:flex;align-items:baseline;gap:8px}.one-digit-head>div:first-child strong{font-size:1.2rem}.one-digit-head>div:first-child span{font-size:.72rem;color:#6f7f92}
+.one-digit-head-metrics{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end;font-size:.7rem;color:#66768a}.one-digit-head-metrics strong{color:#26364a}
+.one-digit-code-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:1px;background:#edf1f5}
+.one-digit-code{display:grid;grid-template-columns:auto minmax(42px,max-content);align-items:center;justify-content:start;gap:8px;min-height:48px;padding:7px 9px;background:#fff;font-variant-numeric:tabular-nums}.one-digit-code strong{font-size:.84rem}.one-digit-code>span{min-width:42px;text-align:right;padding:2px 6px;border-radius:6px;background:#f5f7fa;font-weight:800}.one-digit-code small{grid-column:1/-1;font-size:.62rem;color:#758397;min-height:.7rem}.one-digit-code.zero{opacity:.38}.one-digit-code.reserve{background:#fffaf0}.one-digit-code.actual{background:#f5fbf6}
+.pool-status-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.pool-status-card{border:1px solid #e1e7ef;border-radius:12px;background:#fff;padding:10px 12px;display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:baseline}.pool-status-card>span{font-size:.74rem;color:#68798d}.pool-status-card>strong{font-size:1.2rem}.pool-status-card>small{font-size:.68rem;color:#65768a}.pool-status-card details{grid-column:1/-1;font-size:.67rem}.pool-status-card details summary{cursor:pointer;color:#66788e}.pool-status-card details div{display:flex;gap:10px;flex-wrap:wrap;margin-top:5px}.pool-status-card.active{border-color:#e2c9a7;background:#fffaf3}.pool-status-card.unconfigured{border-style:dashed}
+.allocation-pool-section+.allocation-pool-section{margin-top:14px}.allocation-pool-heading{display:flex;justify-content:space-between;align-items:center;padding:0 2px 7px}.allocation-pool-heading strong{font-size:.86rem}.allocation-pool-heading span{font-size:.68rem;color:#788697}
+.allocation-one-digit-code{grid-template-columns:auto auto minmax(42px,max-content);cursor:pointer}.allocation-one-digit-code>input{margin:0}.allocation-one-digit-code small{grid-column:2/-1}.allocation-one-digit-code.recommended{background:#fffaf0}
+.postcut-one-digit-board .board-code-list{max-height:none}
+@media(max-width:900px){.pool-status-strip{grid-template-columns:1fr}.one-digit-code-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:700px){.one-digit-board{grid-template-columns:1fr}.one-digit-code-grid{grid-template-columns:repeat(5,minmax(0,1fr))}}

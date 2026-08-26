@@ -16,7 +16,7 @@ export function normalizeApprovedTargets(rows = []) {
       expected_retained_quantity: Math.max(0, Math.floor(Number(row.expected_retained_quantity ?? row.retained_quantity ?? 0))),
       expected_effective_multiplier: Number(row.expected_effective_multiplier ?? row.effective_multiplier ?? 0),
     }))
-    .filter((row) => ['A','B','E','F','G'].includes(row.category) && row.code && row.quantity > 0 && Number.isFinite(row.expected_effective_multiplier) && row.expected_effective_multiplier >= 0);
+    .filter((row) => ['A','B','E','F','G','H','L'].includes(row.category) && row.code && row.quantity > 0 && Number.isFinite(row.expected_effective_multiplier) && row.expected_effective_multiplier >= 0);
 }
 
 /**

@@ -1,5 +1,5 @@
-const CATEGORIES = new Set(["A", "B", "E", "F", "G"]);
-const ALIAS_TARGETS = new Set(["A", "B", "AB", "C", "ABC", "D", "E", "F", "G", "DOUBLE", "PERMUTE_ALL"]);
+const CATEGORIES = new Set(["A", "B", "E", "F", "G", "H", "L"]);
+const ALIAS_TARGETS = new Set(["A", "B", "AB", "C", "ABC", "D", "E", "F", "G", "H", "L", "DOUBLE", "PERMUTE_ALL"]);
 
 export function normalizeBoolean(value, fallback = true) {
   if (value === undefined || value === null || value === "") return fallback;
@@ -58,18 +58,23 @@ export function validatePointProfile(input = {}) {
   const category = normalizeCategory(input.category);
   const special_multiplier = Number(input.special_multiplier);
   const max_special_codes = Number(input.max_special_codes);
-  if (!Number.isFinite(special_multiplier) || special_multiplier <= 0 || special_multiplier > 1000000) throw new Error("INVALID_POINT_MULTIPLIER");
+  const minMultiplier = ["H", "L"].includes(category) ? 0 : Number.EPSILON;
+  if (!Number.isFinite(special_multiplier) || special_multiplier < minMultiplier || special_multiplier > 1000000) throw new Error("INVALID_POINT_MULTIPLIER");
   if (!Number.isInteger(max_special_codes) || max_special_codes <= 0 || max_special_codes > 100) throw new Error("INVALID_POINT_CODE_LIMIT");
+  if (category === "H" && max_special_codes !== 3) throw new Error("INVALID_POINT_CODE_LIMIT_H");
+  if (category === "L" && max_special_codes !== 2) throw new Error("INVALID_POINT_CODE_LIMIT_L");
   return { category, special_multiplier, max_special_codes, updated_at: new Date().toISOString() };
 }
 
 
 export function validateRiskBudget(input = {}) {
   const summary_group_id = String(input.summary_group_id ?? "").trim().toUpperCase();
+  const risk_pool = String(input.risk_pool ?? "MAIN").trim().toUpperCase();
   const point_loss_tolerance = Number(input.point_loss_tolerance);
   if (!/^[A-Z0-9_-]{1,32}$/.test(summary_group_id)) throw new Error("INVALID_SUMMARY_GROUP_ID");
+  if (!["MAIN", "H", "L"].includes(risk_pool)) throw new Error("INVALID_RISK_POOL");
   if (!Number.isFinite(point_loss_tolerance) || point_loss_tolerance < 0 || point_loss_tolerance > 100000000) throw new Error("INVALID_POINT_LOSS_TOLERANCE");
-  return { summary_group_id, point_loss_tolerance, updated_at: new Date().toISOString() };
+  return { summary_group_id, risk_pool, point_loss_tolerance, updated_at: new Date().toISOString() };
 }
 
 export function validateWarehouseLimit(input = {}) {

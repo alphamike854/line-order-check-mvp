@@ -4,6 +4,8 @@ export const DEFAULT_POINT_PROFILES = Object.freeze({
   E: { multiplier: 100, max_special_codes: 1 },
   F: { multiplier: 20, max_special_codes: 6 },
   G: { multiplier: 20, max_special_codes: 4 },
+  H: { multiplier: 0, max_special_codes: 3 },
+  L: { multiplier: 0, max_special_codes: 2 },
 });
 
 export function round2(value) {

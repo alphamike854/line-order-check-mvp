@@ -90,10 +90,16 @@ async function savePointProfile(values) {
 async function saveRiskBudget(values) {
   const row = validateRiskBudget(values);
   await assertSummaryGroupExists(row.summary_group_id);
-  const before = await maybeSingle("summary_group_risk_settings", { summary_group_id: row.summary_group_id });
-  const { data, error } = await supabase.from("summary_group_risk_settings").upsert(row, { onConflict: "summary_group_id" }).select("*").single();
+  const before = await maybeSingle("summary_group_risk_pool_settings", { summary_group_id: row.summary_group_id, risk_pool: row.risk_pool });
+  const { data, error } = await supabase.from("summary_group_risk_pool_settings").upsert(row, { onConflict: "summary_group_id,risk_pool" }).select("*").single();
   if (error) throw error;
-  await writeSettingsAudit({ entityType: "RISK_BUDGET", entityKey: row.summary_group_id, beforeData: before, afterData: data, changedBy: OPERATOR });
+  // Keep the legacy MAIN table synchronized for older utilities/RPC diagnostics.
+  if (row.risk_pool === "MAIN") {
+    const { error: legacyError } = await supabase.from("summary_group_risk_settings")
+      .upsert({ summary_group_id: row.summary_group_id, point_loss_tolerance: row.point_loss_tolerance, updated_at: row.updated_at }, { onConflict: "summary_group_id" });
+    if (legacyError) throw legacyError;
+  }
+  await writeSettingsAudit({ entityType: "RISK_BUDGET", entityKey: `${row.summary_group_id}|${row.risk_pool}`, beforeData: before, afterData: data, changedBy: OPERATOR });
   return data;
 }
 

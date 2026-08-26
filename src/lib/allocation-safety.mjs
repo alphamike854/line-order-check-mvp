@@ -47,7 +47,7 @@ function normalizedSnapshot(row) {
   if (!/^[0-9a-f-]{36}$/i.test(snapshot.settlement_session_id)) throw new Error("INVALID_SETTLEMENT_SESSION_ID");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(snapshot.business_date)) throw new Error("INVALID_BUSINESS_DATE");
   if (!snapshot.summary_group_id) throw new Error("INVALID_SUMMARY_GROUP_ID");
-  if (!["A", "B", "E", "F", "G"].includes(snapshot.category)) throw new Error("INVALID_CATEGORY");
+  if (!["A", "B", "E", "F", "G", "H", "L"].includes(snapshot.category)) throw new Error("INVALID_CATEGORY");
   if (!snapshot.code) throw new Error("INVALID_CODE");
   if (snapshot.threshold <= 0) throw new Error("INVALID_THRESHOLD");
   if (snapshot.transfer_now <= 0) throw new Error("NO_TRANSFER_REQUIRED");

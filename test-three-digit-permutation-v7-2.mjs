@@ -9,7 +9,7 @@ function total(result) {
   return result.items.reduce((sum, x) => sum + Number(x.quantity || 0), 0);
 }
 
-assert.ok(PARSER_VERSION.startsWith("1.3."));
+assert.ok(PARSER_VERSION.startsWith("1."));
 
 // Authoritative example: each source code expands to all UNIQUE permutations.
 const mixed = parseOrder("093  998 =  100 *  ทุกกลับ");

@@ -1,5 +1,9 @@
 # LINE Order Check MVP — Netlify + Supabase
 
+## v7.7 H/L one-digit categories
+
+Adds `H0–H9` (วิ่งบน) and `L0–L9` (วิ่งล่าง). H has 3 special-Point slots, L has 2. H and L use independent Risk Budgets and are not combined with the MAIN A/B/E/F/G risk pool. H/L Point multipliers start at 0 and must be configured in Settings. Upgrade with `202608260019_add_one_digit_hl_risk_pools.sql`.
+
 ## v7.0 parser aliases
 
 Alias settings support `A`, `B`, `C`, `D`, `E`, `F`, `G`, and `DOUBLE`. `C` is reverse-code, `D` is the decade generator, `G` is the 3-digit G category, and `DOUBLE` is the 2-digit double-number generator. Run migration `202608250014_expand_parser_alias_targets.sql` when upgrading from v6.9.

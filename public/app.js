@@ -16,6 +16,7 @@ const state = {
   specialPointPromotions: [],
   specialPointSessionId: null,
   specialPointSession: null,
+  specialPointStatus: null,
   promotionDrafts: [],
   transferPreview: null,
   bulkDistributionPreview: null,
@@ -76,6 +77,8 @@ function aliasTargetLabel(value) {
     E: "หมวด E",
     F: "หมวด F",
     G: "หมวด G",
+    H: "วิ่งบน",
+    L: "วิ่งล่าง",
     DOUBLE: "เลขเบิ้ล",
     PERMUTE_ALL: "สลับเลข 3 หลัก",
   };
@@ -224,8 +227,22 @@ function overallRiskFor(groupId) {
   return (state.dashboard?.overall_risk || []).find((r) => r.summary_group_id === groupId) || null;
 }
 
-function distributionPlanFor(groupId) {
-  return (state.dashboard?.distribution_plans || []).find((r) => r.summary_group_id === groupId) || null;
+function riskPoolFor(groupId, riskPool = "MAIN") {
+  return (state.dashboard?.risk_pools || []).find((r) => r.summary_group_id === groupId && r.risk_pool === riskPool) || null;
+}
+
+function distributionPlanFor(groupId, riskPool = "MAIN") {
+  return (state.dashboard?.distribution_plans || []).find((r) => r.summary_group_id === groupId && (r.risk_pool || "MAIN") === riskPool) || null;
+}
+
+function riskPoolLabel(pool) {
+  return pool === "H" ? "H — วิ่งบน" : pool === "L" ? "L — วิ่งล่าง" : "หมวดหลัก";
+}
+
+function categoryCodeLength(category) {
+  if (["H","L"].includes(category)) return 1;
+  if (["A","B"].includes(category)) return 2;
+  return 3;
 }
 
 function warehouseLimitFor(destination) {
@@ -245,8 +262,14 @@ function codeRowsFor(groupId, category) {
       if (!map.has(code)) map.set(code, { summary_group_id: groupId, category, code, order_total: 0, adjusted_total: 0, point_exposure: 0, retained_point_exposure: 0, retained_quantity: 0, reserve_candidate: false, actual_special_point: false, promotion_factor_pct: 100, confirmed_cut: 0, available_to_cut: 0 });
     }
   }
+  if (["H", "L"].includes(category)) {
+    for (let i = 0; i < 10; i += 1) {
+      const code = String(i);
+      if (!map.has(code)) map.set(code, { summary_group_id: groupId, category, code, order_total: 0, adjusted_total: 0, point_exposure: 0, retained_point_exposure: 0, retained_quantity: 0, reserve_candidate: false, actual_special_point: false, promotion_factor_pct: 100, confirmed_cut: 0, available_to_cut: 0 });
+    }
+  }
   return [...map.values()]
-    .filter((row) => ["A", "B"].includes(category) || Number(row.order_total) > 0)
+    .filter((row) => ["A", "B", "H", "L"].includes(category) || Number(row.order_total) > 0)
     .sort((a, b) => Number(b.order_total) - Number(a.order_total) || String(a.code).localeCompare(String(b.code)));
 }
 
@@ -280,6 +303,42 @@ function renderCategoryColumn(groupId, category) {
   return `<section class="board-column">${header}<div class="board-code-list">${list}</div></section>`;
 }
 
+function renderOneDigitSummaryCategory(groupId, category) {
+  const rows = codeRowsFor(groupId, category);
+  const risk = categoryRiskFor(groupId, category);
+  const pool = riskPoolFor(groupId, category);
+  const profile = profileFor(category);
+  const configured = Number(profile?.special_multiplier || 0) > 0;
+  const plan = distributionPlanFor(groupId, category);
+  const list = rows.map((row) => {
+    const qty = Number(row.order_total || 0);
+    const retained = Number(row.retained_quantity ?? row.available_to_cut ?? qty);
+    return `<div class="one-digit-code ${qty === 0 ? "zero" : ""} ${row.reserve_candidate ? "reserve" : ""} ${row.actual_special_point ? "actual" : ""}">
+      <strong>${escapeHtml(category)}${escapeHtml(row.code)}</strong>
+      <span>${formatNumber(qty)}</span>
+      ${Number(row.confirmed_cut || 0) > 0 ? `<small>คง ${formatNumber(retained)}</small>` : row.actual_special_point ? `<small>★ Point</small>` : row.reserve_candidate ? `<small>สำรอง</small>` : `<small></small>`}
+    </div>`;
+  }).join("");
+  return `<section class="one-digit-category ${pool?.excess_point_risk > 0 ? "risk-active" : ""}">
+    <div class="one-digit-head">
+      <div><strong>${escapeHtml(category)}</strong><span>${category === "H" ? "วิ่งบน" : "วิ่งล่าง"}</span></div>
+      <div class="one-digit-head-metrics">
+        <span>${configured ? `×${formatNumber(profile?.special_multiplier || 0)}` : "ตั้งตัวคูณ"}</span>
+        <span>รับ ${formatNumber(pool?.gross_received || 0)}</span>
+        ${configured ? `<span>Point ${formatNumber(pool?.risk_point_total || 0)}</span><strong>ควรตัด ${formatNumber(plan?.transfer_required_total || 0)}</strong>` : `<strong>ยังไม่คำนวณ Risk</strong>`}
+      </div>
+    </div>
+    <div class="one-digit-code-grid">${list}</div>
+  </section>`;
+}
+
+function renderOneDigitSummaryPair(groupId) {
+  const hasRows = ["H","L"].some((category) => codeRowsFor(groupId, category).some((row) => Number(row.order_total || 0) > 0));
+  const configured = ["H","L"].some((category) => Number(profileFor(category)?.special_multiplier || 0) > 0);
+  if (!hasRows && !configured) return "";
+  return `<div class="one-digit-board">${["H","L"].map((category) => renderOneDigitSummaryCategory(groupId, category)).join("")}</div>`;
+}
+
 function renderGroupBoard(groupId) {
   const overall = overallRiskFor(groupId);
   const gRows = codeRowsFor(groupId, "G");
@@ -293,6 +352,7 @@ function renderGroupBoard(groupId) {
     </div>
     <div class="four-column-board">${["A","B","E","F"].map((c) => renderCategoryColumn(groupId,c)).join("")}</div>
     ${gRows.length ? `<div class="g-board"><div class="category-heading"><h3>หมวด G</h3><span>×${formatNumber(profileFor("G")?.special_multiplier || 20)} · สูงสุด ${formatNumber(profileFor("G")?.max_special_codes || 4)} รหัส</span></div><div class="g-code-grid">${gRows.map((row)=>`<div class="g-code ${row.reserve_candidate?"reserve":""} ${row.actual_special_point?"actual":""}"><strong>G${escapeHtml(row.code)}</strong><span>${formatNumber(row.order_total)}</span>${row.actual_special_point?`<em>★</em>`:row.reserve_candidate?`<em>สำรอง</em>`:""}${Number(row.promotion_factor_pct??100)<100?`<small>PROMO ${formatNumber(row.promotion_factor_pct)}%</small>`:""}</div>`).join("")}</div></div>` : ""}
+    ${renderOneDigitSummaryPair(groupId)}
   </section>`;
 }
 
@@ -383,6 +443,7 @@ function renderPostCutGroupBoard(groupId, roundsByCode) {
       const rounds = roundsByCode.get(`${groupId}|G|${row.code}`) || [];
       return `<div class="g-code postcut-g-code ${cut > 0 ? "has-cut" : ""}"><strong>G${escapeHtml(row.code)}</strong><span>คง ${formatNumber(retainedQty)}</span><em>รับ ${formatNumber(qty)} · ตัด ${formatNumber(cut)}</em>${rounds.length ? `<small>${rounds.map((round) => `#${formatNumber(round.batch_number)} ${escapeHtml(round.destination)} ${formatNumber(round.quantity)}`).join(" · ")}</small>` : ""}</div>`;
     }).join("")}</div></div>` : ""}
+    <div class="one-digit-board postcut-one-digit-board">${["H","L"].map((category) => renderPostCutCategoryColumn(groupId, category, roundsByCode)).join("")}</div>
   </section>`;
 }
 
@@ -410,14 +471,15 @@ function clearTransferPreview(message = "") {
   root.innerHTML = message ? `<div class="preview-box warn">${escapeHtml(message)}</div>` : "";
 }
 
-function recommendationMapFor(groupId) {
-  return new Map((distributionPlanFor(groupId)?.recommendations || []).map((row) => [`${row.category}|${row.code}`, row]));
+function recommendationMapFor(groupId, riskPool = "MAIN") {
+  return new Map((distributionPlanFor(groupId, riskPool)?.recommendations || []).map((row) => [`${row.category}|${row.code}`, row]));
 }
 
 function selectedRecommendedCodes() {
   return $$(".allocation-code-select:checked").map((input) => ({
     category: input.dataset.category,
     code: input.dataset.code,
+    risk_pool: input.dataset.pool || "MAIN",
   }));
 }
 
@@ -462,10 +524,10 @@ function renderWarehouseChoices(warehouses) {
   }));
 }
 
-function renderAllocationCategoryColumn(groupId, category) {
+function renderAllocationCategoryColumn(groupId, category, riskPool = "MAIN") {
   const profile = profileFor(category);
   const risk = categoryRiskFor(groupId, category);
-  const recommendations = recommendationMapFor(groupId);
+  const recommendations = recommendationMapFor(groupId, riskPool);
   const rows = codeRowsFor(groupId, category);
   const maxQty = Math.max(1, ...rows.map((r) => Number(r.order_total || 0)));
   const recommendedTotal = rows.reduce((sum, row) => sum + Number(recommendations.get(`${category}|${row.code}`)?.recommended_transfer || 0), 0);
@@ -484,7 +546,7 @@ function renderAllocationCategoryColumn(groupId, category) {
     const transferred = Number(row.confirmed_cut || 0) > 0 ? `<span class="promo-badge">ส่งแล้ว ${formatNumber(row.confirmed_cut)}</span>` : "";
     return `<label class="board-code-row allocation-code-row ${qty === 0 ? "zero" : ""} ${recommended > 0 ? "recommended" : ""} ${row.reserve_candidate ? "reserve" : ""}">
       <div class="allocation-code-check">
-        ${recommended > 0 ? `<input class="allocation-code-select" type="checkbox" checked data-category="${escapeHtml(category)}" data-code="${escapeHtml(row.code)}" aria-label="เลือก ${escapeHtml(category)}${escapeHtml(row.code)}" />` : `<span class="allocation-code-spacer"></span>`}
+        ${recommended > 0 ? `<input class="allocation-code-select" type="checkbox" checked data-pool="${escapeHtml(riskPool)}" data-category="${escapeHtml(category)}" data-code="${escapeHtml(row.code)}" aria-label="เลือก ${escapeHtml(category)}${escapeHtml(row.code)}" />` : `<span class="allocation-code-spacer"></span>`}
       </div>
       <div class="allocation-code-content">
         <div class="board-code-main"><strong>${escapeHtml(row.code)}</strong><span>${formatNumber(qty)}</span></div>
@@ -499,11 +561,10 @@ function renderAllocationCategoryColumn(groupId, category) {
 
 function updateBulkDistributionSummary(invalidatePreview = true) {
   const groupId = summaryGroupSelect.value;
-  const recommendations = recommendationMapFor(groupId);
   const codes = selectedRecommendedCodes();
   const warehouses = selectedWarehouseNames();
-  const selectedQty = codes.reduce((sum, item) => sum + Number(recommendations.get(`${item.category}|${item.code}`)?.recommended_transfer || 0), 0);
-  const required = Number(distributionPlanFor(groupId)?.transfer_required_total || 0);
+  const selectedQty = codes.reduce((sum, item) => sum + Number(recommendationMapFor(groupId, item.risk_pool).get(`${item.category}|${item.code}`)?.recommended_transfer || 0), 0);
+  const required = ["MAIN","H","L"].reduce((sum, pool) => sum + Number(distributionPlanFor(groupId, pool)?.transfer_required_total || 0), 0);
   const root = $("#bulkDistributionSummary");
   const button = $("#runBulkDistributionButton");
 
@@ -522,6 +583,51 @@ function updateBulkDistributionSummary(invalidatePreview = true) {
   }
   button.disabled = state.dashboardStale || required <= 0 || !codes.length || !warehouses.length;
   if (invalidatePreview) clearTransferPreview();
+}
+
+function renderAllocationPoolStatus(groupId, pool) {
+  const stateRow = riskPoolFor(groupId, pool);
+  const plan = distributionPlanFor(groupId, pool);
+  if (!stateRow) return "";
+  const received = Number(stateRow.gross_received || 0);
+  if (received <= 0) return "";
+  const configured = pool === "MAIN" || stateRow.multiplier_configured !== false;
+  const required = Number(plan?.transfer_required_total || 0);
+  const excess = Number(stateRow.excess_point_risk || 0);
+  return `<div class="pool-status-card ${required > 0 ? "active" : ""} ${!configured ? "unconfigured" : ""}">
+    <span>${escapeHtml(riskPoolLabel(pool))}</span>
+    <strong>${configured ? formatNumber(required) : "—"}</strong>
+    <small>${!configured ? "ตั้งตัวคูณ Point" : required > 0 ? "ควรตัด" : "ปกติ"}</small>
+    <details><summary>รายละเอียด</summary><div><span>รับ ${formatNumber(received)}</span><span>หลังหัก ${formatNumber(stateRow.adjusted_received || 0)}</span><span>Point ${formatNumber(stateRow.risk_point_total || 0)}</span><span>เกิน ${formatNumber(excess)}</span></div></details>
+  </div>`;
+}
+
+function renderOneDigitAllocationCategory(groupId, category) {
+  const pool = riskPoolFor(groupId, category);
+  const plan = distributionPlanFor(groupId, category);
+  const profile = profileFor(category);
+  const rows = codeRowsFor(groupId, category);
+  const recs = recommendationMapFor(groupId, category);
+  const configured = Number(profile?.special_multiplier || 0) > 0;
+  const list = rows.map((row) => {
+    const qty = Number(row.order_total || 0);
+    const retained = Number(row.retained_quantity ?? row.available_to_cut ?? qty);
+    const rec = recs.get(`${category}|${row.code}`);
+    const recommended = Math.min(retained, Number(rec?.recommended_transfer || 0));
+    return `<label class="one-digit-code allocation-one-digit-code ${qty === 0 ? "zero" : ""} ${recommended > 0 ? "recommended" : ""}">
+      ${recommended > 0 ? `<input class="allocation-code-select" type="checkbox" checked data-pool="${category}" data-category="${category}" data-code="${escapeHtml(row.code)}" />` : `<span class="allocation-code-spacer"></span>`}
+      <strong>${category}${escapeHtml(row.code)}</strong>
+      <span>${formatNumber(qty)}</span>
+      <small>${recommended > 0 ? `ตัด ${formatNumber(recommended)}` : Number(row.confirmed_cut||0)>0 ? `คง ${formatNumber(retained)}` : ""}</small>
+    </label>`;
+  }).join("");
+  return `<section class="one-digit-category allocation-one-digit-category ${Number(plan?.transfer_required_total || 0)>0 ? "risk-active" : ""}">
+    <div class="one-digit-head">
+      <div><strong>${category}</strong><span>${category === "H" ? "วิ่งบน" : "วิ่งล่าง"}</span></div>
+      <div class="one-digit-head-metrics"><span>${configured ? `×${formatNumber(profile?.special_multiplier || 0)}` : "ยังไม่ตั้งตัวคูณ"}</span><span>รับ ${formatNumber(pool?.gross_received || 0)}</span><strong>${configured ? `ตัด ${formatNumber(plan?.transfer_required_total || 0)}` : "ตั้งค่าก่อน"}</strong></div>
+    </div>
+    <div class="one-digit-code-grid">${list}</div>
+  </section>`;
 }
 
 function renderAllocation() {
@@ -545,9 +651,9 @@ function renderAllocation() {
     return;
   }
 
-  const overall = overallRiskFor(groupId);
-  const plan = distributionPlanFor(groupId);
-  if (!overall || !plan) {
+  const poolStates = ["MAIN","H","L"].map((pool) => riskPoolFor(groupId, pool)).filter(Boolean);
+  const totalReceived = poolStates.reduce((sum,row)=>sum+Number(row.gross_received||0),0);
+  if (!totalReceived) {
     riskSummary.innerHTML = `<div class="risk-notice">${escapeHtml(groupName(groupId))} ยังไม่มีออเดอร์สำหรับคำนวณ</div>`;
     $("#warehouseChoices").innerHTML = "";
     board.innerHTML = "";
@@ -555,55 +661,30 @@ function renderAllocation() {
     return;
   }
 
-  const safetyMargin = Number(overall.safety_margin ?? overall.net_safe_capacity ?? 0);
-  const excessPoint = Math.max(0, Number(overall.excess_point_risk || 0));
-  const required = Math.max(0, Number(plan.transfer_required_total || 0));
-  const blocked = excessPoint <= 0 || required <= 0;
-
-  riskSummary.innerHTML = `<section class="cut-capacity-card ${blocked ? "blocked" : ""}">
-    <div class="capacity-main">
-      <span>${escapeHtml(groupName(groupId))}</span>
-      <strong>${formatNumber(required)}</strong>
-      <b>ควรตัด</b>
-      ${blocked
-        ? `<em>ยังไม่ต้องตัดเพิ่ม</em>`
-        : `<em>เลือกรหัสและคลัง แล้วกดยืนยัน</em>`}
-    </div>
-    <details class="capacity-details">
-      <summary>ดูรายละเอียด</summary>
-      <div class="capacity-detail-grid risk-policy-detail-grid">
-        <div><span>ยอดหลังหัก %</span><strong>${formatNumber(overall.adjusted_received)}</strong></div>
-        <div><span>ยอมขาดทุน</span><strong>${formatNumber(overall.point_loss_tolerance)}</strong></div>
-        <div><span>ระดับที่รับได้</span><strong>${formatNumber(overall.risk_budget)}</strong></div>
-        <div><span>Point สำรอง</span><strong>${formatNumber(overall.risk_point_total)}</strong></div>
-        <div class="${excessPoint > 0 ? "danger-value" : ""}"><span>Point เกิน</span><strong>${formatNumber(excessPoint)}</strong></div>
-        <div class="${safetyMargin < 0 ? "danger-value" : ""}"><span>คงเหลือ</span><strong>${formatNumber(safetyMargin)}</strong></div>
-      </div>
-    </details>
-  </section>`;
-
+  riskSummary.innerHTML = `<section class="pool-status-strip">${["MAIN","H","L"].map((pool)=>renderAllocationPoolStatus(groupId,pool)).join("")}</section>`;
   renderWarehouseChoices(warehouses);
 
-  if (blocked) {
-    board.innerHTML = `<div class="risk-notice">ยังไม่ต้องตัดยอด</div>`;
-    updateBulkDistributionSummary(false);
-    return;
-  }
-
   const gRows = codeRowsFor(groupId, "G");
-  const gRecommendations = recommendationMapFor(groupId);
-  board.innerHTML = `<section class="summary-group-board allocation-summary-board">
-    <div class="four-column-board">${["A","B","E","F"].map((category) => renderAllocationCategoryColumn(groupId,category)).join("")}</div>
+  const gRecommendations = recommendationMapFor(groupId, "MAIN");
+  const mainHasOrders = ["A","B","E","F","G"].some((category)=>codeRowsFor(groupId,category).some((row)=>Number(row.order_total||0)>0));
+  const mainBoard = mainHasOrders ? `<div class="allocation-pool-section"><div class="allocation-pool-heading"><strong>หมวดหลัก</strong><span>แยกจาก H / L</span></div>
+    <div class="four-column-board">${["A","B","E","F"].map((category) => renderAllocationCategoryColumn(groupId,category,"MAIN")).join("")}</div>
     ${gRows.length ? `<div class="g-board allocation-g-board"><div class="category-heading"><h3>หมวด G</h3><span>Point ×${formatNumber(profileFor("G")?.special_multiplier || 0)}</span></div><div class="g-code-grid">${gRows.map((row) => {
       const rec = gRecommendations.get(`G|${row.code}`);
       const recommended = Math.min(Number(row.retained_quantity ?? row.available_to_cut ?? 0),Number(rec?.recommended_transfer || 0));
       return `<label class="g-code allocation-g-code ${recommended > 0 ? "recommended" : ""}">
-        ${recommended > 0 ? `<input class="allocation-code-select" type="checkbox" checked data-category="G" data-code="${escapeHtml(row.code)}" aria-label="เลือก G${escapeHtml(row.code)}" />` : `<span></span>`}
+        ${recommended > 0 ? `<input class="allocation-code-select" type="checkbox" checked data-pool="MAIN" data-category="G" data-code="${escapeHtml(row.code)}" aria-label="เลือก G${escapeHtml(row.code)}" />` : `<span></span>`}
         <strong>G${escapeHtml(row.code)}</strong><span>รับ ${formatNumber(row.order_total)} · คง ${formatNumber(row.retained_quantity ?? 0)}</span>${recommended > 0 ? `<em>ตัด ${formatNumber(recommended)}</em>` : ""}
       </label>`;
-    }).join("")}</div></div>` : ""}
-  </section>`;
+    }).join("")}</div></div>` : ""}</div>` : "";
 
+  const hlHasOrders = ["H","L"].some((category)=>codeRowsFor(groupId,category).some((row)=>Number(row.order_total||0)>0));
+  const hlBoard = hlHasOrders ? `<div class="allocation-pool-section one-digit-allocation-section"><div class="allocation-pool-heading"><strong>วิ่ง</strong><span>คำนวณความเสี่ยงแยก</span></div><div class="one-digit-board">${["H","L"].map((category)=>renderOneDigitAllocationCategory(groupId,category)).join("")}</div></div>` : "";
+
+  board.innerHTML = `<section class="summary-group-board allocation-summary-board">${mainBoard}${hlBoard}</section>`;
+  if (!["MAIN","H","L"].some((pool)=>Number(distributionPlanFor(groupId,pool)?.transfer_required_total||0)>0)) {
+    board.insertAdjacentHTML("afterbegin", `<div class="risk-notice">ยังไม่ต้องตัดยอด</div>`);
+  }
   $$(".allocation-code-select").forEach((input) => input.addEventListener("change", () => updateBulkDistributionSummary(true)));
   updateBulkDistributionSummary(false);
 }
@@ -617,41 +698,49 @@ async function runBulkDistribution() {
   if (!selectedCodes.length) return toast("กรุณาเลือกรหัสที่ต้องการตัด", true);
   if (!destinations.length) return toast("กรุณาเลือกคลังปลายทาง", true);
 
+  const byPool = new Map();
+  for (const item of selectedCodes) {
+    const pool = item.risk_pool || "MAIN";
+    if (!byPool.has(pool)) byPool.set(pool, []);
+    byPool.get(pool).push({ category:item.category, code:item.code });
+  }
+
   const button = $("#runBulkDistributionButton");
   button.disabled = true;
   button.textContent = "กำลังจัดแผน...";
   try {
-    const preview = await api("/api/risk-distribution-preview", {
-      method:"POST",
-      body:JSON.stringify({ summary_group_id:groupId, destinations, selected_codes:selectedCodes }),
-    });
-    state.bulkDistributionPreview = preview;
-    const roundsPreview = (preview.rounds || []).slice(0,8).map((round) =>
-      `รอบ ${formatNumber(round.round_index)} · ${round.destination} · ${formatNumber(round.quantity)}`
-    ).join("\n");
-    const extraRounds = Math.max(0, Number(preview.planned_rounds || 0) - 8);
+    const previews = [];
+    for (const [riskPool, codes] of byPool.entries()) {
+      const preview = await api("/api/risk-distribution-preview", {
+        method:"POST",
+        body:JSON.stringify({ summary_group_id:groupId, risk_pool:riskPool, destinations, selected_codes:codes }),
+      });
+      previews.push(preview);
+    }
+    state.bulkDistributionPreview = previews;
+    const totalQty = previews.reduce((sum,p)=>sum+Number(p.planned_quantity||0),0);
+    const totalRounds = previews.reduce((sum,p)=>sum+Number(p.planned_rounds||0),0);
+    const totalCodes = previews.reduce((sum,p)=>sum+Number(p.selected_code_count||0),0);
+    const poolLines = previews.map((p)=>`${riskPoolLabel(p.risk_pool)} ${formatNumber(p.planned_quantity)} · ${formatNumber(p.planned_rounds)} รอบ`).join("\n");
     $("#transferPreview").innerHTML = `<div class="preview-box ok transfer-confirm-card">
-      <div class="preview-heading"><strong>พร้อมตัดยอด</strong><span>${formatNumber(preview.selected_code_count)} รหัส · ${formatNumber(preview.selected_warehouse_count)} คลัง</span></div>
-      <div class="confirm-totals"><div><span>ยอดตัด</span><strong>${formatNumber(preview.planned_quantity)}</strong></div><div><span>รอบ</span><strong>${formatNumber(preview.planned_rounds)}</strong></div><div><span>Point เกินหลังตัด</span><strong>${formatNumber(preview.projected_excess_point_risk)}</strong></div></div>
-      <div class="preview-policy-note">ระบบแบ่งรอบตามคลัง</div>
+      <div class="preview-heading"><strong>พร้อมตัดยอด</strong><span>${formatNumber(totalCodes)} รหัส · ${formatNumber(destinations.length)} คลัง</span></div>
+      <div class="confirm-totals"><div><span>ยอดตัด</span><strong>${formatNumber(totalQty)}</strong></div><div><span>รอบ</span><strong>${formatNumber(totalRounds)}</strong></div><div><span>ชุดความเสี่ยง</span><strong>${formatNumber(previews.length)}</strong></div></div>
+      <div class="preview-policy-note">ระบบแบ่ง H / L ออกจากหมวดหลักอัตโนมัติ</div>
     </div>`;
 
-    const confirmed = window.confirm(
-      `ยืนยันตัดยอด?\n\n` +
-      `รหัส ${formatNumber(preview.selected_code_count)} รายการ\n` +
-      `รวม ${formatNumber(preview.planned_quantity)} หน่วย\n` +
-      `แบ่ง ${formatNumber(preview.planned_rounds)} รอบ\n\n` +
-      `${roundsPreview}${extraRounds ? `\n...อีก ${formatNumber(extraRounds)} รอบ` : ""}`
-    );
+    const confirmed = window.confirm(`ยืนยันตัดยอด?\n\nรวม ${formatNumber(totalQty)} หน่วย · ${formatNumber(totalRounds)} รอบ\n\n${poolLines}`);
     if (!confirmed) return;
 
     button.textContent = "กำลังยืนยันทุกรอบ...";
-    const payload = await api("/api/risk-distribution-confirm", {
-      method:"POST",
-      body:JSON.stringify({ confirmation_token:preview.confirmation_token }),
-    });
-    const run = payload.run || {};
-    toast(`ตัดยอดสำเร็จ ${formatNumber(run.confirmed_quantity || 0)}`);
+    let confirmedQty = 0;
+    for (const preview of previews) {
+      const payload = await api("/api/risk-distribution-confirm", {
+        method:"POST",
+        body:JSON.stringify({ confirmation_token:preview.confirmation_token }),
+      });
+      confirmedQty += Number(payload.run?.confirmed_quantity || 0);
+    }
+    toast(`ตัดยอดสำเร็จ ${formatNumber(confirmedQty)}`);
     clearTransferPreview();
     await loadDashboard();
     await loadAllocationHistory();
@@ -665,6 +754,7 @@ async function runBulkDistribution() {
         NO_RISK_DISTRIBUTION_REQUIRED:"ยังไม่ต้องตัดเพิ่ม",
         NO_SELECTED_DISTRIBUTION_TARGETS:"รหัสที่เลือกไม่มีส่วนเกินตามแผนปัจจุบัน",
         WAREHOUSE_SELECTION_REQUIRED:"กรุณาเลือกคลังปลายทาง",
+        POINT_MULTIPLIER_NOT_CONFIGURED:"กรุณาตั้งตัวคูณ Point ของ H/L ก่อน",
       }[error.message] || error.message;
       toast(`ตัดยอดไม่สำเร็จ: ${friendly}`, true);
     }
@@ -904,10 +994,10 @@ function renderSettings() {
     <div class="settings-row"><span><strong>${escapeHtml(row.line_group_name)}</strong><small>${escapeHtml(row.line_group_id)}</small></span><span>${escapeHtml(groupName(row.summary_group_id))} · ลด ${formatNumber(row.reduction_pct || 0)}% · ${row.enabled ? "ใช้งาน" : "ปิด"}</span><button class="button ghost small edit-line" data-id="${escapeHtml(row.line_group_id)}">แก้ไข</button></div>`).join("");
 
   $("#pointProfilesList").innerHTML = (s.point_profiles || []).map((row) => `
-    <div class="settings-row"><span><strong>${escapeHtml(row.category)} ×${formatNumber(row.special_multiplier)}</strong><small>Point พิเศษสูงสุด ${formatNumber(row.max_special_codes)} รหัส</small></span><span></span><button class="button ghost small edit-profile" data-id="${escapeHtml(row.category)}">แก้ไข</button></div>`).join("");
+    <div class="settings-row"><span><strong>${escapeHtml(row.category)} ${Number(row.special_multiplier)>0?`×${formatNumber(row.special_multiplier)}`:"ยังไม่ตั้งตัวคูณ"}</strong><small>Point พิเศษสูงสุด ${formatNumber(row.max_special_codes)} รหัส</small></span><span></span><button class="button ghost small edit-profile" data-id="${escapeHtml(row.category)}">แก้ไข</button></div>`).join("");
 
   $("#riskBudgetList").innerHTML = (s.risk_budgets || []).map((row) => `
-    <div class="settings-row"><span><strong>${escapeHtml(groupName(row.summary_group_id))}</strong><small>ยอมติดลบได้ ${formatNumber(row.point_loss_tolerance)} Point</small></span><span></span><button class="button ghost small edit-risk-budget" data-id="${escapeHtml(row.summary_group_id)}">แก้ไข</button></div>`).join("");
+    <div class="settings-row"><span><strong>${escapeHtml(groupName(row.summary_group_id))} · ${escapeHtml(riskPoolLabel(row.risk_pool || "MAIN"))}</strong><small>ยอมขาดทุน ${formatNumber(row.point_loss_tolerance)} Point</small></span><span></span><button class="button ghost small edit-risk-budget" data-group="${escapeHtml(row.summary_group_id)}" data-pool="${escapeHtml(row.risk_pool || "MAIN")}">แก้ไข</button></div>`).join("");
 
   $("#warehouseLimitList").innerHTML = (s.warehouse_limits || []).map((row) => `
     <div class="settings-row"><span><strong>${escapeHtml(row.destination)}</strong><small>สูงสุด ${formatNumber(row.max_batch_quantity)} ต่อรอบ</small></span><span>${row.enabled ? "ใช้งาน" : "ปิด"}</span><button class="button ghost small edit-warehouse-limit" data-id="${escapeHtml(row.destination)}">แก้ไข</button></div>`).join("");
@@ -925,11 +1015,11 @@ function renderSettings() {
   }));
   $$(".edit-profile").forEach((button)=>button.addEventListener("click",()=>{
     const row=(s.point_profiles||[]).find((x)=>x.category===button.dataset.id);const form=$("#pointProfileForm");
-    form.elements.category.value=row.category;form.elements.special_multiplier.value=row.special_multiplier;form.elements.max_special_codes.value=row.max_special_codes;
+    form.elements.category.value=row.category;form.elements.special_multiplier.value=row.special_multiplier;form.elements.max_special_codes.value=row.max_special_codes;syncPointProfileFormSlots(form);
   }));
   $$(".edit-risk-budget").forEach((button)=>button.addEventListener("click",()=>{
-    const row=(s.risk_budgets||[]).find((x)=>x.summary_group_id===button.dataset.id);const form=$("#riskBudgetForm");
-    setSummaryOptions(form.elements.summary_group_id,row.summary_group_id);form.elements.point_loss_tolerance.value=row.point_loss_tolerance;
+    const row=(s.risk_budgets||[]).find((x)=>x.summary_group_id===button.dataset.group&&(x.risk_pool||"MAIN")===button.dataset.pool);const form=$("#riskBudgetForm");
+    setSummaryOptions(form.elements.summary_group_id,row.summary_group_id);form.elements.risk_pool.value=row.risk_pool||"MAIN";form.elements.point_loss_tolerance.value=row.point_loss_tolerance;
   }));
   $$(".edit-warehouse-limit").forEach((button)=>button.addEventListener("click",()=>{
     const row=(s.warehouse_limits||[]).find((x)=>x.destination===button.dataset.id);const form=$("#warehouseLimitForm");
@@ -970,6 +1060,24 @@ async function saveSetting(entity, values, form) {
   }
 }
 
+function syncPointProfileFormSlots(form = $("#pointProfileForm")) {
+  if (!form) return;
+  const category = String(form.elements.category.value || "").toUpperCase();
+  const input = form.elements.max_special_codes;
+  if (category === "H") {
+    input.value = 3;
+    input.readOnly = true;
+    input.title = "H ใช้ Point พิเศษ 3 รหัส";
+  } else if (category === "L") {
+    input.value = 2;
+    input.readOnly = true;
+    input.title = "L ใช้ Point พิเศษ 2 รหัส";
+  } else {
+    input.readOnly = false;
+    input.title = "";
+  }
+}
+
 function bindSettingForms() {
   $("#summaryGroupForm").addEventListener("submit", (event) => {
     event.preventDefault(); const f = event.currentTarget;
@@ -979,13 +1087,15 @@ function bindSettingForms() {
     event.preventDefault(); const f = event.currentTarget;
     saveSetting("LINE_GROUP", { line_group_id: f.elements.line_group_id.value, line_group_name: f.elements.line_group_name.value, summary_group_id: f.elements.summary_group_id.value, reduction_pct: Number(f.elements.reduction_pct.value || 0), enabled: f.elements.enabled.checked }, f);
   });
+  $("#pointProfileForm").elements.category.addEventListener("change", (event) => syncPointProfileFormSlots(event.currentTarget.form));
+  syncPointProfileFormSlots();
   $("#pointProfileForm").addEventListener("submit", (event)=>{
     event.preventDefault();const f=event.currentTarget;
     saveSetting("POINT_PROFILE",{category:f.elements.category.value,special_multiplier:Number(f.elements.special_multiplier.value),max_special_codes:Number(f.elements.max_special_codes.value)},f);
   });
   $("#riskBudgetForm").addEventListener("submit", (event)=>{
     event.preventDefault();const f=event.currentTarget;
-    saveSetting("RISK_BUDGET",{summary_group_id:f.elements.summary_group_id.value,point_loss_tolerance:Number(f.elements.point_loss_tolerance.value)},f);
+    saveSetting("RISK_BUDGET",{summary_group_id:f.elements.summary_group_id.value,risk_pool:f.elements.risk_pool.value,point_loss_tolerance:Number(f.elements.point_loss_tolerance.value)},f);
   });
   $("#warehouseLimitForm").addEventListener("submit", (event)=>{
     event.preventDefault();const f=event.currentTarget;
@@ -1104,10 +1214,12 @@ function promotionMap() { return new Map((state.specialPointPromotions||[]).map(
 
 function pointDraftReady() {
   const counts=new Map();for(const r of state.specialPointRules)counts.set(r.category,(counts.get(r.category)||0)+1);
+  const activeMap=state.specialPointStatus?.category_counts||{};
   for(const p of state.specialPointProfiles||[]){
+    if(activeMap[p.category]?.active===false)continue;
     const count=counts.get(p.category)||0;
     if(["A","B","E"].includes(p.category) && count!==1)return false;
-    if(p.category==="G" && count!==Number(p.max_special_codes||4))return false;
+    if(["G","H","L"].includes(p.category) && count!==Number(p.max_special_codes||0))return false;
     if(p.category==="F" && count>Number(p.max_special_codes||0))return false;
   }
   return Boolean((state.specialPointProfiles||[]).length);
@@ -1117,7 +1229,7 @@ function renderSpecialPoints() {
   renderProfileStrip("#specialPointProfiles",state.specialPointProfiles);
   const profileMap=pointProfileMap();const promo=promotionMap();
   const counts=new Map();for(const r of state.specialPointRules)counts.set(r.category,(counts.get(r.category)||0)+1);
-  const requirements=(state.specialPointProfiles||[]).map(p=>`${p.category} ${formatNumber(counts.get(p.category)||0)}/${formatNumber(p.max_special_codes)}`).join(" · ");
+  const requirements=(state.specialPointProfiles||[]).filter(p=>state.specialPointStatus?.category_counts?.[p.category]?.active!==false).map(p=>`${p.category} ${formatNumber(counts.get(p.category)||0)}/${formatNumber(p.max_special_codes)}`).join(" · ");
   const ready=pointDraftReady();
   $("#specialPointStatus").innerHTML=`<div class="point-status-line ${ready?"ready":"pending"}"><strong>${ready?"Point ครบ":"รอ Point"}</strong><span>${escapeHtml(requirements)}</span></div>`;
   const list=$("#specialPointRules");
@@ -1132,6 +1244,7 @@ async function loadSpecialPoints(sessionId = null) {
   const payload=await api(`/api/special-points${query}`);
   state.specialPointSession=payload.session||null;
   state.specialPointSessionId=payload.session?.id||null;
+  state.specialPointStatus=payload.status||null;
   state.specialPointProfiles=payload.profiles||[];
   state.specialPointPromotions=payload.promotions||[];
   state.specialPointRules=(payload.codes||[]).map(r=>({category:r.category,code:r.code}));
@@ -1199,14 +1312,14 @@ function bindV5Controls() {
   $("#cancelOpenSettlementButton").addEventListener("click",()=>$("#openSettlementEditor").classList.add("hidden"));
   $("#promotionDraftForm").addEventListener("submit",event=>{
     event.preventDefault();const f=event.currentTarget;const category=f.elements.category.value;const code=f.elements.code.value.trim();const point_factor_pct=Number(f.elements.point_factor_pct.value);
-    const expectedLength=["A","B"].includes(category)?2:3;if(!new RegExp(`^\\d{${expectedLength}}$`).test(code))return toast(`รหัส ${category} ต้องเป็น ${expectedLength} หลัก`,true);
+    const expectedLength=categoryCodeLength(category);if(!new RegExp(`^\\d{${expectedLength}}$`).test(code))return toast(`รหัส ${category} ต้องเป็น ${expectedLength} หลัก`,true);
     if(!Number.isFinite(point_factor_pct)||point_factor_pct<0||point_factor_pct>100)return toast("Promotion ต้องอยู่ระหว่าง 0–100%",true);
     const rule={category,code,point_factor_pct};const existing=state.promotionDrafts.findIndex(x=>x.category===category&&x.code===code);if(existing>=0)state.promotionDrafts[existing]=rule;else state.promotionDrafts.push(rule);
     f.elements.code.value="";f.elements.point_factor_pct.value="";renderPromotionDrafts();
   });
   $("#openSettlementButton").addEventListener("click",openSettlement);$("#closeSettlementButton").addEventListener("click",closeSettlement);
   $("#specialPointForm").addEventListener("submit",event=>{
-    event.preventDefault();const f=event.currentTarget;const category=f.elements.category.value;const code=f.elements.code.value.trim();const p=pointProfileMap().get(category);const expectedLength=["A","B"].includes(category)?2:3;
+    event.preventDefault();const f=event.currentTarget;const category=f.elements.category.value;const code=f.elements.code.value.trim();const p=pointProfileMap().get(category);const expectedLength=categoryCodeLength(category);
     if(!new RegExp(`^\\d{${expectedLength}}$`).test(code))return toast(`รหัส ${category} ต้องเป็น ${expectedLength} หลัก`,true);
     if(state.specialPointRules.some(x=>x.category===category&&x.code===code))return toast("มีรหัสนี้แล้ว",true);
     if(state.specialPointRules.filter(x=>x.category===category).length>=Number(p?.max_special_codes||1))return toast(`${category} กำหนดได้สูงสุด ${formatNumber(p?.max_special_codes||1)} รหัส`,true);

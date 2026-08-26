@@ -6,7 +6,7 @@ import { createDistributionRunToken } from '../../src/lib/distribution-run-safet
 function normalizeSelectedCodes(items = []) {
   return new Set((Array.isArray(items) ? items : [])
     .map((item) => `${String(item.category || '').toUpperCase()}|${String(item.code || '').trim()}`)
-    .filter((key) => /^[ABEFG]\|.+$/.test(key)));
+    .filter((key) => /^[ABEFGHL]\|.+$/.test(key)));
 }
 
 export default async (req) => {
@@ -15,19 +15,27 @@ export default async (req) => {
   try {
     const body = await req.json();
     const summaryGroupId = String(body.summary_group_id || '').trim();
+    const riskPool = String(body.risk_pool || 'MAIN').trim().toUpperCase();
     const destinations = [...new Set((Array.isArray(body.destinations) ? body.destinations : []).map((x) => String(x || '').trim()).filter(Boolean))];
     const selected = normalizeSelectedCodes(body.selected_codes);
     if (!summaryGroupId) return json({ ok:false,error:'INVALID_SUMMARY_GROUP_ID' },400);
+    if (!['MAIN','H','L'].includes(riskPool)) return json({ ok:false,error:'INVALID_RISK_POOL' },400);
     if (!destinations.length) return json({ ok:false,error:'WAREHOUSE_SELECTION_REQUIRED' },400);
 
     const { data:session,error:sessionError } = await supabase.from('settlement_sessions').select('id,status').eq('status','OPEN').maybeSingle();
     if (sessionError) throw sessionError;
     if (!session) return json({ ok:false,error:'SETTLEMENT_NOT_OPEN' },409);
 
+    const riskQuery = riskPool === 'MAIN'
+      ? supabase.from('session_overall_risk_state')
+          .select('settlement_session_id,summary_group_id,risk_mode,adjusted_received,risk_point_total,safety_margin,risk_pct,point_loss_tolerance,risk_budget,excess_point_risk,confirmed_cut_total')
+          .eq('settlement_session_id',session.id).eq('summary_group_id',summaryGroupId).maybeSingle()
+      : supabase.from('session_risk_pool_state')
+          .select('settlement_session_id,summary_group_id,risk_pool,risk_mode,adjusted_received,risk_point_total,safety_margin,risk_pct,point_loss_tolerance,risk_budget,excess_point_risk,confirmed_cut_total,multiplier_configured')
+          .eq('settlement_session_id',session.id).eq('summary_group_id',summaryGroupId).eq('risk_pool',riskPool).maybeSingle();
+
     const [{data:risk,error:riskError},{data:codes,error:codeError},{data:warehouseRows,error:warehouseError}] = await Promise.all([
-      supabase.from('session_overall_risk_state')
-        .select('settlement_session_id,summary_group_id,risk_mode,adjusted_received,risk_point_total,safety_margin,risk_pct,point_loss_tolerance,risk_budget,excess_point_risk,confirmed_cut_total')
-        .eq('settlement_session_id',session.id).eq('summary_group_id',summaryGroupId).maybeSingle(),
+      riskQuery,
       supabase.from('session_code_risk_state')
         .select('category,code,order_total,confirmed_cut,available_to_cut,retained_quantity,effective_multiplier,max_special_codes,reserve_candidate,retained_point_exposure')
         .eq('settlement_session_id',session.id).eq('summary_group_id',summaryGroupId),
@@ -37,6 +45,7 @@ export default async (req) => {
     ]);
     if (riskError) throw riskError; if (codeError) throw codeError; if (warehouseError) throw warehouseError;
     if (!risk) return json({ ok:false,error:'RISK_STATE_NOT_FOUND' },404);
+    if (riskPool !== 'MAIN' && risk.multiplier_configured === false) return json({ ok:false,error:'POINT_MULTIPLIER_NOT_CONFIGURED' },409);
     if (Number(risk.excess_point_risk || 0) <= 0) return json({ ok:false,error:'NO_RISK_DISTRIBUTION_REQUIRED' },409);
 
     const warehouseMap = new Map((warehouseRows || []).map((row) => [row.destination,row]));
@@ -44,12 +53,13 @@ export default async (req) => {
     if (missing.length) return json({ ok:false,error:'DESTINATION_LIMIT_NOT_CONFIGURED',destinations:missing },409);
     const warehouses = destinations.map((destination) => warehouseMap.get(destination));
 
+    const poolCodes = (codes || []).filter((row) => riskPool === 'MAIN' ? ['A','B','E','F','G'].includes(row.category) : row.category === riskPool);
     const plan = buildRiskDistributionPlan({
-      rows: codes || [],
+      rows: poolCodes,
       adjustedTotal: Number(risk.adjusted_received || 0),
       pointLossTolerance: Number(risk.point_loss_tolerance || 0),
     });
-    const codeMap = new Map((codes || []).map((row) => [`${row.category}|${row.code}`,row]));
+    const codeMap = new Map(poolCodes.map((row) => [`${row.category}|${row.code}`,row]));
     const recommendations = (plan.recommendations || []).filter((row) => Number(row.recommended_transfer || 0) > 0 && (!selected.size || selected.has(`${row.category}|${row.code}`)));
     if (!recommendations.length) return json({ ok:false,error:'NO_SELECTED_DISTRIBUTION_TARGETS' },409);
 
@@ -68,15 +78,16 @@ export default async (req) => {
     const roundPlan = splitDistributionRounds({ targets, warehouses });
     const projectionItems = targets.map((row) => ({ category:row.category,code:row.code,quantity:row.quantity }));
     const projected = projectRiskAfterTransfers({
-      rows: codes || [],
+      rows: poolCodes,
       adjustedTotal: Number(risk.adjusted_received || 0),
       pointLossTolerance: Number(risk.point_loss_tolerance || 0),
       items: projectionItems,
     });
-    const signed = createDistributionRunToken({ riskState:risk,rounds:roundPlan.rounds,projectedRisk:projected });
+    const signed = createDistributionRunToken({ riskState:{...risk,risk_pool:riskPool},rounds:roundPlan.rounds,projectedRisk:projected });
 
     return json({
       ok:true,
+      risk_pool:riskPool,
       confirmation_token:signed.token,
       confirmation_request_id:signed.request_id,
       confirmation_expires_at:signed.expires_at,

@@ -1,7 +1,7 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { round2 } from './risk-engine.mjs';
 
-export const DISTRIBUTION_RUN_TOKEN_VERSION = 'v1';
+export const DISTRIBUTION_RUN_TOKEN_VERSION = 'v2';
 export const DISTRIBUTION_RUN_TTL_SECONDS = 10 * 60;
 
 function signingKey(explicitKey) {
@@ -21,6 +21,7 @@ function normalizeSnapshot(state) {
   const snapshot = {
     settlement_session_id: String(state.settlement_session_id || ''),
     summary_group_id: String(state.summary_group_id || ''),
+    risk_pool: String(state.risk_pool || 'MAIN').toUpperCase(),
     risk_mode: String(state.risk_mode || 'RESERVE'),
     adjusted_received: round2(state.adjusted_received),
     risk_point_total: round2(state.risk_point_total),
@@ -33,6 +34,7 @@ function normalizeSnapshot(state) {
   };
   if (!/^[0-9a-f-]{36}$/i.test(snapshot.settlement_session_id)) throw new Error('INVALID_SETTLEMENT_SESSION_ID');
   if (!snapshot.summary_group_id) throw new Error('INVALID_SUMMARY_GROUP_ID');
+  if (!['MAIN','H','L'].includes(snapshot.risk_pool)) throw new Error('INVALID_RISK_POOL');
   if (snapshot.risk_mode !== 'RESERVE') throw new Error('INVALID_RISK_MODE');
   return snapshot;
 }
@@ -50,7 +52,7 @@ function normalizeRounds(rounds = []) {
       const quantity = Number(item.quantity);
       const expectedRetained = Number(item.expected_retained_quantity);
       const expectedMultiplier = Number(item.expected_effective_multiplier);
-      if (!['A','B','E','F','G'].includes(category) || !code || !Number.isSafeInteger(quantity) || quantity <= 0) throw new Error('INVALID_TRANSFER_ITEM');
+      if (!['A','B','E','F','G','H','L'].includes(category) || !code || !Number.isSafeInteger(quantity) || quantity <= 0) throw new Error('INVALID_TRANSFER_ITEM');
       if (!Number.isFinite(expectedRetained) || expectedRetained < 0 || !Number.isFinite(expectedMultiplier) || expectedMultiplier < 0) throw new Error('INVALID_TRANSFER_ITEM');
       return {
         category,

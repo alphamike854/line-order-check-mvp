@@ -27,7 +27,7 @@ function normalizeItems(items = []) {
     const category = String(item.category || "").toUpperCase();
     const code = String(item.code || "").trim();
     const quantity = Number(item.quantity);
-    if (!["A","B","E","F","G"].includes(category) || !code || !Number.isSafeInteger(quantity) || quantity <= 0) throw new Error("INVALID_TRANSFER_ITEM");
+    if (!["A","B","E","F","G","H","L"].includes(category) || !code || !Number.isSafeInteger(quantity) || quantity <= 0) throw new Error("INVALID_TRANSFER_ITEM");
     const key = `${category}|${code}`;
     if (seen.has(key)) throw new Error("DUPLICATE_TRANSFER_ITEM");
     seen.add(key);

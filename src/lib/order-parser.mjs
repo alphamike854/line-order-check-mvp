@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.3.2";
+const PARSER_VERSION = "1.4.0";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -42,7 +42,13 @@ const DEFAULT_CONFIG = {
     "6 กลับ": "PERMUTE_ALL",
     "หกกลับ": "PERMUTE_ALL",
     "หก กลับ": "PERMUTE_ALL",
-    "โต๊ด": "F"
+    "โต๊ด": "F",
+    "H": "H",
+    "L": "L",
+    "วิ่งบน": "H",
+    "วิ่ง บ": "H",
+    "วิ่งล่าง": "L",
+    "วิ่ง ล": "L"
   },
   defaultCategoryByCodeLength: {
     2: "A",
@@ -268,6 +274,40 @@ function removeModifierToken(line, found) {
   if (found.attached) return line.slice(found.prefix.length);
   const remove = new Set(found.tokens || []);
   return line.split(/\s+/).filter((token) => !remove.has(token)).join(" ").trim();
+}
+
+function parseOneDigitLine(line, cfg, acc, rules) {
+  const t = stripPoliteWords(normalizeLatin(line.trim()));
+  if (!t) return false;
+
+  // Direct canonical form: H1=500 / L2=300 / H 1 3 5=500.
+  let m = t.match(/^([HL])\s*([0-9](?:[\s,/:.]+[0-9])*)\s*=\s*(\d+)$/iu);
+  if (m) {
+    const category = m[1].toUpperCase();
+    const codes = dedupeCodes(m[2].split(/[\s,/:.]+/u).filter(Boolean));
+    for (const code of codes) acc.add(category, code, Number(m[3]));
+    rules.add(`R_1DIGIT_CATEGORY_${category}`);
+    return true;
+  }
+
+  // Natural operational aliases. Longest alias wins so "วิ่งบน" is resolved
+  // before a shorter legacy alias such as "บ".
+  const aliases = Object.entries(cfg.aliases || {})
+    .filter(([, target]) => target === "H" || target === "L")
+    .map(([alias, target]) => ({ alias, target }))
+    .sort((a, b) => b.alias.length - a.alias.length);
+
+  for (const { alias, target } of aliases) {
+    const escaped = alias.split(/\s+/u).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s*");
+    const match = t.match(new RegExp(`^${escaped}\\s*([0-9](?:[\\s,/:.]+[0-9])*)\\s*=\\s*(\\d+)$`, "iu"));
+    if (!match) continue;
+    const codes = dedupeCodes(match[1].split(/[\s,/:.]+/u).filter(Boolean));
+    for (const code of codes) acc.add(target, code, Number(match[2]));
+    rules.add(`R_1DIGIT_ALIAS_${target}`);
+    return true;
+  }
+
+  return false;
 }
 
 function resolveThreeDigitCategory(token, cfg) {
@@ -1051,6 +1091,9 @@ function parseOrder(inputText, config = {}) {
 
       if (isMetadataLine(line)) continue;
 
+      if (parseOneDigitLine(line, cfg, acc, rules)) {
+        continue;
+      }
       if (parseThreeDigitLine(line, cfg, acc, rules, errors)) {
         threeDigitConsumed = true;
       } else {
@@ -1085,7 +1128,8 @@ function parseOrder(inputText, config = {}) {
   const stronglyOrderLike =
     /\d{2,3}(?:[\s,./:\-]+\d{2,3})*\s*(?:\n\s*)?=/u.test(normalized) ||
     /^\s*\d{3}(?:[\s,./:]+\d{3})*\s+\d+\s+\S+/mu.test(normalized) ||
-    /^\s*\d{3}(?:[\s,./:]+\d{3})*\s+\S+\s+\d+\s*$/mu.test(normalized);
+    /^\s*\d{3}(?:[\s,./:]+\d{3})*\s+\S+\s+\d+\s*$/mu.test(normalized) ||
+    /^\s*(?:[HL]|วิ่งบน|วิ่งล่าง|วิ่ง\s*[บล])\s*\d(?:[\s,./:]+\d)*\s*=\s*\d+/miu.test(normalized);
   if (!items.length && !errors.length && hasOrderLikeWarning && stronglyOrderLike) {
     errors.push({ code: "UNRECOGNIZED_ORDER_SYNTAX", detail: normalized });
   }
