@@ -156,8 +156,8 @@ function aliasTargetLabel(value) {
     E: "หมวด E",
     F: "หมวด F",
     G: "หมวด G",
-    H: "วิ่งบน",
-    L: "วิ่งล่าง",
+    H: "H",
+    L: "L",
     DOUBLE: "เลขเบิ้ล",
     PERMUTE_ALL: "สลับเลข 3 หลัก",
   };
@@ -315,7 +315,7 @@ function distributionPlanFor(groupId, riskPool = "MAIN") {
 }
 
 function riskPoolLabel(pool) {
-  return pool === "H" ? "H — วิ่งบน" : pool === "L" ? "L — วิ่งล่าง" : "หมวดหลัก";
+  return pool === "H" ? "H" : pool === "L" ? "L" : "หมวดหลัก";
 }
 
 function categoryCodeLength(category) {
@@ -400,7 +400,7 @@ function renderOneDigitSummaryCategory(groupId, category) {
   }).join("");
   return `<section class="one-digit-category ${pool?.excess_point_risk > 0 ? "risk-active" : ""}">
     <div class="one-digit-head">
-      <div><strong>${escapeHtml(category)}</strong><span>${category === "H" ? "วิ่งบน" : "วิ่งล่าง"}</span></div>
+      <div><strong>${escapeHtml(category)}</strong></div>
       <div class="one-digit-head-metrics">
         <span>${configured ? `×${formatNumber(profile?.special_multiplier || 0)}` : "ตั้งตัวคูณ"}</span>
         <span>รับ ${formatNumber(pool?.gross_received || 0)}</span>
@@ -702,7 +702,7 @@ function renderOneDigitAllocationCategory(groupId, category) {
   }).join("");
   return `<section class="one-digit-category allocation-one-digit-category ${Number(plan?.transfer_required_total || 0)>0 ? "risk-active" : ""}">
     <div class="one-digit-head">
-      <div><strong>${category}</strong><span>${category === "H" ? "วิ่งบน" : "วิ่งล่าง"}</span></div>
+      <div><strong>${category}</strong></div>
       <div class="one-digit-head-metrics"><span>${configured ? `×${formatNumber(profile?.special_multiplier || 0)}` : "ยังไม่ตั้งตัวคูณ"}</span><span>รับ ${formatNumber(pool?.gross_received || 0)}</span><strong>${configured ? `ตัด ${formatNumber(plan?.transfer_required_total || 0)}` : "ตั้งค่าก่อน"}</strong></div>
     </div>
     <div class="one-digit-code-grid">${list}</div>

@@ -1174,6 +1174,15 @@ function parseTwoDigitSegment(segment, cfg, acc, rules, warnings, errors) {
   }
 }
 
+function isNonOrderSummaryLine(line) {
+  const text = String(line || "").trim();
+  if (!text) return false;
+
+  // Clearly aggregate/reporting text sent back into the LINE group.
+  // This must be narrow: never ignore merely because a line contains "รวม".
+  return /^(?:สรุป(?:ยอด)?|ยอดรวม|รวมยอด|ยอดวันนี้|ยอดปัจจุบัน|รวมตรง|รวมวิ่ง|รวมทั้งหมด)(?:\s|[:|]|$)/iu.test(text);
+}
+
 function parseOrder(inputText, config = {}) {
   const cfg = mergeConfig(config);
   const normalized = normalizeText(inputText);
@@ -1222,6 +1231,7 @@ function parseOrder(inputText, config = {}) {
       }
 
       if (isMetadataLine(line)) continue;
+      if (isNonOrderSummaryLine(line)) continue;
 
       if (parseOneDigitLine(line, cfg, acc, rules)) {
         continue;

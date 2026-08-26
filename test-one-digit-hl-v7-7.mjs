@@ -94,8 +94,8 @@ assert.match(dashboard,/RISK_POOL_CATEGORIES/);
 assert.match(dashboard,/risk_pools:riskPools/);
 assert.match(preview,/\['MAIN','H','L'\]/);
 assert.match(confirm,/confirm_separate_risk_distribution_run/);
-assert.match(html,/H — วิ่งบน \(1 หลัก\)/);
-assert.match(html,/L — วิ่งล่าง \(1 หลัก\)/);
+assert.match(html,/H — 1 หลัก/);
+assert.match(html,/L — 1 หลัก/);
 assert.match(app,/one-digit-board/);
 assert.match(app,/คำนวณความเสี่ยงแยก/);
 
