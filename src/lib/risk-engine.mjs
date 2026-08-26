@@ -90,6 +90,31 @@ export function retainedReserveSnapshot(rows = []) {
   return { point_reserve: reserve, selected_keys: selectedKeys, category_reserve: categoryReserve, rows: normalized };
 }
 
+function distributionCategoryState(items = []) {
+  const limit = Math.max(1, Number(items[0]?.max_special_codes || 1));
+  const ranked = items
+    .map((row) => ({ ...row, exposure: round2(row.retained_quantity * row.effective_multiplier) }))
+    .sort((a, b) => b.exposure - a.exposure
+      || b.retained_quantity - a.retained_quantity
+      || a.code.localeCompare(b.code));
+  const selected = ranked
+    .filter((row) => row.retained_quantity > 0 && row.effective_multiplier > 0)
+    .slice(0, limit);
+  return {
+    subtotal: round2(selected.reduce((sum, row) => sum + row.exposure, 0)),
+    selected_keys: new Set(selected.map((row) => `${row.category}|${row.code}`)),
+  };
+}
+
+function distributionReserveFromStates(categoryOrder = [], states = new Map(), overrideCategory = null, overrideState = null) {
+  let reserve = 0;
+  for (const category of categoryOrder) {
+    const state = category === overrideCategory && overrideState ? overrideState : states.get(category);
+    reserve = round2(reserve + Number(state?.subtotal || 0));
+  }
+  return reserve;
+}
+
 /**
  * Build a conservative operational distribution plan.
  *
@@ -102,6 +127,10 @@ export function retainedReserveSnapshot(rows = []) {
  * removes one unit at a time from the currently worst-case candidates until the
  * reserve is within budget. Re-ranking after every unit is intentional: when a
  * top code is reduced, another code can become the new special-Point worst case.
+ *
+ * For dashboard performance, only the affected category is re-ranked while the
+ * other category snapshots are reused. This preserves the unit-by-unit decision
+ * policy without rebuilding and sorting the complete row set for every candidate.
  */
 export function buildRiskDistributionPlan({ rows = [], adjustedTotal = 0, pointLossTolerance = 0, maxSimulationUnits = 200000 } = {}) {
   const adjusted = round2(adjustedTotal);
@@ -112,19 +141,30 @@ export function buildRiskDistributionPlan({ rows = [], adjustedTotal = 0, pointL
   let currentReserve = initial.point_reserve;
   const initialExcess = round2(Math.max(0, currentReserve - riskBudget));
   const recommendations = new Map();
+  const categoryRows = new Map();
+  for (const row of working) {
+    if (!categoryRows.has(row.category)) categoryRows.set(row.category, []);
+    categoryRows.get(row.category).push(row);
+  }
+  const categoryOrder = [...categoryRows.keys()];
+  const categoryStates = new Map(categoryOrder.map((category) => [
+    category,
+    distributionCategoryState(categoryRows.get(category)),
+  ]));
   let iterations = 0;
 
   while (currentReserve > riskBudget + 1e-9) {
     if (iterations >= maxSimulationUnits) throw new Error("RISK_DISTRIBUTION_SIMULATION_LIMIT");
-    const current = retainedReserveSnapshot(working);
-    const candidates = working.filter((row) => row.retained_quantity > 0 && current.selected_keys.has(`${row.category}|${row.code}`));
+    const candidates = working.filter((row) => row.retained_quantity > 0
+      && categoryStates.get(row.category)?.selected_keys.has(`${row.category}|${row.code}`));
     if (!candidates.length) break;
 
     let best = null;
     for (const candidate of candidates) {
       candidate.retained_quantity -= 1;
-      const after = retainedReserveSnapshot(working).point_reserve;
+      const afterCategory = distributionCategoryState(categoryRows.get(candidate.category));
       candidate.retained_quantity += 1;
+      const after = distributionReserveFromStates(categoryOrder, categoryStates, candidate.category, afterCategory);
       const delta = round2(currentReserve - after);
       const exposure = round2(candidate.retained_quantity * candidate.effective_multiplier);
       const score = { candidate, after, delta, exposure };
@@ -140,7 +180,8 @@ export function buildRiskDistributionPlan({ rows = [], adjustedTotal = 0, pointL
     best.candidate.retained_quantity -= 1;
     const key = `${best.candidate.category}|${best.candidate.code}`;
     recommendations.set(key, (recommendations.get(key) || 0) + 1);
-    currentReserve = retainedReserveSnapshot(working).point_reserve;
+    categoryStates.set(best.candidate.category, distributionCategoryState(categoryRows.get(best.candidate.category)));
+    currentReserve = distributionReserveFromStates(categoryOrder, categoryStates);
     iterations += 1;
   }
 
