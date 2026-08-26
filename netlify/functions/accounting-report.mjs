@@ -1,6 +1,7 @@
 import { json, requireDashboardAccess, supabase } from "../../src/lib/dashboard-api.mjs";
 import { reducedQuantity, reconciliationTotal } from "../../src/lib/settlement-calculations.mjs";
 import { effectiveMultiplier, round2 } from "../../src/lib/risk-engine.mjs";
+import { firstLedgerCode } from "../../src/lib/report-ledger.mjs";
 
 async function resolveSession(url) {
   const explicit = url.searchParams.get("session_id");
@@ -49,10 +50,10 @@ export default async (req) => {
     if(!lineIds.length) return json({ok:true,session,actual_point_status:statusResult.data??null,actual_special_codes:actualCodes,groups:[]});
 
     const [{data:messages,error:msgError},{data:items,error:itemError}] = await Promise.all([
-      supabase.from("messages").select("id,line_group_id,event_timestamp,parse_status,message_type")
+      supabase.from("messages").select("id,line_group_id,event_timestamp,parse_status,message_type,raw_text,normalized_text,ocr_text,first_order_code")
         .eq("settlement_session_id",session.id).in("line_group_id",lineIds).order("event_timestamp",{ascending:true}),
-      supabase.from("order_items").select("message_record_id,line_group_id,category,code,quantity")
-        .eq("settlement_session_id",session.id).in("line_group_id",lineIds),
+      supabase.from("order_items").select("id,message_record_id,line_group_id,category,code,quantity")
+        .eq("settlement_session_id",session.id).in("line_group_id",lineIds).order("id",{ascending:true}),
     ]);
     if(msgError) throw msgError;if(itemError) throw itemError;
 
@@ -80,7 +81,9 @@ export default async (req) => {
           prev.quantity+=Number(item.quantity);prev.points=round2(prev.points+points);specialCodeMap.set(key,prev);
           specialDetails.push({category:item.category,code:item.code,quantity:Number(item.quantity),multiplier,promotion_factor_pct:factor,points});
         }
-        return {sequence:index+1,event_timestamp:message.event_timestamp,summary_quantity:qty,has_special_point:specialDetails.length>0,special_points:specialDetails};
+        const sourceText=message.raw_text??message.ocr_text??message.normalized_text??"";
+        const firstCode=message.first_order_code||firstLedgerCode(msgItems,sourceText)||"";
+        return {sequence:index+1,event_timestamp:message.event_timestamp,first_code:firstCode,summary_quantity:qty,has_special_point:specialDetails.length>0,special_points:specialDetails};
       });
       special=round2(special);
       const afterReduction=reducedQuantity(received,cfg.reduction_pct);

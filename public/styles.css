@@ -257,3 +257,7 @@ tbody tr:hover { background: #fafcff; }
   .g-board{padding-left:14px;padding-right:14px}
   .one-digit-code{padding-left:10px;padding-right:10px}
 }
+
+/* v8.0: daily report first-code cue + compact export control */
+.report-first-code{font-variant-numeric:tabular-nums;white-space:nowrap;min-width:72px}
+.report-filters #exportReportCsvButton{white-space:nowrap}

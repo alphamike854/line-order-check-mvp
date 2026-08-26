@@ -200,3 +200,7 @@ v7.8 treats `บน=บ` and `ล่าง=ล` as contextual parser keywords ra
 
 ## v7.9 — Code Column Inner Gutters
 เพิ่มระยะภายในซ้าย/ขวาของข้อมูลรหัสใน Summary / Allocation / After-cut รวมถึง G และ H/L เพื่อไม่ให้ตัวเลขชิดขอบ โดยไม่เพิ่มช่องว่างตรงกลางระหว่างรหัสกับยอด
+
+## Dashboard v8.0
+
+Daily report now shows the first order code after the message time and can export the currently selected report to UTF-8 CSV. See `DASHBOARD_V8_0_SETUP.md`.

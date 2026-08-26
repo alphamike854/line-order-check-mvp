@@ -1,4 +1,5 @@
 import { parseOrder } from "../../src/lib/order-parser.mjs";
+import { firstLedgerCode } from "../../src/lib/report-ledger.mjs";
 import {
   reviewPreviewFingerprint,
   verifyReviewPreviewToken,
@@ -114,6 +115,16 @@ export default async (req) => {
       const [status, code] = mapRpcError(error);
       return json({ ok: false, error: code }, status);
     }
+
+    // Keep the compact first-code hint in sync with corrected text. The RPC
+    // has already applied the audited correction; report rendering still has
+    // a runtime fallback if this non-critical metadata update fails.
+    const firstOrderCode = firstLedgerCode(result.items, correctedText) || null;
+    const { error: firstCodeError } = await supabase
+      .from("messages")
+      .update({ first_order_code: firstOrderCode })
+      .eq("id", message.id);
+    if (firstCodeError) console.warn("failed to update first_order_code after review resolution", firstCodeError);
 
     return json({
       ok: true,

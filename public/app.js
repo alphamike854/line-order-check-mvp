@@ -22,6 +22,7 @@ const state = {
   bulkDistributionPreview: null,
   allocationHistory: [],
   transferDestination: "",
+  reportPayload: null,
 };
 
 const FRESHNESS_POLL_MS = 20_000;
@@ -63,6 +64,84 @@ function formatBangkokClock(value) {
     minute: "2-digit",
     second: "2-digit",
   }).format(new Date(value));
+}
+
+
+function reportCsvCell(value) {
+  let text = String(value ?? "");
+  // Guard user-configurable names/details against spreadsheet formula injection.
+  if (/^[=+\-@]/.test(text)) text = `'${text}`;
+  return `"${text.replaceAll('"', '""')}"`;
+}
+
+function reportCsvCodeCell(value) {
+  const text = String(value ?? "");
+  // Keep leading zeroes (01 / 001) when opened directly in Excel/Sheets.
+  if (/^0\d+$/.test(text)) return `"=""${text}"""`;
+  return reportCsvCell(text);
+}
+
+function reportStatusLabel(session) {
+  return session?.status === "OPEN" ? "ยอดปัจจุบัน" : "ปิดยอดแล้ว";
+}
+
+function reportSpecialDetail(row) {
+  return (row?.special_points || []).map((x) => `${x.category}${x.code}=${x.quantity} ×${x.multiplier}`).join("; ");
+}
+
+function buildDailyReportCsv(payload) {
+  const headers = ["วันที่","สถานะ","กลุ่มสรุป","LINE Group","ลำดับ","เวลา","รหัสแรก","จำนวน","ลด %","ยอดหลังลด","Point รวม","ยอดสุทธิเทียบ","รายละเอียด Point"];
+  const lines = [headers.map(reportCsvCell).join(",")];
+  const session = payload?.session || {};
+  const finalReady = Boolean(payload?.actual_point_status?.actual_codes_ready);
+  for (const group of payload?.groups || []) {
+    for (const row of group.ledger || []) {
+      const values = [
+        session.business_date || "",
+        reportStatusLabel(session),
+        groupName(group.summary_group_id),
+        group.line_group_name || "",
+        String(row.sequence || 0).padStart(3,"0"),
+        formatBangkokClock(row.event_timestamp),
+        row.first_code || "",
+        row.summary_quantity ?? 0,
+        "", "", "", "",
+        reportSpecialDetail(row),
+      ];
+      lines.push(values.map((value,index)=>index===6?reportCsvCodeCell(value):reportCsvCell(value)).join(","));
+    }
+    const totalValues = [
+      session.business_date || "",
+      reportStatusLabel(session),
+      groupName(group.summary_group_id),
+      group.line_group_name || "",
+      "รวม", "", "",
+      group.received_total ?? 0,
+      group.reduction_pct ?? 0,
+      group.after_reduction ?? 0,
+      finalReady ? (group.special_point_total ?? 0) : "รอระบุ",
+      finalReady ? (group.reconciliation_total ?? 0) : "",
+      "",
+    ];
+    lines.push(totalValues.map(reportCsvCell).join(","));
+  }
+  return `\uFEFF${lines.join("\r\n")}\r\n`;
+}
+
+function exportDailyReportCsv() {
+  const payload = state.reportPayload;
+  if (!payload?.session || !(payload.groups || []).length) return toast("ยังไม่มีรายงานสำหรับ Export", true);
+  const csv = buildDailyReportCsv(payload);
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const status = payload.session.status === "OPEN" ? "current" : "closed";
+  link.href = url;
+  link.download = `daily-report-${payload.session.business_date || "report"}-${status}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 
@@ -1280,6 +1359,9 @@ function editReportPoints(sessionId) {
 
 function renderReport(payload) {
   const root=$("#reportContent");
+  state.reportPayload=payload;
+  const exportButton=$("#exportReportCsvButton");
+  if(exportButton) exportButton.disabled=!payload?.session || !(payload?.groups||[]).length;
   if(!payload.session){root.innerHTML=`<div class="empty">ยังไม่มีชุดยอดสำหรับรายงาน</div>`;return;}
   if(!payload.groups.length){root.innerHTML=`<div class="empty">ยังไม่มีข้อมูลในชุดยอดนี้</div>`;return;}
   const finalReady=Boolean(payload.actual_point_status?.actual_codes_ready);
@@ -1289,7 +1371,7 @@ function renderReport(payload) {
     <div class="report-title"><div><h3>${escapeHtml(g.line_group_name)}</h3><span>${escapeHtml(groupName(g.summary_group_id))}</span></div><span>${formatNumber(g.message_count)} ข้อความ</span></div>
     <div class="report-metrics"><div><span>ยอดรับจริง</span><strong>${formatNumber(g.received_total)}</strong></div><div><span>ลด</span><strong>${formatNumber(g.reduction_pct)}%</strong></div><div><span>ยอดหลังลด</span><strong>${formatNumber(g.after_reduction)}</strong></div><div><span>Point พิเศษ</span><strong>${finalReady?formatNumber(g.special_point_total):"รอระบุ"}</strong></div><div class="net"><span>ยอดสุทธิเทียบ</span><strong>${finalReady?formatNumber(g.reconciliation_total):"—"}</strong></div></div>
     <div class="special-summary"><h4>Point พิเศษ</h4>${g.special_point_codes.length?`<div class="table-wrap"><table><thead><tr><th>รหัส</th><th class="num">จำนวนรวม</th><th class="num">ตัวคูณ</th><th class="num">Point</th></tr></thead><tbody>${g.special_point_codes.map(x=>`<tr><td><strong>${escapeHtml(x.category)}${escapeHtml(x.code)}</strong></td><td class="num">${formatNumber(x.quantity)}</td><td class="num">×${formatNumber(x.multiplier)}</td><td class="num">${formatNumber(x.points)}</td></tr>`).join("")}</tbody></table></div>`:`<div class="muted">${finalReady?"ไม่มี Point พิเศษ":"รอระบุ"}</div>`}</div>
-    <div class="table-wrap"><table><thead><tr><th>ลำดับ</th><th>เวลา</th><th class="num">สรุปจำนวน</th><th>Point พิเศษ</th></tr></thead><tbody>${g.ledger.map(row=>`<tr><td>${String(row.sequence).padStart(3,"0")}</td><td>${escapeHtml(new Intl.DateTimeFormat("th-TH",{timeZone:"Asia/Bangkok",hour:"2-digit",minute:"2-digit",second:"2-digit"}).format(new Date(row.event_timestamp)))}</td><td class="num"><strong>${formatNumber(row.summary_quantity)}</strong></td><td>${row.special_points.length?`★ ${row.special_points.map(x=>`${escapeHtml(x.category)}${escapeHtml(x.code)}=${formatNumber(x.quantity)} ×${formatNumber(x.multiplier)}`).join(", ")}`:""}</td></tr>`).join("")}</tbody><tfoot><tr><th colspan="2">รวม</th><th class="num">${formatNumber(g.received_total)}</th><th></th></tr></tfoot></table></div>
+    <div class="table-wrap"><table><thead><tr><th>ลำดับ</th><th>เวลา</th><th>รหัสแรก</th><th class="num">สรุปจำนวน</th><th>Point พิเศษ</th></tr></thead><tbody>${g.ledger.map(row=>`<tr><td>${String(row.sequence).padStart(3,"0")}</td><td>${escapeHtml(new Intl.DateTimeFormat("th-TH",{timeZone:"Asia/Bangkok",hour:"2-digit",minute:"2-digit",second:"2-digit"}).format(new Date(row.event_timestamp)))}</td><td class="report-first-code"><strong>${escapeHtml(row.first_code||"-")}</strong></td><td class="num"><strong>${formatNumber(row.summary_quantity)}</strong></td><td>${row.special_points.length?`★ ${row.special_points.map(x=>`${escapeHtml(x.category)}${escapeHtml(x.code)}=${formatNumber(x.quantity)} ×${formatNumber(x.multiplier)}`).join(", ")}`:""}</td></tr>`).join("")}</tbody><tfoot><tr><th colspan="3">รวม</th><th class="num">${formatNumber(g.received_total)}</th><th></th></tr></tfoot></table></div>
   </section>`).join("");
   $$(".edit-report-points").forEach(button=>button.addEventListener("click",()=>editReportPoints(button.dataset.sessionId)));
 }
@@ -1300,6 +1382,9 @@ async function loadReport(options = {}) {
   if(!sessionId){renderReport({session:null,groups:[]});return;}
   try { const payload=await api(`/api/accounting-report?session_id=${encodeURIComponent(sessionId)}&group=${encodeURIComponent(summaryGroupSelect.value||"ALL")}&line_group=${encodeURIComponent($("#reportLineGroupSelect").value||"ALL")}`); renderReport(payload); }
   catch(error){
+    state.reportPayload=null;
+    const exportButton=$("#exportReportCsvButton");
+    if(exportButton) exportButton.disabled=true;
     if (silent) console.warn("silent report refresh failed", error);
     else $("#reportContent").innerHTML=`<div class="empty">โหลดรายงานไม่สำเร็จ</div>`;
   }
@@ -1330,6 +1415,7 @@ function bindV5Controls() {
   $("#clearRecommendedButton").addEventListener("click",()=>setRecommendedSelection(false));
   $("#runBulkDistributionButton").addEventListener("click",runBulkDistribution);
   $("#reportSessionSelect").addEventListener("change",loadReport);$("#reportLineGroupSelect").addEventListener("change",loadReport);
+  $("#exportReportCsvButton").addEventListener("click",exportDailyReportCsv);
 }
 
 async function loadDashboard({ silent = false } = {}) {

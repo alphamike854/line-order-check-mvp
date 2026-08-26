@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { parseOrder } from "../../src/lib/order-parser.mjs";
+import { firstLedgerCode } from "../../src/lib/report-ledger.mjs";
 import { downloadLineImage, transcribeOrderImage } from "../../src/lib/image-ocr.mjs";
 
 const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
@@ -231,7 +232,7 @@ async function handleTextMessage(destination, event, group, session) {
 
   const config = await loadParserConfig();
   const result = parseOrder(text, config);
-  return persistParsedResult(message, effectiveGroup, result);
+  return persistParsedResult(message, effectiveGroup, result, { first_order_code: firstLedgerCode(result.items, text) || null });
 }
 
 async function handleImageMessage(destination, event, group, session) {
@@ -333,7 +334,10 @@ async function handleImageMessage(destination, event, group, session) {
 
     const config = await loadParserConfig();
     const result = parseOrder(ocr.text, config);
-    return persistParsedResult(message, effectiveGroup, result, baseUpdate);
+    return persistParsedResult(message, effectiveGroup, result, {
+      ...baseUpdate,
+      first_order_code: firstLedgerCode(result.items, ocr.text) || null,
+    });
   } catch (error) {
     const detail = error?.message ?? String(error);
     await supabase
