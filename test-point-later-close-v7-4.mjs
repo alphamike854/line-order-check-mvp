@@ -13,7 +13,23 @@ assert.ok(closeFn.includes("'point_ready'"), "close result should report whether
 const replaceFn = migration.slice(migration.indexOf("create or replace function public.replace_settlement_actual_special_codes"));
 assert.ok(replaceFn.includes("status not in ('OPEN','CLOSED')"), "actual Point codes must be editable for closed settlements");
 
-assert.ok(app.includes('window.confirm("ปิดยอดปัจจุบัน?\\nหลังปิดยังระบุ Point ได้")'), "close confirmation should be one-click and explain Point can follow later");
+const closeStart = app.indexOf("async function closeSettlement()");
+const closeEnd = app.indexOf("\nfunction pointProfileMap", closeStart);
+const closeBlock = app.slice(closeStart, closeEnd);
+
+assert.ok(
+  closeStart >= 0 && closeEnd > closeStart,
+  "closeSettlement function should exist",
+);
+assert.equal(
+  (closeBlock.match(/window\.confirm\(/g) || []).length,
+  1,
+  "close confirmation should remain one-click",
+);
+assert.ok(
+  closeBlock.includes("หลังปิดยังระบุ Point ได้"),
+  "close confirmation should be one-click and explain Point can follow later",
+);
 assert.ok(!app.includes('กำหนด Point ให้ครบก่อนปิดยอด'), "UI must not block close on Point readiness");
 assert.ok(app.includes('finalReady?formatNumber(g.special_point_total):"รอระบุ"'), "pending report must not display Point zero as final");
 assert.ok(app.includes('finalReady?formatNumber(g.reconciliation_total):"—"'), "pending report must not display a misleading final reconciliation total");

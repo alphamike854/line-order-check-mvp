@@ -1278,8 +1278,11 @@ async function openSettlement() {
 
 async function closeSettlement() {
   const open=state.settlement?.open_session;if(!open)return;
-  if(Number(state.dashboard?.metrics?.review_open||0)>0){activateTab("review");toast(`ยังมีรายการต้องตรวจ ${formatNumber(state.dashboard.metrics.review_open)}`,true);return;}
-  if(!window.confirm("ปิดยอดปัจจุบัน?\nหลังปิดยังระบุ Point ได้"))return;
+  const reviewCount=Number(state.dashboard?.metrics?.review_open||0);
+  const reviewNote=reviewCount>0
+    ? `\nมีรายการรอตรวจ ${formatNumber(reviewCount)} รายการ — ระบบจะบันทึกเป็น DEFERRED และไม่รวมในยอดที่ปิด`
+    : "";
+  if(!window.confirm(`ปิดยอดปัจจุบัน?${reviewNote}\nหลังปิดยังระบุ Point ได้`))return;
   $("#closeSettlementButton").disabled=true;
   try{
     await api("/api/settlement",{method:"POST",body:JSON.stringify({action:"CLOSE",settlement_session_id:open.id})});

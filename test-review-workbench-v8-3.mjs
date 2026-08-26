@@ -64,6 +64,19 @@ assert.match(
   /grant execute[\s\S]*close_settlement_session\(uuid,text\)[\s\S]*service_role/
 );
 
+// Review count is informational; it must never block settlement close.
+assert.doesNotMatch(
+  app,
+  /if\(Number\(state\.dashboard\?\.metrics\?\.review_open\|\|0\)>0\)/,
+  "Review count must not block settlement close",
+);
+
+assert.match(
+  app,
+  /reviewCount[\s\S]*DEFERRED[\s\S]*ไม่รวมในยอดที่ปิด/,
+  "Close confirmation should explain deferred Review items",
+);
+
 console.log(
   "PASS: stable Review workbench + non-blocking settlement close v8.3 smoke tests"
 );
