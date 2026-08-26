@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * LINE Order Parser v1.3.1
+ * LINE Order Parser v1.5.0
  * Pure JavaScript, no external dependencies.
  *
  * Design goals:
@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.4.0";
+const PARSER_VERSION = "1.5.0";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -326,6 +326,52 @@ function aliasesForTarget(cfg, target) {
     .sort((a, b) => b.length - a.length);
 }
 
+function contextualDirectionFromToken(token) {
+  const raw = String(token || "").trim();
+  if (raw === "บน" || raw === "บ") return "TOP";
+  if (raw === "ล่าง" || raw === "ล") return "BOTTOM";
+  return null;
+}
+
+function directionModifier(direction) {
+  if (direction === "TOP") return { categories: ["A"], reverse: false };
+  if (direction === "BOTTOM") return { categories: ["B"], reverse: false };
+  return null;
+}
+
+function stripTrailingContextualDirection(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return { text: raw, direction: null };
+
+  // Whitespace form: "20 บน", "20 ล", "20*30 บ".
+  let m = raw.match(/^(.*?)(?:\s+)(บน|บ|ล่าง|ล)\s*$/u);
+  if (m) return { text: m[1].trim(), direction: contextualDirectionFromToken(m[2]) };
+
+  // Compact quantity form: "20บน" / "20ล". Require a digit immediately
+  // before the keyword so words such as "บลก" are never split accidentally.
+  m = raw.match(/^(.*\d)(บน|บ|ล่าง|ล)\s*$/u);
+  if (m) return { text: m[1].trim(), direction: contextualDirectionFromToken(m[2]) };
+
+  return { text: raw, direction: null };
+}
+
+function stripLeadingContextualDirection(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return { text: raw, direction: null };
+  const m = raw.match(/^(บน|บ|ล่าง|ล)(?=\s|\d|$)\s*/u);
+  if (!m) return { text: raw, direction: null };
+  return {
+    text: raw.slice(m[0].length).trim(),
+    direction: contextualDirectionFromToken(m[1])
+  };
+}
+
+function mergeContextualDirections(first, second) {
+  if (!first) return { direction: second || null, conflict: false };
+  if (!second) return { direction: first, conflict: false };
+  return { direction: first, conflict: first !== second };
+}
+
 function parseQuantityExpression(expr) {
   const s = String(expr || "").trim();
   let m = s.match(/^(\d+)\s*[xX*]\s*(\d+)$/);
@@ -511,8 +557,16 @@ function parseThreeDigitLine(line, cfg, acc, rules, errors) {
   const t = stripPoliteWords(normalizeLatin(line.trim()));
 
   // Natural 3-digit category suffix, e.g. "639 100 โต๊ด" => F639=100.
+  // TOP/BOTTOM are contextual: บน/บ => E for 3 digits, ล่าง/ล => G.
   let natural = t.match(/^(\d{3})\s+(\d+)\s+(.+)$/u);
   if (natural) {
+    const direction = contextualDirectionFromToken(natural[3]);
+    if (direction) {
+      const category = direction === "TOP" ? "E" : "G";
+      acc.add(category, natural[1], Number(natural[2]));
+      rules.add(`R_3DIGIT_CONTEXT_${direction}`);
+      return true;
+    }
     const category = resolveThreeDigitCategory(natural[3], cfg);
     if (["E", "F", "G"].includes(category)) {
       acc.add(category, natural[1], Number(natural[2]));
@@ -534,8 +588,22 @@ function parseThreeDigitLine(line, cfg, acc, rules, errors) {
   const eqIndex = t.indexOf("=");
   if (eqIndex < 0 || t.indexOf("=", eqIndex + 1) >= 0) return false;
 
-  const left = t.slice(0, eqIndex).trim();
+  let left = t.slice(0, eqIndex).trim();
   let right = t.slice(eqIndex + 1).trim();
+
+  // บน/บ and ล่าง/ล are contextual keywords, not global category aliases.
+  // They can be written before the 3-digit codes or after the quantity.
+  const leftDirection = stripLeadingContextualDirection(left);
+  left = leftDirection.text;
+  const rightDirection = stripTrailingContextualDirection(right);
+  right = rightDirection.text;
+  const contextual = mergeContextualDirections(leftDirection.direction, rightDirection.direction);
+  if (contextual.conflict) {
+    errors.push({ code: "CONTEXT_DIRECTION_CONFLICT", detail: line });
+    rules.add("R_3DIGIT_CONTEXT_CONFLICT");
+    return true;
+  }
+  const contextualDirection = contextual.direction;
 
   // Optional explicit suffix: 653=20(F) or alias equivalent.
   let explicitCategory = null;
@@ -562,6 +630,22 @@ function parseThreeDigitLine(line, cfg, acc, rules, errors) {
   const prefix = prefixText ? resolveThreeDigitCategory(prefixText, cfg) : null;
   if (prefixText && !prefix) return false;
 
+  if (contextualDirection && explicitCategory) {
+    errors.push({ code: "CONTEXT_CATEGORY_CONFLICT", detail: line });
+    rules.add("R_3DIGIT_CONTEXT_CONFLICT");
+    return true;
+  }
+  if (contextualDirection === "TOP" && prefix && !["A", "E"].includes(prefix)) {
+    errors.push({ code: "CONTEXT_CATEGORY_CONFLICT", detail: line });
+    rules.add("R_3DIGIT_CONTEXT_CONFLICT");
+    return true;
+  }
+  if (contextualDirection === "BOTTOM" && prefix && !["B", "G"].includes(prefix)) {
+    errors.push({ code: "CONTEXT_CATEGORY_CONFLICT", detail: line });
+    rules.add("R_3DIGIT_CONTEXT_CONFLICT");
+    return true;
+  }
+
   if (rhs.kind === "COUNTED_PERMUTE") {
     if (explicitCategory) {
       errors.push({ code: "UNSUPPORTED_EXPLICIT_CATEGORY_PERMUTATION", detail: line });
@@ -581,8 +665,9 @@ function parseThreeDigitLine(line, cfg, acc, rules, errors) {
       return true;
     }
 
-    const category = threeDigitDestinationCategory(prefix);
+    const category = contextualDirection === "BOTTOM" ? "G" : threeDigitDestinationCategory(prefix);
     emitThreeDigitPermutations(acc, codes, rhs.quantity, category);
+    if (contextualDirection) rules.add(`R_3DIGIT_CONTEXT_${contextualDirection}`);
     rules.add("R_3DIGIT_COUNTED_PERMUTE");
     return true;
   }
@@ -593,8 +678,9 @@ function parseThreeDigitLine(line, cfg, acc, rules, errors) {
       rules.add("R_3DIGIT_PERMUTE_ALL");
       return true;
     }
-    const category = threeDigitDestinationCategory(prefix);
+    const category = contextualDirection === "BOTTOM" ? "G" : threeDigitDestinationCategory(prefix);
     emitThreeDigitPermutations(acc, codes, rhs.quantity, category);
+    if (contextualDirection) rules.add(`R_3DIGIT_CONTEXT_${contextualDirection}`);
     rules.add("R_3DIGIT_PERMUTE_ALL");
     return true;
   }
@@ -633,13 +719,37 @@ function parseThreeDigitLine(line, cfg, acc, rules, errors) {
       rules.add("R_3DIGIT_REPEATED_PERMUTATION");
       return true;
     }
-    const category = threeDigitDestinationCategory(prefix);
+    const category = contextualDirection === "BOTTOM" ? "G" : threeDigitDestinationCategory(prefix);
     for (const permutation of perms) acc.add(category, permutation, rhs.quantity);
+    if (contextualDirection) rules.add(`R_3DIGIT_CONTEXT_${contextualDirection}`);
     rules.add("R_3DIGIT_REPEATED_PERMUTATION");
     return true;
   }
 
   const quantitySpec = rhs.quantitySpec;
+
+  if (contextualDirection === "TOP") {
+    if (quantitySpec.type === "SINGLE") {
+      for (const code of codes) acc.add("E", code, quantitySpec.first);
+      rules.add("R_3DIGIT_CONTEXT_TOP");
+      return true;
+    }
+    // In 3-digit TOP context a pair means ตรง/โต๊ด: first => E, second => F.
+    for (const code of codes) {
+      acc.add("E", code, quantitySpec.first);
+      acc.add("F", code, quantitySpec.second);
+    }
+    rules.add("R_3DIGIT_CONTEXT_TOP_EF_PAIR");
+    return true;
+  }
+
+  if (contextualDirection === "BOTTOM") {
+    // Historical 3-digit B/G behavior: G uses the first quantity. If a pair is
+    // typed, the second value is intentionally not mapped to another category.
+    for (const code of codes) acc.add("G", code, quantitySpec.first);
+    rules.add(quantitySpec.type === "PAIR" ? "R_3DIGIT_CONTEXT_BOTTOM_PAIR_TO_G" : "R_3DIGIT_CONTEXT_BOTTOM");
+    return true;
+  }
 
   if (explicitCategory) {
     if (quantitySpec.type !== "SINGLE") {
@@ -900,6 +1010,14 @@ function parseTwoDigitSegment(segment, cfg, acc, rules, warnings, errors) {
       continue;
     }
 
+    // Contextual 2-digit header: บน/บ => A, ล่าง/ล => B.
+    const exactDirection = contextualDirectionFromToken(line);
+    if (exactDirection) {
+      contextModifier = directionModifier(exactDirection);
+      rules.add(`R_2DIGIT_CONTEXT_${exactDirection}`);
+      continue;
+    }
+
     // Exact category header.
     const exactMod = modifierFromToken(line, cfg);
     if (exactMod) {
@@ -956,9 +1074,23 @@ function parseTwoDigitSegment(segment, cfg, acc, rules, warnings, errors) {
       continue;
     }
 
-    let inline = findInlineModifier(line, cfg);
-    let localModifier = inline ? inline.modifier : null;
-    let working = removeModifierToken(line, inline);
+    // TOP/BOTTOM can be written before codes or after the quantity. They are
+    // resolved only after this line is known to be in the 2-digit parser.
+    const leadingDirection = stripLeadingContextualDirection(line);
+    const trailingDirection = stripTrailingContextualDirection(leadingDirection.text);
+    const contextual = mergeContextualDirections(leadingDirection.direction, trailingDirection.direction);
+    if (contextual.conflict) {
+      errors.push({ code: "CONTEXT_DIRECTION_CONFLICT", detail: line });
+      continue;
+    }
+    const directionMod = directionModifier(contextual.direction);
+    let directionalLine = trailingDirection.text;
+
+    let inline = findInlineModifier(directionalLine, cfg);
+    let localModifier = mergeModifiers(directionMod, inline ? inline.modifier : null);
+    if (!(localModifier.categories || []).length && !localModifier.reverse) localModifier = null;
+    let working = removeModifierToken(directionalLine, inline);
+    if (contextual.direction) rules.add(`R_2DIGIT_CONTEXT_${contextual.direction}`);
 
     // Handle attached A01/B01.
     if (inline && inline.attached) {
@@ -1130,8 +1262,15 @@ function parseOrder(inputText, config = {}) {
     /^\s*\d{3}(?:[\s,./:]+\d{3})*\s+\d+\s+\S+/mu.test(normalized) ||
     /^\s*\d{3}(?:[\s,./:]+\d{3})*\s+\S+\s+\d+\s*$/mu.test(normalized) ||
     /^\s*(?:[HL]|วิ่งบน|วิ่งล่าง|วิ่ง\s*[บล])\s*\d(?:[\s,./:]+\d)*\s*=\s*\d+/miu.test(normalized);
-  if (!items.length && !errors.length && hasOrderLikeWarning && stronglyOrderLike) {
-    errors.push({ code: "UNRECOGNIZED_ORDER_SYNTAX", detail: normalized });
+  if (hasOrderLikeWarning && stronglyOrderLike) {
+    const details = warnings
+      .filter((warning) => warning.code === "UNRECOGNIZED_ORDER_LIKE_TEXT")
+      .map((warning) => warning.detail)
+      .filter(Boolean);
+    errors.push({
+      code: "UNRECOGNIZED_ORDER_SYNTAX",
+      detail: details.length ? details.join(" | ") : normalized
+    });
   }
 
   let status = "PARSED";
