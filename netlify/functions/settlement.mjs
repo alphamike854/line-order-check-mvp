@@ -32,7 +32,6 @@ function mapError(message) {
   if (message.includes("SETTLEMENT_NOT_OPEN")) return [409, "SETTLEMENT_NOT_OPEN"];
   if (message.includes("SETTLEMENT_NOT_FOUND")) return [404, "SETTLEMENT_NOT_FOUND"];
   if (message.includes("SPECIAL_POINT_CODES_INCOMPLETE")) return [409, "SPECIAL_POINT_CODES_INCOMPLETE"];
-  if (message.includes("SETTLEMENT_HAS_OPEN_REVIEW")) return [409, "SETTLEMENT_HAS_OPEN_REVIEW"];
   if (message.includes("INVALID_PROMOTION")) return [400, message.includes("CODE")?"INVALID_PROMOTION_CODE":"INVALID_PROMOTION_RULE"];
   return [500, message];
 }

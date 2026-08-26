@@ -7,7 +7,7 @@ const styles = fs.readFileSync(new URL('./public/styles.css', import.meta.url), 
 const pkg = JSON.parse(fs.readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 
 assert.ok(['0.7.8','0.7.9','0.8.0'].includes(pkg.version));
-assert.match(app, /const FRESHNESS_POLL_MS = 20_000;/);
+assert.match(app, /const FRESHNESS_POLL_MS = 60_000;/);
 assert.match(app, /document\.hidden \|\| !state\.accessKey/);
 assert.match(app, /await loadDashboard\(\{ silent: true \}\)/);
 assert.match(app, /await loadReport\(\{ silent: true \}\)/);
@@ -31,4 +31,4 @@ assert.doesNotMatch(app, /ข้อมูลล่าสุด:/);
 assert.doesNotMatch(app, /อัปเดต ณ ตอนนี้/);
 assert.match(styles, /v6\.8: quieter refresh \+ concise operational copy/);
 
-console.log('PASS: Quiet 20s refresh + concise UI copy v6.8 smoke tests');
+console.log('PASS: Quiet 60s refresh + concise UI copy v6.8 smoke tests');

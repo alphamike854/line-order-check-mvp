@@ -25,7 +25,7 @@ const state = {
   reportPayload: null,
 };
 
-const FRESHNESS_POLL_MS = 20_000;
+const FRESHNESS_POLL_MS = 60_000;
 
 const loginView = $("#loginView");
 const appView = $("#appView");
@@ -253,6 +253,10 @@ async function checkFreshness() {
       } else if (activeTab === "report") {
         state.freshnessVersion = payload.freshness?.version ?? state.freshnessVersion;
         await loadReport({ silent: true });
+      } else if (activeTab === "review") {
+        // Keep the Review workbench stable while the operator is checking items.
+        // Incoming LINE messages continue to be stored normally by the webhook.
+        // Do not reload, reorder or stale the current Review screen.
       } else {
         setDashboardStale(true);
       }
@@ -1285,7 +1289,7 @@ async function closeSettlement() {
     await loadDashboard();
     if($("#reportSessionSelect").value) await loadReport();
   }
-  catch(error){if(error.message==="SETTLEMENT_HAS_OPEN_REVIEW"){activateTab("review");toast("ยังมีรายการต้องตรวจ",true);}else toast(`ปิดยอดไม่สำเร็จ: ${error.message}`,true);}finally{$("#closeSettlementButton").disabled=false;}
+  catch(error){toast(`ปิดยอดไม่สำเร็จ: ${error.message}`,true);}finally{$("#closeSettlementButton").disabled=false;}
 }
 
 function pointProfileMap() { return new Map((state.specialPointProfiles||[]).map(p=>[p.category,p])); }

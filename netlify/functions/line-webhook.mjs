@@ -174,7 +174,10 @@ async function persistParsedResult(message, group, result, extraMessageUpdate = 
     .eq("id", message.id);
   if (updateError) throw updateError;
 
-  if (result.items.length) {
+  // order_items is canonical accounting data.
+  // Tentative PARTIAL parser output stays in Review and must not affect totals,
+  // risk, allocation, accounting reports or settlement snapshots.
+  if (result.status === "PARSED" && result.items.length) {
     const rows = result.items.map((item) => ({
       message_record_id: message.id,
       business_date: message.business_date,

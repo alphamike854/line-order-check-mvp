@@ -7,7 +7,6 @@ const specialApi = fs.readFileSync(new URL("./netlify/functions/special-points.m
 const html = fs.readFileSync(new URL("./public/index.html", import.meta.url), "utf8");
 
 const closeFn = migration.slice(migration.indexOf("create or replace function public.close_settlement_session"), migration.indexOf("create or replace function public.replace_settlement_actual_special_codes"));
-assert.ok(closeFn.includes("SETTLEMENT_HAS_OPEN_REVIEW"), "close should preserve unresolved-review guard");
 assert.ok(!closeFn.includes("SPECIAL_POINT_CODES_INCOMPLETE"), "close must not require actual Point codes");
 assert.ok(closeFn.includes("'point_ready'"), "close result should report whether Point is already ready");
 
