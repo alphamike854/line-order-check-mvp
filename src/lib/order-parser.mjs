@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.3.1";
+const PARSER_VERSION = "1.3.2";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -37,7 +37,12 @@ const DEFAULT_CONFIG = {
     "6ปต": "PERMUTE_ALL",
     "6 ปต": "PERMUTE_ALL",
     "6ประตู": "PERMUTE_ALL",
-    "6 ประตู": "PERMUTE_ALL"
+    "6 ประตู": "PERMUTE_ALL",
+    "6กลับ": "PERMUTE_ALL",
+    "6 กลับ": "PERMUTE_ALL",
+    "หกกลับ": "PERMUTE_ALL",
+    "หก กลับ": "PERMUTE_ALL",
+    "โต๊ด": "F"
   },
   defaultCategoryByCodeLength: {
     2: "A",
@@ -344,9 +349,9 @@ function isThreeDigitPermuteMarker(text, cfg) {
 function splitThreeDigitCodeList(line) {
   const raw = String(line || "").trim();
   if (!raw) return null;
-  const parts = raw.split(/[\s,/:]+/u).filter(Boolean);
+  const parts = raw.split(/[\s,/:.]+/u).filter(Boolean);
   if (!parts.length || parts.some((part) => !/^\d{3}$/.test(part))) return null;
-  const residue = raw.replace(/\d{3}/g, "").replace(/[\s,/:]/g, "");
+  const residue = raw.replace(/\d{3}/g, "").replace(/[\s,/:.]/g, "");
   return residue ? null : parts;
 }
 
@@ -417,7 +422,7 @@ function parseThreeDigitRhs(right, cfg) {
   // Explicit permutation count + reverse marker, including multiple source codes:
   // 397 349 796=50*6 ก  => each source must have 6 unique permutations at 50 each.
   // The marker disambiguates this from the ordinary E/F quantity pair grammar.
-  let m = raw.match(/^(\d+)\s*[xX*]\s*([136])\s+(.+)$/u);
+  let m = raw.match(/^(\d+)\s*[xX*]\s*([136])\s*(.+)$/u);
   if (m && isThreeDigitPermuteMarker(m[3], cfg)) {
     return { kind: "COUNTED_PERMUTE", quantity: Number(m[1]), statedCount: Number(m[2]) };
   }
@@ -464,6 +469,28 @@ function parseThreeDigitRhs(right, cfg) {
 
 function parseThreeDigitLine(line, cfg, acc, rules, errors) {
   const t = stripPoliteWords(normalizeLatin(line.trim()));
+
+  // Natural 3-digit category suffix, e.g. "639 100 โต๊ด" => F639=100.
+  let natural = t.match(/^(\d{3})\s+(\d+)\s+(.+)$/u);
+  if (natural) {
+    const category = resolveThreeDigitCategory(natural[3], cfg);
+    if (["E", "F", "G"].includes(category)) {
+      acc.add(category, natural[1], Number(natural[2]));
+      rules.add(`R_3DIGIT_NATURAL_CATEGORY_${category}`);
+      return true;
+    }
+  }
+
+  // Natural permutation marker between code(s) and quantity:
+  // "812 หกกลับ 20" / "812 6กลับ 20".
+  natural = t.match(/^(\d{3}(?:[\s,/:.]+\d{3})*)\s+(.+?)\s+(\d+)$/u);
+  if (natural && isThreeDigitPermuteMarker(natural[2], cfg)) {
+    const codes = dedupeCodes(natural[1].split(/[\s,/:.]+/u).filter(Boolean));
+    emitThreeDigitPermutations(acc, codes, Number(natural[3]), "E");
+    rules.add("R_3DIGIT_NATURAL_PERMUTE");
+    return true;
+  }
+
   const eqIndex = t.indexOf("=");
   if (eqIndex < 0 || t.indexOf("=", eqIndex + 1) >= 0) return false;
 
@@ -486,9 +513,9 @@ function parseThreeDigitLine(line, cfg, acc, rules, errors) {
   if (firstDigit < 0) return false;
   const prefixText = left.slice(0, firstDigit).trim();
   const codeText = left.slice(firstDigit).trim();
-  const codeParts = codeText.split(/[\s,/:]+/).filter(Boolean);
+  const codeParts = codeText.split(/[\s,/:.]+/).filter(Boolean);
   if (!codeParts.length || codeParts.some((code) => !/^\d{3}$/.test(code))) return false;
-  const residue = codeText.replace(/\d{3}/g, "").replace(/[\s,/:]/g, "");
+  const residue = codeText.replace(/\d{3}/g, "").replace(/[\s,/:.]/g, "");
   if (residue) return false;
   const codes = dedupeCodes(codeParts);
 
@@ -1055,7 +1082,10 @@ function parseOrder(inputText, config = {}) {
   // Never silently discard text that strongly looks like an order. If grammar is
   // not recognized, route it to Review instead of returning IGNORE.
   const hasOrderLikeWarning = warnings.some((warning) => warning.code === "UNRECOGNIZED_ORDER_LIKE_TEXT");
-  const stronglyOrderLike = /\d{2,3}(?:[\s,/:\-]+\d{2,3})*\s*(?:\n\s*)?=/u.test(normalized);
+  const stronglyOrderLike =
+    /\d{2,3}(?:[\s,./:\-]+\d{2,3})*\s*(?:\n\s*)?=/u.test(normalized) ||
+    /^\s*\d{3}(?:[\s,./:]+\d{3})*\s+\d+\s+\S+/mu.test(normalized) ||
+    /^\s*\d{3}(?:[\s,./:]+\d{3})*\s+\S+\s+\d+\s*$/mu.test(normalized);
   if (!items.length && !errors.length && hasOrderLikeWarning && stronglyOrderLike) {
     errors.push({ code: "UNRECOGNIZED_ORDER_SYNTAX", detail: normalized });
   }

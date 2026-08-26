@@ -186,3 +186,6 @@ Adds `PERMUTE_ALL` aliases (`ทุกกลับ`, `3ปต/3ประตู`,
 ## Dashboard / Parser v7.3
 
 Corrects `998=100x100x100` to mean the same as `998=100 ทุกกลับ` / `998=100 3ปต`; two-value E/F pairs remain unchanged. The erroneous v7.2 `x*` form is retired to REVIEW. See `DASHBOARD_V7_3_SETUP.md`.
+
+## v7.6
+Adds natural 3-digit chat grammar: dot-separated seed lists, `โต๊ด` as F, and `6กลับ/หกกลับ` permutation commands. See `DASHBOARD_V7_6_SETUP.md`.
