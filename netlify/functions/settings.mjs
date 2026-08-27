@@ -42,52 +42,57 @@ async function saveSummaryGroup(values) {
 async function saveLineGroup(values) {
   const row = validateLineGroup(values);
   await assertSummaryGroupExists(row.summary_group_id);
-  const before = await maybeSingle("line_groups", { line_group_id: row.line_group_id });
-  const payload = { ...row, updated_at: new Date().toISOString() };
-  const { data, error } = await supabase.from("line_groups").upsert(payload, { onConflict: "line_group_id" }).select("*").single();
-  if (error) throw error;
 
-  // A LINE group registered while a settlement is OPEN must become usable
-  // immediately. Insert a snapshot only when it does not already exist.
-  // Existing snapshot name/mapping stay frozen; reduction % remains live.
-  const { data: openSession, error: openError } = await supabase
-    .from("settlement_sessions").select("id").eq("status", "OPEN").maybeSingle();
-  if (openError) throw openError;
+  const before = await maybeSingle("line_groups", {
+    line_group_id: row.line_group_id,
+  });
 
-  if (openSession?.id) {
-    if (row.enabled) {
-      const snapshotPayload = {
-        settlement_session_id: openSession.id,
-        line_group_id: row.line_group_id,
-        line_group_name: row.line_group_name,
-        summary_group_id: row.summary_group_id,
-        reduction_pct: row.reduction_pct,
-        enabled: true,
-      };
+  let result = null;
+  let saveError = null;
 
-      const { error: snapshotError } = await supabase
-        .from("settlement_line_group_config")
-        .upsert(snapshotPayload, {
-          onConflict: "settlement_session_id,line_group_id",
-          ignoreDuplicates: true,
-        });
-      if (snapshotError) throw snapshotError;
+  // A live remap can briefly race with atomic webhook persistence.
+  // Both database paths are transactional, so retry only PostgreSQL
+  // deadlock / serialization failures once. Never retry business-rule
+  // conflicts such as confirmed allocation/transfer/distribution.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await supabase.rpc(
+      "save_line_group_live",
+      {
+        p_line_group_id: row.line_group_id,
+        p_line_group_name: row.line_group_name,
+        p_summary_group_id: row.summary_group_id,
+        p_reduction_pct: row.reduction_pct,
+        p_enabled: row.enabled,
+      },
+    );
+
+    result = response.data;
+    saveError = response.error;
+
+    if (!saveError) break;
+
+    const retryable =
+      saveError.code === "40P01" ||
+      saveError.code === "40001";
+
+    if (!retryable || attempt === 1) {
+      break;
     }
-
-    const { error: operationalError } = await supabase
-      .from("settlement_line_group_config")
-      .update({
-        reduction_pct: row.reduction_pct,
-        enabled: row.enabled,
-      })
-      .eq("settlement_session_id", openSession.id)
-      .eq("line_group_id", row.line_group_id);
-    if (operationalError) throw operationalError;
   }
 
-  // Keep the existing LINE-group audit for mapping/name changes; no reason field is required.
-  await writeSettingsAudit({ entityType: "LINE_GROUP", entityKey: row.line_group_id, beforeData: before, afterData: data, changedBy: OPERATOR });
-  return data;
+  if (saveError) throw saveError;
+
+  const saved = result?.line_group ?? row;
+
+  await writeSettingsAudit({
+    entityType: "LINE_GROUP",
+    entityKey: row.line_group_id,
+    beforeData: before,
+    afterData: saved,
+    changedBy: OPERATOR,
+  });
+
+  return saved;
 }
 
 async function saveAllocationRule(values) {
@@ -172,7 +177,14 @@ export default async (req) => {
     return json({ ok: true, entity, saved });
   } catch (error) {
     const message = error?.message ?? String(error);
-    const status = message.endsWith("_NOT_FOUND") ? 404 : message.startsWith("INVALID_") ? 400 : 500;
+    const status =
+      message.endsWith("_NOT_FOUND")
+        ? 404
+        : message.startsWith("INVALID_")
+          ? 400
+          : message.startsWith("SUMMARY_GROUP_REMAP_BLOCKED_")
+            ? 409
+            : 500;
     console.error("settings failed", error);
     return json({ ok: false, error: message }, status);
   }
