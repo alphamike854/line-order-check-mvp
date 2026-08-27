@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * LINE Order Parser v1.6.0
+ * LINE Order Parser v1.6.1
  * Pure JavaScript, no external dependencies.
  *
  * Design goals:
@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.6.0";
+const PARSER_VERSION = "1.6.1";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -1071,6 +1071,62 @@ function parseThreeDigitRhs(right, cfg) {
 function parseThreeDigitLine(line, cfg, acc, rules, errors) {
   const t = stripPoliteWords(normalizeLatin(line.trim()));
 
+  // High-confidence natural space assignment:
+  //
+  // 220 10
+  // 202 10
+  // 022 10
+  //
+  // A 3-digit code followed by a 1-2 digit SINGLE quantity is
+  // unambiguous in the current grammar. Keep pair expressions
+  // such as "249 5*5" outside this rule so permutation semantics
+  // remain Review-safe.
+  const naturalSingle = t.match(/^(\d{3})\s+(\d{1,2})$/u);
+
+  if (naturalSingle) {
+    acc.add("E", naturalSingle[1], Number(naturalSingle[2]));
+    rules.add("R_3DIGIT_NATURAL_SPACE_SINGLE");
+    return true;
+  }
+
+  // High-confidence natural E/F pair without '=':
+  //
+  // 086 20*20 => E086=20, F086=20
+  //
+  // Keep q2 <= 6 Review-safe because in the existing 3-digit
+  // grammar that range can represent a permutation count:
+  //
+  // 249 5*5
+  // 123 20*6
+  //
+  // Without an explicit '=' or permutation marker we must not guess.
+  const naturalPair = t.match(
+    /^(\d{3})\s+(\d+)\s*[xX*\/]\s*(\d+)$/u
+  );
+
+  if (naturalPair) {
+    const code = naturalPair[1];
+    const first = Number(naturalPair[2]);
+    const second = Number(naturalPair[3]);
+
+    if (second <= 6) {
+      errors.push({
+        code: "AMBIGUOUS_3DIGIT_NATURAL_PAIR",
+        detail:
+          `${line} — ค่าตัวที่สอง ${second} อาจเป็นจำนวน permutation`,
+      });
+
+      rules.add("R_3DIGIT_NATURAL_SPACE_PAIR_AMBIGUOUS");
+      return true;
+    }
+
+    acc.add("E", code, first);
+    acc.add("F", code, second);
+
+    rules.add("R_3DIGIT_NATURAL_SPACE_EF_PAIR");
+    return true;
+  }
+
   // Natural 3-digit category suffix, e.g. "639 100 โต๊ด" => F639=100.
   // TOP/BOTTOM are contextual: บน/บ => E for 3 digits, ล่าง/ล => G.
   let natural = t.match(/^(\d{3})\s+(\d+)\s+(.+)$/u);
@@ -1553,20 +1609,50 @@ function parseTwoDigitSegment(segment, cfg, acc, rules, warnings, errors) {
       continue;
     }
 
-    // a5 / A5 / alias+qty after pending codes
+    // A5 / B5 / บล 15 / บลก 15 after pending codes.
+    //
+    // Use the existing modifier parser instead of resolving only a single
+    // category. This preserves composite semantics:
+    //   บล  => A+B
+    //   บลก => A+B+reverse
+    //
+    // Require at least one A/B destination so reverse-only or unrelated
+    // aliases cannot accidentally close a pending 2-digit block.
     if (pendingCodes.length) {
       const aliasQty = line.match(/^([A-Za-z\u0E00-\u0E7F]+)\s*(\d+)$/u);
+
       if (aliasQty) {
-        const cat = resolveAlias(aliasQty[1], cfg);
-        if (cat === "A" || cat === "B") {
+        const aliasModifier =
+          modifierFromToken(aliasQty[1], cfg);
+
+        const hasTwoDigitDestination =
+          (aliasModifier?.categories || []).some(
+            (category) =>
+              category === "A" ||
+              category === "B"
+          );
+
+        if (
+          aliasModifier &&
+          hasTwoDigitDestination
+        ) {
           emitTwoDigitGroup(
             acc,
             pendingCodes,
-            { type: "SINGLE", first: Number(aliasQty[2]) },
-            { categories: [cat], reverse: false }
+            {
+              type: "SINGLE",
+              first: Number(aliasQty[2]),
+            },
+            aliasModifier
           );
+
           pendingCodes = [];
           rules.add("R_ALIAS_QUANTITY");
+
+          if (aliasModifier.reverse) {
+            rules.add("R_REVERSE");
+          }
+
           continue;
         }
       }
@@ -1622,6 +1708,44 @@ function parseTwoDigitSegment(segment, cfg, acc, rules, warnings, errors) {
     if (!(localModifier.categories || []).length && !localModifier.reverse) localModifier = null;
     let working = removeModifierToken(directionalLine, inline);
     if (contextual.direction) rules.add(`R_2DIGIT_CONTEXT_${contextual.direction}`);
+
+    // Compact 2-digit A/B pair:
+    //
+    // 77*20*20 => A77=20, B77=20
+    //
+    // Keep this exact to TWO leading digits so this rule cannot consume
+    // 3-digit permutation-like forms such as 249*5*5.
+    const compactStarPair = working.match(
+      /^(\d{2})\s*\*\s*(\d+)\s*\*\s*(\d+)$/u
+    );
+
+    if (compactStarPair) {
+      const inherited = localModifier || contextModifier;
+
+      const modifier =
+        inherited ||
+        { categories: ["A", "B"], reverse: false };
+
+      emitTwoDigitGroup(
+        acc,
+        [compactStarPair[1]],
+        {
+          type: "PAIR",
+          first: Number(compactStarPair[2]),
+          second: Number(compactStarPair[3]),
+          delimiter: "*",
+        },
+        modifier
+      );
+
+      rules.add("R_COMPACT_STAR_QUANTITY_PAIR");
+
+      if (modifier.reverse) {
+        rules.add("R_REVERSE");
+      }
+
+      continue;
+    }
 
     // Real-chat colon shorthand:
     // 10\n01\n33:200:200 => A/B 10,01,33 = 200/200
