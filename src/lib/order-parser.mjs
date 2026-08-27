@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * LINE Order Parser v1.6.1
+ * LINE Order Parser v1.6.2
  * Pure JavaScript, no external dependencies.
  *
  * Design goals:
@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.6.1";
+const PARSER_VERSION = "1.6.2";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -88,7 +88,7 @@ function isStandaloneDateMetadataLine(line) {
 
   // Full D/M/YY or D-M-YY metadata, optionally surrounded by names/emoji.
   // Two-part slash syntax such as 07/70 is deliberately NOT a date.
-  return /^(?:[^\d\n]*\s*)?(?:0?[1-9]|[12]\d|3[01])([/-])(?:0?[1-9]|1[0-2])\1(?:\d{2}|\d{4})(?:\s*[^\d\n]*)?$/u.test(raw);
+  return /^(?:[^\d\n]*\s*)?(?:0?[1-9]|[12]\d|3[01])([/-])(?:0?[1-9]|1[0-2])\1(?:[2-9]\d|\d{4})(?:\s*[^\d\n]*)?$/u.test(raw);
 }
 
 function isSafeTwoDigitCodeListLine(line) {
@@ -556,6 +556,24 @@ function isSafeChatMetadataLine(line) {
   // (280.)
   if (
     /^\(?\s*[\d,]+(?:\.\d+)?\s*(?:฿|บาท|\.-|\.)\s*\)?(?:\s*[🇱🇦]*)?$/u.test(raw)
+  ) {
+    return true;
+  }
+
+  // Currency-first name metadata:
+  //
+  // 2,400฿🇱🇦🇱🇦 พี่แอ๋ม
+  //
+  // Keep this deliberately narrow:
+  // - explicit currency marker is required
+  // - symbols/emoji may occur before the name
+  // - the suffix must be a name-like letter sequence
+  // - '=' is forbidden
+  //
+  // Known order keywords such as บน/ล่าง/โต๊ด/รูด are
+  // rejected by the guard above before reaching this rule.
+  if (
+    /^[\d,]+(?:\.\d+)?\s*(?:฿|บาท|\.-)(?:[^\p{L}\p{M}\d=]*)(?=\p{L})[\p{L}\p{M}\s._-]+$/u.test(raw)
   ) {
     return true;
   }
@@ -2012,12 +2030,27 @@ function parseOrder(inputText, config = {}) {
   // Never silently discard text that strongly looks like an order. If grammar is
   // not recognized, route it to Review instead of returning IGNORE.
   const hasOrderLikeWarning = warnings.some((warning) => warning.code === "UNRECOGNIZED_ORDER_LIKE_TEXT");
+
+  // Explicit known order command whose grammar is not yet supported.
+  //
+  // Example:
+  //   รูด 7 = 500 บ/ล
+  //
+  // Do not invent order_items here. The purpose of this signal is only
+  // to prevent known order-looking text from silently becoming IGNORE.
+  const explicitUnsupportedOrderLike =
+    /รูด[^\n=]*=/u.test(normalized);
+
   const stronglyOrderLike =
     /\d{2,3}(?:[\s,./:\-]+\d{2,3})*\s*(?:\n\s*)?=/u.test(normalized) ||
     /^\s*\d{3}(?:[\s,./:]+\d{3})*\s+\d+\s+\S+/mu.test(normalized) ||
     /^\s*\d{3}(?:[\s,./:]+\d{3})*\s+\S+\s+\d+\s*$/mu.test(normalized) ||
     /^\s*(?:[HL]|วิ่งบน|วิ่งล่าง|วิ่ง\s*[บล])\s*\d(?:[\s,./:]+\d)*\s*=\s*\d+/miu.test(normalized);
-  if (hasOrderLikeWarning && stronglyOrderLike) {
+
+  if (
+    explicitUnsupportedOrderLike ||
+    (hasOrderLikeWarning && stronglyOrderLike)
+  ) {
     const details = warnings
       .filter((warning) => warning.code === "UNRECOGNIZED_ORDER_LIKE_TEXT")
       .map((warning) => warning.detail)
