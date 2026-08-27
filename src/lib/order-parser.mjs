@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.5.1";
+const PARSER_VERSION = "1.5.2";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -398,8 +398,11 @@ function extractTwoDigitCodes(text) {
 function isMetadataLine(line) {
   const t = line.trim();
   if (!t) return true;
-  // name/date metadata e.g. แป้ง 21-8-69
-  if (/[\u0E00-\u0E7F]/u.test(t) && /\b\d{1,2}-\d{1,2}-\d{2,4}\b/.test(t)) return true;
+  // Name/date metadata, e.g. แป้ง 21-8-69 / ลาว 26/8/69.
+  // Validate a plausible day/month so ordinary slash-separated order syntax
+  // is not silently treated as metadata.
+  const thaiDate = /\b(?:0?[1-9]|[12]\d|3[01])([/-])(?:0?[1-9]|1[0-2])\1(?:\d{2}|\d{4})\b/;
+  if (/[\u0E00-\u0E7F]/u.test(t) && thaiDate.test(t)) return true;
   // common chat-only short acknowledgements
   if (/^(ขอบคุณ|ขอบคุณค่ะ|ขอบคุณครับ|รับทราบ|โอเค|ok)$/iu.test(t)) return true;
   return false;
@@ -1019,6 +1022,14 @@ function parseTwoDigitSegment(segment, cfg, acc, rules, warnings, errors) {
       continue;
     }
 
+    // Combined 2-digit context: "บนล่าง" means both A and B.
+    // Keep this exact/narrow so 3-digit contextual semantics are unchanged.
+    if (/^บน\s*ล่าง$/u.test(line)) {
+      contextModifier = { categories: ["A", "B"], reverse: false };
+      rules.add("R_2DIGIT_CONTEXT_TOP_BOTTOM");
+      continue;
+    }
+
     // Contextual 2-digit header: บน/บ => A, ล่าง/ล => B.
     const exactDirection = contextualDirectionFromToken(line);
     if (exactDirection) {
@@ -1105,7 +1116,7 @@ function parseTwoDigitSegment(segment, cfg, acc, rules, warnings, errors) {
     // 10\n01\n33:200:200 => A/B 10,01,33 = 200/200
     // บน\n06:200        => A06 = 200
     // ล่าง\n60:200      => B60 = 200
-    const colonPair = working.match(/^(\d{2})\s*:\s*(\d+)\s*:\s*(\d+)$/u);
+    const colonPair = working.match(/^(\d{2})\s*:\s*(\d+)\s*[:;]\s*(\d+)$/u);
     if (colonPair) {
       pendingCodes.push(colonPair[1]);
       const inherited = localModifier || contextModifier;
@@ -1116,7 +1127,7 @@ function parseTwoDigitSegment(segment, cfg, acc, rules, warnings, errors) {
           type: "PAIR",
           first: Number(colonPair[2]),
           second: Number(colonPair[3]),
-          delimiter: ":"
+          delimiter: working.includes(";") ? ";" : ":"
         },
         {
           categories: ["A", "B"],
