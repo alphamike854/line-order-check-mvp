@@ -14,7 +14,7 @@ function total(result) {
   );
 }
 
-assert.equal(PARSER_VERSION, "1.5.2");
+assert.equal(PARSER_VERSION, "1.5.3");
 
 // Pending 2-digit codes completed by code:top:bottom.
 {

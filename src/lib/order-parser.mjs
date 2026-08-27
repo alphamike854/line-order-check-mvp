@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.5.2";
+const PARSER_VERSION = "1.5.3";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -1081,7 +1081,12 @@ function parseTwoDigitSegment(segment, cfg, acc, rules, warnings, errors) {
     }
 
     // Standalone quantity on final/next line after pending codes, e.g. "20".
-    if (pendingCodes.length && isLast && /^\d+$/.test(line)) {
+    if (
+      pendingCodes.length &&
+      isLast &&
+      /^\d+$/.test(line) &&
+      !/^\d{2}$/.test(line)
+    ) {
       const q = parseQuantityExpression(line);
       emitTwoDigitGroup(
         acc,
@@ -1116,7 +1121,7 @@ function parseTwoDigitSegment(segment, cfg, acc, rules, warnings, errors) {
     // 10\n01\n33:200:200 => A/B 10,01,33 = 200/200
     // บน\n06:200        => A06 = 200
     // ล่าง\n60:200      => B60 = 200
-    const colonPair = working.match(/^(\d{2})\s*:\s*(\d+)\s*[:;]\s*(\d+)$/u);
+    const colonPair = working.match(/^(\d{2})\s*:\s*(\d+)\s*[:;/]\s*(\d+)$/u);
     if (colonPair) {
       pendingCodes.push(colonPair[1]);
       const inherited = localModifier || contextModifier;
@@ -1127,7 +1132,7 @@ function parseTwoDigitSegment(segment, cfg, acc, rules, warnings, errors) {
           type: "PAIR",
           first: Number(colonPair[2]),
           second: Number(colonPair[3]),
-          delimiter: working.includes(";") ? ";" : ":"
+          delimiter: working.includes(";") ? ";" : working.includes("/") ? "/" : ":"
         },
         {
           categories: ["A", "B"],
