@@ -47,18 +47,42 @@ async function saveLineGroup(values) {
   const { data, error } = await supabase.from("line_groups").upsert(payload, { onConflict: "line_group_id" }).select("*").single();
   if (error) throw error;
 
-  // Reduction % is an operational setting. If a settlement is OPEN, apply the
-  // new percentage to that settlement immediately; closed settlements keep their snapshot.
+  // A LINE group registered while a settlement is OPEN must become usable
+  // immediately. Insert a snapshot only when it does not already exist.
+  // Existing snapshot name/mapping stay frozen; reduction % remains live.
   const { data: openSession, error: openError } = await supabase
     .from("settlement_sessions").select("id").eq("status", "OPEN").maybeSingle();
   if (openError) throw openError;
+
   if (openSession?.id) {
-    const { error: reductionError } = await supabase
+    if (row.enabled) {
+      const snapshotPayload = {
+        settlement_session_id: openSession.id,
+        line_group_id: row.line_group_id,
+        line_group_name: row.line_group_name,
+        summary_group_id: row.summary_group_id,
+        reduction_pct: row.reduction_pct,
+        enabled: true,
+      };
+
+      const { error: snapshotError } = await supabase
+        .from("settlement_line_group_config")
+        .upsert(snapshotPayload, {
+          onConflict: "settlement_session_id,line_group_id",
+          ignoreDuplicates: true,
+        });
+      if (snapshotError) throw snapshotError;
+    }
+
+    const { error: operationalError } = await supabase
       .from("settlement_line_group_config")
-      .update({ reduction_pct: row.reduction_pct })
+      .update({
+        reduction_pct: row.reduction_pct,
+        enabled: row.enabled,
+      })
       .eq("settlement_session_id", openSession.id)
       .eq("line_group_id", row.line_group_id);
-    if (reductionError) throw reductionError;
+    if (operationalError) throw operationalError;
   }
 
   // Keep the existing LINE-group audit for mapping/name changes; no reason field is required.

@@ -96,9 +96,10 @@ async function resolveSettlementLineGroup(sessionId, lineGroupId) {
   if (!sessionId) return resolveLineGroup(lineGroupId);
   const { data, error } = await supabase
     .from("settlement_line_group_config")
-    .select("line_group_id,line_group_name,summary_group_id,reduction_pct")
+    .select("line_group_id,line_group_name,summary_group_id,reduction_pct,enabled")
     .eq("settlement_session_id", sessionId)
     .eq("line_group_id", lineGroupId)
+    .eq("enabled", true)
     .maybeSingle();
   if (error) throw error;
   return data;
