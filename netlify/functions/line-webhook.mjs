@@ -104,29 +104,102 @@ async function resolveSettlementLineGroup(sessionId, lineGroupId) {
   return data;
 }
 
-async function reserveWebhookEvent(destination, event) {
-  const row = {
-    webhook_event_id: event.webhookEventId,
-    destination,
-    event_type: event.type,
-    line_group_id: event.source?.groupId ?? null,
-    user_id: event.source?.userId ?? null,
-    is_redelivery: Boolean(event.deliveryContext?.isRedelivery),
-    payload: event,
-  };
+async function claimWebhookEvent(destination, event) {
+  const { data, error } = await supabase.rpc(
+    "claim_webhook_event",
+    {
+      p_webhook_event_id: event.webhookEventId,
+      p_destination: destination,
+      p_event_type: event.type,
+      p_line_group_id: event.source?.groupId ?? null,
+      p_user_id: event.source?.userId ?? null,
+      p_is_redelivery: Boolean(event.deliveryContext?.isRedelivery),
+      p_payload: event,
+    },
+  );
 
-  const { error } = await supabase.from("webhook_events").insert(row);
-  if (!error) return true;
-  if (error.code === "23505") return false;
-  throw error;
+  if (error) throw error;
+  return data;
 }
 
 async function markWebhookProcessed(webhookEventId) {
   const { error } = await supabase
     .from("webhook_events")
-    .update({ processed_at: new Date().toISOString() })
+    .update({
+      processed_at: new Date().toISOString(),
+      processing_started_at: null,
+      last_error: null,
+    })
     .eq("webhook_event_id", webhookEventId);
+
   if (error) throw error;
+}
+
+async function markWebhookFailed(webhookEventId, error) {
+  const detail = (error?.message ?? String(error)).slice(0, 1000);
+
+  const { error: updateError } = await supabase
+    .from("webhook_events")
+    .update({
+      processing_started_at: null,
+      last_error: detail,
+    })
+    .eq("webhook_event_id", webhookEventId);
+
+  if (updateError) {
+    console.error(
+      "Failed to release webhook claim",
+      webhookEventId,
+      updateError,
+    );
+  }
+}
+
+async function findMessageByWebhookEvent(webhookEventId) {
+  const { data, error } = await supabase
+    .from("messages")
+    .select(
+      "id,destination,webhook_event_id,message_id,business_date,settlement_session_id,event_timestamp,line_group_id,summary_group_id,user_id,message_type,raw_text,normalized_text,parse_status,parser_version,unsent"
+    )
+    .eq("webhook_event_id", webhookEventId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+}
+
+async function isExistingMessageComplete(message) {
+  if (!message) return false;
+
+  if (message.parse_status === "IGNORE") {
+    return true;
+  }
+
+  if (message.parse_status === "PARSED") {
+    const { count, error } = await supabase
+      .from("order_items")
+      .select("id", { count: "exact", head: true })
+      .eq("message_record_id", message.id);
+
+    if (error) throw error;
+
+    // Critical invariant:
+    // PARSED + zero canonical items is NOT complete.
+    return Number(count ?? 0) > 0;
+  }
+
+  if (["REVIEW", "PARTIAL"].includes(message.parse_status)) {
+    const { data, error } = await supabase
+      .from("review_items")
+      .select("id")
+      .eq("message_record_id", message.id)
+      .maybeSingle();
+
+    if (error) throw error;
+    return Boolean(data);
+  }
+
+  return false;
 }
 
 async function createMessage({ destination, event, group, session, messageType, rawText = null, parseStatus = "PENDING" }) {
@@ -163,6 +236,65 @@ async function saveReview(messageRecordId, reasonCodes, warnings = []) {
 }
 
 async function persistParsedResult(message, group, result, extraMessageUpdate = {}) {
+  // Safety invariant:
+  // PARSED must always have at least one canonical order item.
+  if (result.status === "PARSED" && !result.items.length) {
+    const errors = [
+      ...(result.errors ?? []),
+      {
+        code: "PARSED_WITHOUT_ITEMS",
+        detail: "Parser returned PARSED without canonical items",
+      },
+    ];
+
+    const { error: updateError } = await supabase
+      .from("messages")
+      .update({
+        normalized_text: result.normalized_text,
+        parse_status: "REVIEW",
+        parser_version: result.parser_version,
+        ...extraMessageUpdate,
+      })
+      .eq("id", message.id);
+
+    if (updateError) throw updateError;
+
+    await saveReview(message.id, errors, result.warnings ?? []);
+
+    return {
+      status: "REVIEW",
+      items: 0,
+      parser_version: result.parser_version,
+    };
+  }
+
+  if (result.status === "PARSED") {
+    const summaryGroupId =
+      message.summary_group_id ?? group?.summary_group_id ?? null;
+
+    const { data, error } = await supabase.rpc(
+      "persist_parsed_message_atomic",
+      {
+        p_message_id: message.id,
+        p_normalized_text: result.normalized_text,
+        p_parser_version: result.parser_version,
+        p_items: result.items,
+        p_summary_group_id: summaryGroupId,
+        p_message_patch: extraMessageUpdate,
+      },
+    );
+
+    if (error) throw error;
+
+    return {
+      status: "PARSED",
+      items: Number(data?.items_count ?? result.items.length),
+      parser_version: result.parser_version,
+    };
+  }
+
+  // REVIEW / PARTIAL / IGNORE remain non-canonical.
+  // Tentative PARTIAL items must never affect accounting totals.
   const { error: updateError } = await supabase
     .from("messages")
     .update({
@@ -172,46 +304,34 @@ async function persistParsedResult(message, group, result, extraMessageUpdate = 
       ...extraMessageUpdate,
     })
     .eq("id", message.id);
+
   if (updateError) throw updateError;
 
-  // order_items is canonical accounting data.
-  // Tentative PARTIAL parser output stays in Review and must not affect totals,
-  // risk, allocation, accounting reports or settlement snapshots.
-  if (result.status === "PARSED" && result.items.length) {
-    const rows = result.items.map((item) => ({
-      message_record_id: message.id,
-      business_date: message.business_date,
-      line_group_id: message.line_group_id,
-      // The database trigger snapshots the Summary Group for the OPEN settlement.
-      // Use that returned value as the source of truth so Order Board/Risk views and
-      // the accounting report cannot diverge if live group settings change mid-session.
-      summary_group_id: message.summary_group_id ?? group.summary_group_id,
-      category: item.category,
-      code: item.code,
-      quantity: item.quantity,
-      unsent_flag: false,
-      parser_version: result.parser_version,
-      settlement_session_id: message.settlement_session_id,
-    }));
-
-    const { error: itemError } = await supabase.from("order_items").insert(rows);
-    if (itemError) throw itemError;
-  }
-
   if (["REVIEW", "PARTIAL"].includes(result.status)) {
-    await saveReview(message.id, result.errors, result.warnings);
+    await saveReview(
+      message.id,
+      result.errors ?? [],
+      result.warnings ?? [],
+    );
   }
 
   return {
     status: result.status,
-    items: result.items.length,
+    items: 0,
     parser_version: result.parser_version,
   };
 }
 
-async function handleTextMessage(destination, event, group, session) {
+async function handleTextMessage(destination, event, group, session, existingMessage = null) {
   const text = event.message.text ?? "";
-  const message = await createMessage({ destination, event, group, session, messageType: "text", rawText: text });
+  const message = existingMessage ?? await createMessage({
+    destination,
+    event,
+    group,
+    session,
+    messageType: "text",
+    rawText: text,
+  });
 
   if (!message.settlement_session_id) {
     await supabase.from("messages").update({ parse_status: "REVIEW" }).eq("id", message.id);
@@ -238,8 +358,8 @@ async function handleTextMessage(destination, event, group, session) {
   return persistParsedResult(message, effectiveGroup, result, { first_order_code: firstLedgerCode(result.items, text) || null });
 }
 
-async function handleImageMessage(destination, event, group, session) {
-  const message = await createMessage({
+async function handleImageMessage(destination, event, group, session, existingMessage = null) {
+  const message = existingMessage ?? await createMessage({
     destination,
     event,
     group,
@@ -299,50 +419,27 @@ async function handleImageMessage(destination, event, group, session) {
     return { status: "REVIEW", reason: "IMAGE_OCR_CONFIG_MISSING" };
   }
 
+  let image;
+  let ocr;
+
+  // Only LINE image download / Gemini transcription errors belong to
+  // IMAGE_OCR_FAILED. Parser or database persistence failures must escape
+  // to processEvent so the webhook claim is released and LINE receives 500.
   try {
-    const image = await downloadLineImage(event.message.id, LINE_CHANNEL_ACCESS_TOKEN);
-    const ocr = await transcribeOrderImage({
+    image = await downloadLineImage(
+      event.message.id,
+      LINE_CHANNEL_ACCESS_TOKEN,
+    );
+
+    ocr = await transcribeOrderImage({
       bytes: image.bytes,
       mimeType: image.mimeType,
       apiKey: GEMINI_API_KEY,
       model: GEMINI_MODEL,
     });
-
-    const baseUpdate = {
-      ocr_text: ocr.text,
-      ocr_provider: ocr.provider,
-      ocr_model: ocr.model,
-      ocr_status: ocr.uncertain ? "UNCERTAIN" : "DONE",
-      ocr_error: null,
-      image_content_type: image.mimeType,
-      image_size_bytes: image.sizeBytes,
-    };
-
-    if (ocr.uncertain) {
-      await supabase
-        .from("messages")
-        .update({
-          ...baseUpdate,
-          normalized_text: ocr.text,
-          parse_status: "REVIEW",
-        })
-        .eq("id", message.id);
-      await saveReview(
-        message.id,
-        [{ code: "OCR_UNCERTAIN", detail: "OCR output contains one or more uncertain characters marked with ?" }],
-        [],
-      );
-      return { status: "REVIEW", reason: "OCR_UNCERTAIN" };
-    }
-
-    const config = await loadParserConfig();
-    const result = parseOrder(ocr.text, config);
-    return persistParsedResult(message, effectiveGroup, result, {
-      ...baseUpdate,
-      first_order_code: firstLedgerCode(result.items, ocr.text) || null,
-    });
   } catch (error) {
     const detail = error?.message ?? String(error);
+
     await supabase
       .from("messages")
       .update({
@@ -351,13 +448,79 @@ async function handleImageMessage(destination, event, group, session) {
         ocr_error: detail.slice(0, 1000),
       })
       .eq("id", message.id);
+
     await saveReview(
       message.id,
-      [{ code: "IMAGE_OCR_FAILED", detail: detail.slice(0, 500) }],
+      [
+        {
+          code: "IMAGE_OCR_FAILED",
+          detail: detail.slice(0, 500),
+        },
+      ],
       [],
     );
-    return { status: "REVIEW", reason: "IMAGE_OCR_FAILED" };
+
+    return {
+      status: "REVIEW",
+      reason: "IMAGE_OCR_FAILED",
+    };
   }
+
+  const baseUpdate = {
+    ocr_text: ocr.text,
+    ocr_provider: ocr.provider,
+    ocr_model: ocr.model,
+    ocr_status: ocr.uncertain ? "UNCERTAIN" : "DONE",
+    ocr_error: null,
+    image_content_type: image.mimeType,
+    image_size_bytes: image.sizeBytes,
+  };
+
+  if (ocr.uncertain) {
+    await supabase
+      .from("messages")
+      .update({
+        ...baseUpdate,
+        normalized_text: ocr.text,
+        parse_status: "REVIEW",
+      })
+      .eq("id", message.id);
+
+    await saveReview(
+      message.id,
+      [
+        {
+          code: "OCR_UNCERTAIN",
+          detail:
+            "OCR output contains one or more uncertain characters marked with ?",
+        },
+      ],
+      [],
+    );
+
+    return {
+      status: "REVIEW",
+      reason: "OCR_UNCERTAIN",
+    };
+  }
+
+  const config = await loadParserConfig();
+  const result = parseOrder(ocr.text, config);
+
+  // Intentionally outside the OCR try/catch:
+  // persistence failures must propagate to processEvent -> markWebhookFailed
+  // -> HTTP 500 -> safe redelivery/resume.
+  return persistParsedResult(
+    message,
+    effectiveGroup,
+    result,
+    {
+      ...baseUpdate,
+      first_order_code:
+        firstLedgerCode(result.items, ocr.text) || null,
+    },
+  );
+
 }
 
 async function handleUnsend(destination, event) {
@@ -412,16 +575,37 @@ async function handleUnsend(destination, event) {
     derived_qty_total: derivedQtyTotal,
     unsent_at: unsentAt,
   });
-  if (unsendError) throw unsendError;
+  // Redelivery after a successful UNSEND write but before processed_at
+  // must remain idempotent.
+  if (unsendError && unsendError.code !== "23505") {
+    throw unsendError;
+  }
 
-  return { status: "UNSEND", matched: Boolean(message), derived_qty_total: derivedQtyTotal };
+  return {
+    status: "UNSEND",
+    matched: Boolean(message),
+    derived_qty_total: derivedQtyTotal,
+  };
 }
 
 async function processEvent(destination, event) {
-  if (!event.webhookEventId) return { skipped: "NO_WEBHOOK_EVENT_ID" };
+  if (!event.webhookEventId) {
+    return { skipped: "NO_WEBHOOK_EVENT_ID" };
+  }
 
-  const reserved = await reserveWebhookEvent(destination, event);
-  if (!reserved) return { skipped: "DUPLICATE_EVENT" };
+  const claim = await claimWebhookEvent(destination, event);
+
+  if (claim?.state === "DONE") {
+    return { skipped: "DUPLICATE_EVENT" };
+  }
+
+  if (claim?.state === "IN_FLIGHT") {
+    return { skipped: "EVENT_IN_FLIGHT" };
+  }
+
+  if (claim?.state !== "CLAIMED") {
+    throw new Error(`INVALID_WEBHOOK_CLAIM_STATE: ${claim?.state ?? "NULL"}`);
+  }
 
   try {
     if (event.source?.type !== "group") {
@@ -429,14 +613,54 @@ async function processEvent(destination, event) {
       return { skipped: "NOT_GROUP" };
     }
 
+    const existingMessage =
+      event.type === "message"
+        ? await findMessageByWebhookEvent(event.webhookEventId)
+        : null;
+
+    // A prior invocation may have completed the business write but failed only
+    // while setting webhook_events.processed_at. Do not apply the order twice.
+    if (
+      existingMessage &&
+      await isExistingMessageComplete(existingMessage)
+    ) {
+      await markWebhookProcessed(event.webhookEventId);
+
+      return {
+        status: existingMessage.parse_status,
+        resumed: true,
+        skipped: "MESSAGE_ALREADY_COMPLETE",
+      };
+    }
+
     const session = await resolveOpenSettlementSession();
-    const group = await resolveSettlementLineGroup(session?.id, event.source.groupId);
+
+    const group = await resolveSettlementLineGroup(
+      existingMessage?.settlement_session_id ?? session?.id,
+      event.source.groupId,
+    );
+
     let result;
 
     if (event.type === "message" && event.message?.type === "text") {
-      result = await handleTextMessage(destination, event, group, session);
-    } else if (event.type === "message" && event.message?.type === "image") {
-      result = await handleImageMessage(destination, event, group, session);
+      result = await handleTextMessage(
+        destination,
+        event,
+        group,
+        session,
+        existingMessage,
+      );
+    } else if (
+      event.type === "message" &&
+      event.message?.type === "image"
+    ) {
+      result = await handleImageMessage(
+        destination,
+        event,
+        group,
+        session,
+        existingMessage,
+      );
     } else if (event.type === "unsend") {
       result = await handleUnsend(destination, event);
     } else {
@@ -446,7 +670,14 @@ async function processEvent(destination, event) {
     await markWebhookProcessed(event.webhookEventId);
     return result;
   } catch (error) {
-    console.error("LINE event processing failed", event.webhookEventId, error);
+    await markWebhookFailed(event.webhookEventId, error);
+
+    console.error(
+      "LINE event processing failed",
+      event.webhookEventId,
+      error,
+    );
+
     throw error;
   }
 }
@@ -475,16 +706,37 @@ export default async (req) => {
   const destination = payload.destination;
   const events = Array.isArray(payload.events) ? payload.events : [];
   const results = [];
+  let processingFailed = false;
 
   for (const event of events) {
     try {
       results.push(await processEvent(destination, event));
     } catch (error) {
-      results.push({ error: "PROCESSING_FAILED", detail: error?.message ?? String(error) });
+      processingFailed = true;
+      results.push({
+        error: "PROCESSING_FAILED",
+        detail: error?.message ?? String(error),
+      });
     }
   }
 
-  return json({ ok: true, received: events.length, results });
+  if (processingFailed) {
+    return json(
+      {
+        ok: false,
+        error: "PROCESSING_FAILED",
+        received: events.length,
+        results,
+      },
+      500,
+    );
+  }
+
+  return json({
+    ok: true,
+    received: events.length,
+    results,
+  });
 };
 
 export const config = {

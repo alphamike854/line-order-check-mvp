@@ -28,7 +28,7 @@ const migration = fs.readFileSync(
 // But tentative PARTIAL items must never enter canonical order_items.
 assert.match(
   webhook,
-  /result\.status === "PARSED" && result\.items\.length/
+  /result\.status === "PARSED"[\s\S]*persist_parsed_message_atomic/
 );
 
 // Review remains created for both REVIEW and PARTIAL.
