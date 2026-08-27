@@ -21,7 +21,7 @@ export default async (req) => {
     const summaryGroupId=normalizeSummaryGroup(url.searchParams.get("group"));
     const [{summaryGroups,lineGroups},session]=await Promise.all([loadGroupConfig(),fetchOpenSettlementSession()]);
     if(!session){
-      return json({ok:true,settlement_session:null,business_date:null,selected_summary_group:summaryGroupId??"ALL",generated_at:new Date().toISOString(),summary_groups:summaryGroups,line_groups:lineGroups,metrics:{messages_total:0,parsed:0,pending:0,review_open:0,gross_received:0,adjusted_received:0,point_reserve_total:0,risk_point_total:0,safety_margin:0,point_loss_tolerance:0,risk_budget:0,excess_point_risk:0,transfer_required_total:0,confirmed_cut_total:0,risk_pct:0,last_event_at:null},risk_codes:[],category_risk:[],overall_risk:[],risk_pools:[],distribution_plans:[],actual_special_codes:[],point_profiles:[],point_promotions:[],warehouse_limits:[],freshness:{version:"NO_OPEN_SETTLEMENT"}});
+      return json({ok:true,settlement_session:null,business_date:null,selected_summary_group:summaryGroupId??"ALL",generated_at:new Date().toISOString(),summary_groups:summaryGroups,line_groups:lineGroups,metrics:{messages_total:0,parsed:0,pending:0,review_open:0,gross_received:0,adjusted_received:0,point_reserve_total:0,risk_point_total:0,safety_margin:0,point_loss_tolerance:0,risk_budget:0,excess_point_risk:0,transfer_required_total:0,distribution_incomplete:false,confirmed_cut_total:0,risk_pct:0,last_event_at:null},risk_codes:[],category_risk:[],overall_risk:[],risk_pools:[],distribution_plans:[],actual_special_codes:[],point_profiles:[],point_promotions:[],warehouse_limits:[],freshness:{version:"NO_OPEN_SETTLEMENT"}});
     }
 
     let codeQuery=supabase.from("session_code_risk_state").select("settlement_session_id,business_date,summary_group_id,category,code,order_total,adjusted_total,special_multiplier,max_special_codes,promotion_factor_pct,effective_multiplier,point_exposure,reserve_rank,reserve_candidate,actual_special_point,actual_point,confirmed_cut,available_to_cut,retained_quantity,retained_point_exposure").eq("settlement_session_id",session.id);
@@ -50,14 +50,65 @@ export default async (req) => {
     const distributionPlans=riskPools.map((pool)=>{
       const allowed=RISK_POOL_CATEGORIES[pool.risk_pool] || new Set();
       if(pool.multiplier_configured===false && Number(pool.gross_received||0)>0){
-        return {summary_group_id:pool.summary_group_id,risk_pool:pool.risk_pool,adjusted_received:Number(pool.adjusted_received||0),point_loss_tolerance:Number(pool.point_loss_tolerance||0),risk_budget:Number(pool.risk_budget||0),point_reserve_before:Number(pool.risk_point_total||0),point_reserve_after_plan:Number(pool.risk_point_total||0),excess_point_risk_before:0,excess_point_risk_after_plan:0,transfer_required_total:0,recommendations:[],multiplier_configured:false};
+        return {
+          summary_group_id:pool.summary_group_id,
+          risk_pool:pool.risk_pool,
+          adjusted_received:Number(pool.adjusted_received||0),
+          point_loss_tolerance:Number(pool.point_loss_tolerance||0),
+          risk_budget:Number(pool.risk_budget||0),
+          point_reserve_before:Number(pool.risk_point_total||0),
+          point_reserve_after_plan:Number(pool.risk_point_total||0),
+          excess_point_risk_before:0,
+          excess_point_risk_after_plan:0,
+          transfer_required_total:0,
+          recommendations:[],
+          multiplier_configured:false,
+          calculation_status:"UNCONFIGURED",
+          calculation_error:null,
+        };
       }
-      const plan=buildRiskDistributionPlan({
-        rows:riskCodes.filter((row)=>row.summary_group_id===pool.summary_group_id && allowed.has(row.category)),
-        adjustedTotal:Number(pool.adjusted_received||0),
-        pointLossTolerance:Number(pool.point_loss_tolerance||0),
-      });
-      return {summary_group_id:pool.summary_group_id,risk_pool:pool.risk_pool,multiplier_configured:pool.multiplier_configured!==false,...plan};
+
+      try {
+        const plan=buildRiskDistributionPlan({
+          rows:riskCodes.filter((row)=>row.summary_group_id===pool.summary_group_id && allowed.has(row.category)),
+          adjustedTotal:Number(pool.adjusted_received||0),
+          pointLossTolerance:Number(pool.point_loss_tolerance||0),
+          maxSimulationUnits:5000,
+        });
+        return {
+          summary_group_id:pool.summary_group_id,
+          risk_pool:pool.risk_pool,
+          multiplier_configured:pool.multiplier_configured!==false,
+          calculation_status:"READY",
+          calculation_error:null,
+          ...plan,
+        };
+      } catch(error) {
+        if(error?.message!=="RISK_DISTRIBUTION_SIMULATION_LIMIT") throw error;
+
+        console.warn("dashboard risk distribution calculation limit", {
+          settlement_session_id:session.id,
+          summary_group_id:pool.summary_group_id,
+          risk_pool:pool.risk_pool,
+        });
+
+        return {
+          summary_group_id:pool.summary_group_id,
+          risk_pool:pool.risk_pool,
+          multiplier_configured:pool.multiplier_configured!==false,
+          adjusted_received:Number(pool.adjusted_received||0),
+          point_loss_tolerance:Number(pool.point_loss_tolerance||0),
+          risk_budget:Number(pool.risk_budget||0),
+          point_reserve_before:Number(pool.risk_point_total||0),
+          point_reserve_after_plan:null,
+          excess_point_risk_before:Number(pool.excess_point_risk||0),
+          excess_point_risk_after_plan:null,
+          transfer_required_total:null,
+          recommendations:[],
+          calculation_status:"LIMIT",
+          calculation_error:"RISK_DISTRIBUTION_SIMULATION_LIMIT",
+        };
+      }
     });
     const messages=messagesResult.data??[];
     const profiles=profileResult.data??[];
@@ -71,8 +122,21 @@ export default async (req) => {
     ].join(",");
     const version=[session.id,messages[0]?.event_timestamp??"",batchFreshResult.data?.[0]?.confirmed_at??"",actual.map(r=>`${r.category}${r.code}`).join(","),promotions.map(r=>`${r.category}${r.code}:${r.point_factor_pct}`).join(","),settingsSignature].join("|");
 
+    const mainPlans=distributionPlans.filter((plan)=>plan.risk_pool==="MAIN");
+    const distributionIncomplete = summaryGroupId
+      ? distributionPlans.some((plan)=>
+          plan.summary_group_id===summaryGroupId
+          && plan.calculation_status==="LIMIT"
+        )
+      : distributionPlans.some((plan)=>plan.calculation_status==="LIMIT");
+
     const metricOverall = summaryGroupId
-      ? {...overallRisk[0], transfer_required_total:Number(distributionPlans.find((p)=>p.summary_group_id===overallRisk[0]?.summary_group_id&&p.risk_pool==="MAIN")?.transfer_required_total||0)}
+      ? {
+          ...overallRisk[0],
+          transfer_required_total:distributionIncomplete
+            ? null
+            : Number(mainPlans.find((plan)=>plan.summary_group_id===overallRisk[0]?.summary_group_id)?.transfer_required_total||0),
+        }
       : {
           gross_received:sum(overallRisk,"gross_received"),
           adjusted_received:sum(overallRisk,"adjusted_received"),
@@ -83,13 +147,17 @@ export default async (req) => {
           risk_budget:sum(overallRisk,"risk_budget"),
           excess_point_risk:sum(overallRisk,"excess_point_risk"),
           confirmed_cut_total:sum(overallRisk,"confirmed_cut_total"),
-          transfer_required_total:sum(distributionPlans.filter((p)=>p.risk_pool==="MAIN"),"transfer_required_total"),
-          risk_pct:sum(overallRisk,"adjusted_received")>0?Math.round(sum(overallRisk,"risk_point_total")/sum(overallRisk,"adjusted_received")*10000)/100:0,
+          transfer_required_total:distributionIncomplete
+            ? null
+            : sum(mainPlans,"transfer_required_total"),
+          risk_pct:sum(overallRisk,"adjusted_received")>0
+            ? Math.round(sum(overallRisk,"risk_point_total")/sum(overallRisk,"adjusted_received")*10000)/100
+            : 0,
         };
 
     return json({
       ok:true,settlement_session:session,business_date:session.business_date,selected_summary_group:summaryGroupId??"ALL",generated_at:new Date().toISOString(),freshness:{version},summary_groups:summaryGroups,line_groups:lineGroups,
-      metrics:{messages_total:messages.length,parsed:messages.filter(m=>m.parse_status==="PARSED").length,pending:messages.filter(m=>m.parse_status==="PENDING").length,review_open:reviews.length,gross_received:Number(metricOverall?.gross_received||0),adjusted_received:Number(metricOverall?.adjusted_received||0),point_reserve_total:Number(metricOverall?.point_reserve_total||0),risk_point_total:Number(metricOverall?.risk_point_total||0),safety_margin:Number(metricOverall?.safety_margin||0),point_loss_tolerance:Number(metricOverall?.point_loss_tolerance||0),risk_budget:Number(metricOverall?.risk_budget||0),excess_point_risk:Number(metricOverall?.excess_point_risk||0),transfer_required_total:Number(metricOverall?.transfer_required_total||0),confirmed_cut_total:Number(metricOverall?.confirmed_cut_total||0),risk_pct:Number(metricOverall?.risk_pct||0),last_event_at:messages[0]?.event_timestamp??session.opened_at},
+      metrics:{messages_total:messages.length,parsed:messages.filter(m=>m.parse_status==="PARSED").length,pending:messages.filter(m=>m.parse_status==="PENDING").length,review_open:reviews.length,gross_received:Number(metricOverall?.gross_received||0),adjusted_received:Number(metricOverall?.adjusted_received||0),point_reserve_total:Number(metricOverall?.point_reserve_total||0),risk_point_total:Number(metricOverall?.risk_point_total||0),safety_margin:Number(metricOverall?.safety_margin||0),point_loss_tolerance:Number(metricOverall?.point_loss_tolerance||0),risk_budget:Number(metricOverall?.risk_budget||0),excess_point_risk:Number(metricOverall?.excess_point_risk||0),transfer_required_total:metricOverall?.transfer_required_total==null?null:Number(metricOverall.transfer_required_total||0),distribution_incomplete:distributionIncomplete,confirmed_cut_total:Number(metricOverall?.confirmed_cut_total||0),risk_pct:Number(metricOverall?.risk_pct||0),last_event_at:messages[0]?.event_timestamp??session.opened_at},
       risk_codes:riskCodes,category_risk:categoryRisk,overall_risk:overallRisk,risk_pools:riskPools,distribution_plans:distributionPlans,point_profiles:profiles,point_promotions:promotions,warehouse_limits:warehouseLimits,actual_special_codes:actual,
     });
   } catch(error){console.error("dashboard failed",error);return json({ok:false,error:error?.message??String(error)},500);}

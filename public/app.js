@@ -281,7 +281,7 @@ function renderMetrics(metrics) {
     ["Point สำรอง", metrics.risk_point_total, Number(metrics.excess_point_risk) > 0],
     ["ระดับที่รับได้", metrics.risk_budget, false],
     ["Point เกิน", metrics.excess_point_risk, Number(metrics.excess_point_risk) > 0],
-    ["ควรตัด", metrics.transfer_required_total, Number(metrics.transfer_required_total) > 0],
+    ["ควรตัด", metrics.distribution_incomplete ? "คำนวณไม่สำเร็จ" : metrics.transfer_required_total, !metrics.distribution_incomplete && Number(metrics.transfer_required_total) > 0],
   ];
   $("#metrics").innerHTML = cards.map(([label, value, alert]) => `
     <article class="metric ${alert ? "alert" : ""}"><div class="label">${escapeHtml(label)}</div><div class="value">${typeof value === "string" ? escapeHtml(value) : formatNumber(value)}</div></article>`).join("");
@@ -317,6 +317,21 @@ function riskPoolFor(groupId, riskPool = "MAIN") {
 
 function distributionPlanFor(groupId, riskPool = "MAIN") {
   return (state.dashboard?.distribution_plans || []).find((r) => r.summary_group_id === groupId && (r.risk_pool || "MAIN") === riskPool) || null;
+}
+
+function distributionPlanCalculationFailed(groupId, riskPool = "MAIN") {
+  return distributionPlanFor(groupId, riskPool)?.calculation_status === "LIMIT";
+}
+
+function anyDistributionPlanCalculationFailed(groupId) {
+  return ["MAIN","H","L"].some((pool) => distributionPlanCalculationFailed(groupId, pool));
+}
+
+function distributionTransferLabel(groupId, riskPool = "MAIN") {
+  const plan = distributionPlanFor(groupId, riskPool);
+  return plan?.calculation_status === "LIMIT"
+    ? "คำนวณไม่สำเร็จ"
+    : formatNumber(plan?.transfer_required_total || 0);
 }
 
 function riskPoolLabel(pool) {
@@ -409,7 +424,7 @@ function renderOneDigitSummaryCategory(groupId, category) {
       <div class="one-digit-head-metrics">
         <span>${configured ? `×${formatNumber(profile?.special_multiplier || 0)}` : "ตั้งตัวคูณ"}</span>
         <span>รับ ${formatNumber(pool?.gross_received || 0)}</span>
-        ${configured ? `<span>Point ${formatNumber(pool?.risk_point_total || 0)}</span><strong>ควรตัด ${formatNumber(plan?.transfer_required_total || 0)}</strong>` : `<strong>ยังไม่คำนวณ Risk</strong>`}
+        ${configured ? `<span>Point ${formatNumber(pool?.risk_point_total || 0)}</span><strong>ควรตัด ${distributionTransferLabel(groupId, category)}</strong>` : `<strong>ยังไม่คำนวณ Risk</strong>`}
       </div>
     </div>
     <div class="one-digit-code-grid">${list}</div>
@@ -430,7 +445,7 @@ function renderGroupBoard(groupId) {
     <div class="group-risk-header ${riskClass(overall?.risk_pct)}">
       <div><h3>${escapeHtml(groupName(groupId))}</h3><span>${overall?.risk_mode === "ACTUAL" ? "Point จริง" : "Point สำรอง"}</span></div>
       <div class="group-risk-summary">
-        <div class="group-risk-metrics"><span>รับ <strong>${formatNumber(overall?.gross_received || 0)}</strong></span><span>หลังหัก <strong>${formatNumber(overall?.adjusted_received || 0)}</strong></span><span>Point <strong>${formatNumber(overall?.risk_point_total || 0)}</strong></span><span>ควรตัด <strong>${formatNumber(distributionPlanFor(groupId)?.transfer_required_total || 0)}</strong></span></div>
+        <div class="group-risk-metrics"><span>รับ <strong>${formatNumber(overall?.gross_received || 0)}</strong></span><span>หลังหัก <strong>${formatNumber(overall?.adjusted_received || 0)}</strong></span><span>Point <strong>${formatNumber(overall?.risk_point_total || 0)}</strong></span><span>ควรตัด <strong>${distributionTransferLabel(groupId, "MAIN")}</strong></span></div>
         <details class="group-risk-details"><summary>ดูรายละเอียด</summary><div><span>ยอมขาดทุน <strong>${formatNumber(overall?.point_loss_tolerance || 0)}</strong></span><span>รับได้ <strong>${formatNumber(overall?.risk_budget || 0)}</strong></span><span>Point เกิน <strong>${formatNumber(overall?.excess_point_risk || 0)}</strong></span><span>เสี่ยง <strong>${formatNumber(overall?.risk_pct || 0)}%</strong></span></div></details>
       </div>
     </div>
@@ -651,6 +666,17 @@ function updateBulkDistributionSummary(invalidatePreview = true) {
   const required = ["MAIN","H","L"].reduce((sum, pool) => sum + Number(distributionPlanFor(groupId, pool)?.transfer_required_total || 0), 0);
   const root = $("#bulkDistributionSummary");
   const button = $("#runBulkDistributionButton");
+  const calculationFailed = groupId && groupId !== "ALL"
+    ? anyDistributionPlanCalculationFailed(groupId)
+    : false;
+
+  if (calculationFailed) {
+    root.className = "transfer-selection-bar over";
+    root.innerHTML = `<span>แผนตัดยอด</span><strong>คำนวณไม่สำเร็จ</strong>`;
+    button.disabled = true;
+    if (invalidatePreview) clearTransferPreview();
+    return;
+  }
 
   if (!required) {
     root.className = "transfer-selection-bar";
@@ -676,12 +702,13 @@ function renderAllocationPoolStatus(groupId, pool) {
   const received = Number(stateRow.gross_received || 0);
   if (received <= 0) return "";
   const configured = pool === "MAIN" || stateRow.multiplier_configured !== false;
+  const calculationFailed = plan?.calculation_status === "LIMIT";
   const required = Number(plan?.transfer_required_total || 0);
   const excess = Number(stateRow.excess_point_risk || 0);
-  return `<div class="pool-status-card ${required > 0 ? "active" : ""} ${!configured ? "unconfigured" : ""}">
+  return `<div class="pool-status-card ${required > 0 ? "active" : ""} ${!configured || calculationFailed ? "unconfigured" : ""}">
     <span>${escapeHtml(riskPoolLabel(pool))}</span>
-    <strong>${configured ? formatNumber(required) : "—"}</strong>
-    <small>${!configured ? "ตั้งตัวคูณ Point" : required > 0 ? "ควรตัด" : "ปกติ"}</small>
+    <strong>${calculationFailed ? "—" : configured ? formatNumber(required) : "—"}</strong>
+    <small>${calculationFailed ? "คำนวณไม่สำเร็จ" : !configured ? "ตั้งตัวคูณ Point" : required > 0 ? "ควรตัด" : "ปกติ"}</small>
     <details><summary>รายละเอียด</summary><div><span>รับ ${formatNumber(received)}</span><span>หลังหัก ${formatNumber(stateRow.adjusted_received || 0)}</span><span>Point ${formatNumber(stateRow.risk_point_total || 0)}</span><span>เกิน ${formatNumber(excess)}</span></div></details>
   </div>`;
 }
@@ -693,22 +720,25 @@ function renderOneDigitAllocationCategory(groupId, category) {
   const rows = codeRowsFor(groupId, category);
   const recs = recommendationMapFor(groupId, category);
   const configured = Number(profile?.special_multiplier || 0) > 0;
+  const calculationFailed = plan?.calculation_status === "LIMIT";
   const list = rows.map((row) => {
     const qty = Number(row.order_total || 0);
     const retained = Number(row.retained_quantity ?? row.available_to_cut ?? qty);
     const rec = recs.get(`${category}|${row.code}`);
-    const recommended = Math.min(retained, Number(rec?.recommended_transfer || 0));
+    const recommended = calculationFailed
+      ? 0
+      : Math.min(retained, Number(rec?.recommended_transfer || 0));
     return `<label class="one-digit-code allocation-one-digit-code ${qty === 0 ? "zero" : ""} ${recommended > 0 ? "recommended" : ""}">
       ${recommended > 0 ? `<input class="allocation-code-select" type="checkbox" checked data-pool="${category}" data-category="${category}" data-code="${escapeHtml(row.code)}" />` : `<span class="allocation-code-spacer"></span>`}
       <strong>${category}${escapeHtml(row.code)}</strong>
       <span>${formatNumber(qty)}</span>
-      <small>${recommended > 0 ? `ตัด ${formatNumber(recommended)}` : Number(row.confirmed_cut||0)>0 ? `คง ${formatNumber(retained)}` : ""}</small>
+      <small>${calculationFailed ? "คำนวณไม่สำเร็จ" : recommended > 0 ? `ตัด ${formatNumber(recommended)}` : Number(row.confirmed_cut||0)>0 ? `คง ${formatNumber(retained)}` : ""}</small>
     </label>`;
   }).join("");
   return `<section class="one-digit-category allocation-one-digit-category ${Number(plan?.transfer_required_total || 0)>0 ? "risk-active" : ""}">
     <div class="one-digit-head">
       <div><strong>${category}</strong></div>
-      <div class="one-digit-head-metrics"><span>${configured ? `×${formatNumber(profile?.special_multiplier || 0)}` : "ยังไม่ตั้งตัวคูณ"}</span><span>รับ ${formatNumber(pool?.gross_received || 0)}</span><strong>${configured ? `ตัด ${formatNumber(plan?.transfer_required_total || 0)}` : "ตั้งค่าก่อน"}</strong></div>
+      <div class="one-digit-head-metrics"><span>${configured ? `×${formatNumber(profile?.special_multiplier || 0)}` : "ยังไม่ตั้งตัวคูณ"}</span><span>รับ ${formatNumber(pool?.gross_received || 0)}</span><strong>${calculationFailed ? "คำนวณไม่สำเร็จ" : configured ? `ตัด ${formatNumber(plan?.transfer_required_total || 0)}` : "ตั้งค่าก่อน"}</strong></div>
     </div>
     <div class="one-digit-code-grid">${list}</div>
   </section>`;
@@ -766,7 +796,13 @@ function renderAllocation() {
   const hlBoard = hlHasOrders ? `<div class="allocation-pool-section one-digit-allocation-section"><div class="allocation-pool-heading"><strong>วิ่ง</strong><span>คำนวณความเสี่ยงแยก</span></div><div class="one-digit-board">${["H","L"].map((category)=>renderOneDigitAllocationCategory(groupId,category)).join("")}</div></div>` : "";
 
   board.innerHTML = `<section class="summary-group-board allocation-summary-board">${mainBoard}${hlBoard}</section>`;
-  if (!["MAIN","H","L"].some((pool)=>Number(distributionPlanFor(groupId,pool)?.transfer_required_total||0)>0)) {
+  const failedPools = ["MAIN","H","L"].filter((pool)=>distributionPlanCalculationFailed(groupId,pool));
+  if (failedPools.length) {
+    board.insertAdjacentHTML(
+      "afterbegin",
+      `<div class="risk-notice">คำนวณแผนตัดยอดไม่สำเร็จสำหรับ ${failedPools.map(riskPoolLabel).join(" / ")} · ยังไม่ควรตัดยอดจนกว่าจะคำนวณใหม่ได้</div>`
+    );
+  } else if (!["MAIN","H","L"].some((pool)=>Number(distributionPlanFor(groupId,pool)?.transfer_required_total||0)>0)) {
     board.insertAdjacentHTML("afterbegin", `<div class="risk-notice">ยังไม่ต้องตัดยอด</div>`);
   }
   $$(".allocation-code-select").forEach((input) => input.addEventListener("change", () => updateBulkDistributionSummary(true)));
@@ -776,6 +812,9 @@ function renderAllocation() {
 async function runBulkDistribution() {
   if (state.dashboardStale) return toast("ข้อมูลเปลี่ยน กรุณาอัปเดต", true);
   const groupId = summaryGroupSelect.value;
+  if (groupId && groupId !== "ALL" && anyDistributionPlanCalculationFailed(groupId)) {
+    return toast("แผนตัดยอดคำนวณไม่สำเร็จ กรุณายังไม่ตัดยอด", true);
+  }
   const selectedCodes = selectedRecommendedCodes();
   const destinations = selectedWarehouseNames();
   if (!groupId || groupId === "ALL") return toast("กรุณาเลือกกลุ่มสรุป", true);
