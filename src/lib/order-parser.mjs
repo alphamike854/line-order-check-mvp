@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * LINE Order Parser v1.5.0
+ * LINE Order Parser v1.6.0
  * Pure JavaScript, no external dependencies.
  *
  * Design goals:
@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.5.3";
+const PARSER_VERSION = "1.6.0";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -80,6 +80,507 @@ function normalizeText(text) {
     .replace(/[ \t]+/g, " ")
     .replace(/ *\n */g, "\n")
     .trim();
+}
+
+function isStandaloneDateMetadataLine(line) {
+  const raw = String(line || "").trim();
+  if (!raw) return false;
+
+  // Full D/M/YY or D-M-YY metadata, optionally surrounded by names/emoji.
+  // Two-part slash syntax such as 07/70 is deliberately NOT a date.
+  return /^(?:[^\d\n]*\s*)?(?:0?[1-9]|[12]\d|3[01])([/-])(?:0?[1-9]|1[0-2])\1(?:\d{2}|\d{4})(?:\s*[^\d\n]*)?$/u.test(raw);
+}
+
+function isSafeTwoDigitCodeListLine(line) {
+  const raw = String(line || "").trim();
+  if (!raw || isStandaloneDateMetadataLine(raw)) return false;
+
+  const parts = raw.split(/[\s,-]+/u).filter(Boolean);
+  if (!parts.length || parts.some((part) => !/^\d{2}$/.test(part))) {
+    return false;
+  }
+
+  const residue = raw
+    .replace(/\d{2}/g, "")
+    .replace(/[\s,-]/g, "");
+
+  return !residue;
+}
+
+function normalizeSafeReviewGrammar(text) {
+  const lines = String(text || "").split("\n");
+  const out = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const rawLine = lines[i];
+    const line = String(rawLine || "").trim();
+
+    if (!line) {
+      out.push("");
+      continue;
+    }
+
+    // Gold Review grammar:
+    //
+    // บล 5000x5000
+    // 05-50 38-83
+    // 56-65
+    //
+    // becomes:
+    //
+    // บล
+    // 05-50 38-83
+    // 56-65
+    // =5000x5000
+    //
+    // Keep this narrow: an explicit combined A/B context and a PAIR
+    // quantity are required before moving quantity across the code block.
+    const prefixQuantity = line.match(
+      /^((?:บลก|บล|ล-บ|บ-ล|บน-ล่าง|ล่าง-บน))\s+(\d+\s*[xX*]\s*\d+)$/u
+    );
+
+    if (prefixQuantity) {
+      const codeLines = [];
+      let j = i + 1;
+
+      while (j < lines.length) {
+        const candidate = String(lines[j] || "").trim();
+
+        if (
+          !candidate ||
+          !isSafeTwoDigitCodeListLine(candidate)
+        ) {
+          break;
+        }
+
+        codeLines.push(candidate);
+        j++;
+      }
+
+      if (codeLines.length) {
+        out.push(prefixQuantity[1]);
+        out.push(...codeLines);
+        out.push(`=${prefixQuantity[2]}`);
+        i = j - 1;
+        continue;
+      }
+    }
+
+    // Gold Review grammar:
+    //
+    // 16
+    // 39
+    // -500 บลก
+    //
+    // => =500 บลก
+    //
+    // Require prior 2-digit codes plus an explicit known modifier.
+    const leadingDashQuantity = line.match(
+      /^-\s*(\d+(?:\s*[xX*\/]\s*\d+)?)(\s+(?:บลก|บล))$/u
+    );
+
+    if (
+      leadingDashQuantity &&
+      out.length &&
+      isSafeTwoDigitCodeListLine(out[out.length - 1])
+    ) {
+      out.push(
+        `=${leadingDashQuantity[1]}${leadingDashQuantity[2]}`
+      );
+      continue;
+    }
+
+    // Gold Review grammar:
+    //
+    // 31-300 บลก
+    // 40 16 93 91-500 บลก
+    //
+    // => '=' assignment.
+    //
+    // Deliberately require:
+    // - only 2-digit codes on the left
+    // - quantity >= 3 digits (or a pair beginning with >=3 digits)
+    // - explicit บล/บลก modifier
+    //
+    // Therefore ambiguous code lists such as 05-50 stay untouched.
+    const inlineDashAssignment = line.match(
+      /^((?:\d{2})(?:[\s,/:]+\d{2})*)\s*-\s*(\d{3,}(?:\s*[xX*\/]\s*\d+)?)(\s+(?:บลก|บล))$/u
+    );
+
+    if (inlineDashAssignment) {
+      out.push(
+        `${inlineDashAssignment[1]}=${inlineDashAssignment[2]}${inlineDashAssignment[3]}`
+      );
+      continue;
+    }
+
+    out.push(rawLine);
+  }
+
+  return out.join("\n");
+}
+
+function normalizeCombinedTwoDigitDirection(text) {
+  const raw = String(text || "").trim();
+
+  if (
+    /^(?:บน\s*[-/*+]\s*ล่าง|ล่าง\s*[-/*+]\s*บน|บ\s*[-/*+]\s*ล|ล\s*[-/*+]\s*บ)$/u.test(raw)
+  ) {
+    return "บนล่าง";
+  }
+
+  return raw;
+}
+
+function extractSafeTwoDigitCodeList(line) {
+  const raw = String(line || "").trim();
+
+  if (
+    !raw ||
+    isStandaloneDateMetadataLine(raw)
+  ) {
+    return null;
+  }
+
+  const parts = raw
+    .split(/[\s,-]+/u)
+    .filter(Boolean);
+
+  if (
+    !parts.length ||
+    parts.some((part) => !/^\d{2}$/.test(part))
+  ) {
+    return null;
+  }
+
+  const residue = raw
+    .replace(/\d{2}/g, "")
+    .replace(/[\s,-]/g, "");
+
+  return residue ? null : parts;
+}
+
+function parseSafeCollectiveQuantityLine(line) {
+  const raw = String(line || "").trim();
+
+  let m = raw.match(
+    /^(?:ตัวละ|ทุกตัว(?:ละ)?)\s*(\d+(?:\s*[xX*\/]\s*\d+)?)(?:\s+(.+))?$/u
+  );
+
+  if (!m) return null;
+
+  let direction = null;
+
+  if (m[2]) {
+    const normalizedDirection =
+      normalizeCombinedTwoDigitDirection(m[2]);
+
+    if (
+      normalizedDirection === "บนล่าง" ||
+      normalizedDirection === "บล" ||
+      normalizedDirection === "บลก"
+    ) {
+      direction = normalizedDirection;
+    } else {
+      return null;
+    }
+  }
+
+  return {
+    quantity: m[1],
+    direction,
+  };
+}
+
+function normalizeCollectiveReviewGrammar(text) {
+  const lines = String(text || "").split("\n");
+  const out = [];
+
+  const directionHeader = (line) => {
+    const normalized =
+      normalizeCombinedTwoDigitDirection(line);
+
+    if (normalized === "บนล่าง") return "บนล่าง";
+    if (/^(?:บน|บ)$/u.test(normalized)) return "บน";
+    if (/^(?:ล่าง|ล)$/u.test(normalized)) return "ล่าง";
+
+    return null;
+  };
+
+  const emitDirectionalBlocks = (blockLines, quantity) => {
+    const blocks = [];
+    let current = null;
+
+    for (const raw of blockLines) {
+      const header = directionHeader(raw);
+
+      if (header) {
+        current = {
+          header,
+          codes: [],
+        };
+        blocks.push(current);
+        continue;
+      }
+
+      const codes = extractSafeTwoDigitCodeList(raw);
+
+      if (
+        !current ||
+        !codes
+      ) {
+        return null;
+      }
+
+      current.codes.push(...codes);
+    }
+
+    if (
+      !blocks.length ||
+      blocks.some((block) => !block.codes.length)
+    ) {
+      return null;
+    }
+
+    return blocks.flatMap((block) => [
+      block.header,
+      `${block.codes.join(" ")}=${quantity}`,
+    ]);
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const original = lines[i];
+    let line = String(original || "").trim();
+
+    if (!line) {
+      out.push("");
+      continue;
+    }
+
+    // --------------------------------------------------------
+    // Exact combined-direction aliases:
+    // บ/ล, บ*ล, บ-ล, บ+ล, บน*ล่าง, บน-ล่าง, ...
+    // --------------------------------------------------------
+    const normalizedDirection =
+      normalizeCombinedTwoDigitDirection(line);
+
+    if (
+      normalizedDirection === "บนล่าง" &&
+      normalizedDirection !== line
+    ) {
+      out.push("บนล่าง");
+      continue;
+    }
+
+    // --------------------------------------------------------
+    // Prefix collective form:
+    //
+    // บน-ล่าง ตัวละ 30
+    // 44
+    // 35
+    // 53
+    //
+    // => บนล่าง
+    //    44 35 53=30
+    // --------------------------------------------------------
+    const prefixCollective = line.match(
+      /^(.+?)\s+(?:ตัวละ|ทุกตัว(?:ละ)?)\s*(\d+(?:\s*[xX*\/]\s*\d+)?)$/u
+    );
+
+    if (prefixCollective) {
+      const header =
+        normalizeCombinedTwoDigitDirection(
+          prefixCollective[1]
+        );
+
+      if (
+        header === "บนล่าง" ||
+        header === "บล" ||
+        header === "บลก"
+      ) {
+        const codes = [];
+        let j = i + 1;
+
+        while (j < lines.length) {
+          const found =
+            extractSafeTwoDigitCodeList(lines[j]);
+
+          if (!found) break;
+
+          codes.push(...found);
+          j++;
+        }
+
+        if (codes.length) {
+          out.push(
+            header === "บนล่าง"
+              ? "บนล่าง"
+              : header
+          );
+          out.push(
+            `${codes.join(" ")}=${prefixCollective[2]}`
+          );
+          i = j - 1;
+          continue;
+        }
+      }
+    }
+
+    // --------------------------------------------------------
+    // Suffix collective:
+    //
+    // 23
+    // 32
+    // 38
+    // 83
+    // ตัวละ 500 บนล่าง
+    // --------------------------------------------------------
+    const collective =
+      parseSafeCollectiveQuantityLine(line);
+
+    if (collective) {
+      if (collective.direction) {
+        const codes = [];
+
+        while (out.length) {
+          const candidate =
+            String(out[out.length - 1] || "").trim();
+
+          const found =
+            extractSafeTwoDigitCodeList(candidate);
+
+          if (!found) break;
+
+          codes.unshift(...found);
+          out.pop();
+        }
+
+        if (codes.length) {
+          out.push(
+            collective.direction === "บนล่าง"
+              ? "บนล่าง"
+              : collective.direction
+          );
+          out.push(
+            `${codes.join(" ")}=${collective.quantity}`
+          );
+          continue;
+        }
+      }
+
+      // ------------------------------------------------------
+      // Explicit directional blocks closed by one final
+      // "ตัวละ":
+      //
+      // บน
+      // 19
+      // 91
+      // ล่าง
+      // 19
+      // 91
+      // ตัวละ50
+      // ------------------------------------------------------
+      if (!collective.direction) {
+        // Ignore blank separators immediately before "ตัวละ".
+        // Real LINE messages commonly separate the order block from
+        // its final collective quantity with one or more blank lines.
+        let end = out.length;
+
+        while (
+          end > 0 &&
+          !String(out[end - 1] || "").trim()
+        ) {
+          end--;
+        }
+
+        let start = end;
+
+        while (start > 0) {
+          const candidate =
+            String(out[start - 1] || "").trim();
+
+          if (
+            directionHeader(candidate) ||
+            extractSafeTwoDigitCodeList(candidate)
+          ) {
+            start--;
+            continue;
+          }
+
+          break;
+        }
+
+        const candidateBlock =
+          out.slice(start, end);
+
+        const normalizedBlocks =
+          emitDirectionalBlocks(
+            candidateBlock,
+            collective.quantity
+          );
+
+        if (normalizedBlocks) {
+          out.splice(
+            start,
+            out.length - start,
+            ...normalizedBlocks
+          );
+          continue;
+        }
+      }
+    }
+
+    out.push(original);
+  }
+
+  return out.join("\n");
+}
+
+function isSafeChatMetadataLine(line) {
+  const raw = String(line || "").trim();
+
+  if (!raw) return true;
+
+  // Never classify lines containing known order operators/context as
+  // metadata merely because they also contain currency.
+  if (
+    /(?:รูด|เบิ้ล|บน|ล่าง|บลก?|โต๊ด|โต้ด|ตรง|กลับ|ประตู|ปะตู|วิ่ง)/u.test(raw)
+  ) {
+    return false;
+  }
+
+  // Bare monetary total:
+  // 310฿
+  // 1400 บาท
+  // 200.-
+  // (280.)
+  if (
+    /^\(?\s*[\d,]+(?:\.\d+)?\s*(?:฿|บาท|\.-|\.)\s*\)?(?:\s*[🇱🇦]*)?$/u.test(raw)
+  ) {
+    return true;
+  }
+
+  // Name + monetary total:
+  // นุ้ย 80.-🇱🇦
+  // อีฟQC 320฿
+  // พี่อีฟเบญ🇱🇦120฿
+  if (
+    /^(?=.*[\p{L}])[^=]*[\d,]+(?:\.\d+)?\s*(?:฿|บาท|\.-)(?:\s*[🇱🇦]*)?$/u.test(raw)
+  ) {
+    return true;
+  }
+
+  // Explicit operational totals:
+  // ยอด20
+  // รวม 90
+  // รวม 400฿ พี่เมล์
+  if (
+    /^(?:ยอด|รวม)\s*[\d,]+(?:\.\d+)?(?:\s*(?:฿|บาท|\.-))?(?:\s+.*)?$/u.test(raw)
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 function stripPoliteWords(text) {
@@ -398,6 +899,8 @@ function extractTwoDigitCodes(text) {
 function isMetadataLine(line) {
   const t = line.trim();
   if (!t) return true;
+  if (isStandaloneDateMetadataLine(t)) return true;
+
   // Name/date metadata, e.g. แป้ง 21-8-69 / ลาว 26/8/69.
   // Validate a plausible day/month so ordinary slash-separated order syntax
   // is not silently treated as metadata.
@@ -1007,7 +1510,10 @@ function parseTwoDigitSegment(segment, cfg, acc, rules, warnings, errors) {
     let line = lines[i];
     const isLast = i === lines.length - 1;
 
-    if (isMetadataLine(line)) continue;
+    if (
+      isMetadataLine(line) ||
+      isSafeChatMetadataLine(line)
+    ) continue;
 
     // Skip checksum line here; checksum handled at higher level.
     if (/^รวม\s+[A-Zก-๙]+\s+\d+$/iu.test(line)) continue;
@@ -1258,7 +1764,15 @@ function isNonOrderSummaryLine(line) {
 
   // Clearly aggregate/reporting text sent back into the LINE group.
   // This must be narrow: never ignore merely because a line contains "รวม".
-  if (/^รวม\s+[23]\s*ตัว(?:ตรง|โต๊ด|บน|ล่าง)\s+[\d,]+(?:\.\d+)?$/iu.test(text)) {
+  if (
+    /^รวม\s+[23]\s*ตัว(?:ตรง|โต๊ด|บน|ล่าง)(?:\s+[\d,]+(?:\.\d+)?)?$/iu.test(text)
+  ) {
+    return true;
+  }
+
+  if (
+    /^(?:ยอด|รวม)\s*[\d,]+(?:\.\d+)?(?:\s*(?:฿|บาท|\.-))?(?:\s+.*)?$/iu.test(text)
+  ) {
     return true;
   }
 
@@ -1268,6 +1782,9 @@ function isNonOrderSummaryLine(line) {
 function parseOrder(inputText, config = {}) {
   const cfg = mergeConfig(config);
   const normalized = normalizeText(inputText);
+  const parserText = normalizeCollectiveReviewGrammar(
+    normalizeSafeReviewGrammar(normalized)
+  );
   const acc = makeAccumulator();
   const rules = new Set();
   const warnings = [];
@@ -1288,7 +1805,7 @@ function parseOrder(inputText, config = {}) {
   }
 
   // Slash surrounded by spaces = order-group separator.
-  const segments = normalized.split(/\s+\/\s+/);
+  const segments = parserText.split(/\s+\/\s+/);
 
   for (const segmentRaw of segments) {
     const segment = segmentRaw.trim();
@@ -1331,7 +1848,10 @@ function parseOrder(inputText, config = {}) {
         continue;
       }
 
-      if (isMetadataLine(line)) continue;
+      if (
+      isMetadataLine(line) ||
+      isSafeChatMetadataLine(line)
+    ) continue;
       if (isNonOrderSummaryLine(line)) continue;
 
       if (parseOneDigitLine(line, cfg, acc, rules)) {
