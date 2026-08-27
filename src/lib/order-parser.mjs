@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.5.0";
+const PARSER_VERSION = "1.5.1";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -430,6 +430,15 @@ function isThreeDigitPermuteMarker(text, cfg) {
   // means "กลับทุกตำแหน่ง" / permutation. This is context-specific;
   // the same alias remains the 2-digit reverse modifier elsewhere.
   return resolveAlias(raw, cfg) === "C" || normalizeLatin(raw) === "C";
+}
+
+function splitTwoDigitCodeList(line) {
+  const raw = String(line || "").trim();
+  if (!raw) return null;
+  const parts = raw.split(/[\s,/:.]+/u).filter(Boolean);
+  if (!parts.length || parts.some((part) => !/^\d{2}$/.test(part))) return null;
+  const residue = raw.replace(/\d{2}/g, "").replace(/[\s,/:.]/g, "");
+  return residue ? null : parts;
 }
 
 function splitThreeDigitCodeList(line) {
@@ -1092,6 +1101,59 @@ function parseTwoDigitSegment(segment, cfg, acc, rules, warnings, errors) {
     let working = removeModifierToken(directionalLine, inline);
     if (contextual.direction) rules.add(`R_2DIGIT_CONTEXT_${contextual.direction}`);
 
+    // Real-chat colon shorthand:
+    // 10\n01\n33:200:200 => A/B 10,01,33 = 200/200
+    // บน\n06:200        => A06 = 200
+    // ล่าง\n60:200      => B60 = 200
+    const colonPair = working.match(/^(\d{2})\s*:\s*(\d+)\s*:\s*(\d+)$/u);
+    if (colonPair) {
+      pendingCodes.push(colonPair[1]);
+      const inherited = localModifier || contextModifier;
+      emitTwoDigitGroup(
+        acc,
+        pendingCodes,
+        {
+          type: "PAIR",
+          first: Number(colonPair[2]),
+          second: Number(colonPair[3]),
+          delimiter: ":"
+        },
+        {
+          categories: ["A", "B"],
+          reverse: Boolean(inherited?.reverse)
+        }
+      );
+      pendingCodes = [];
+      rules.add("R_COLON_QUANTITY_PAIR");
+      if (inherited?.reverse) rules.add("R_REVERSE");
+      continue;
+    }
+
+    const colonSingle = working.match(/^(\d{2})\s*:\s*(\d+)$/u);
+    if (colonSingle) {
+      pendingCodes.push(colonSingle[1]);
+      const modifier =
+        localModifier ||
+        contextModifier ||
+        { categories: [cfg.defaultCategoryByCodeLength[2] || "A"], reverse: false };
+
+      emitTwoDigitGroup(
+        acc,
+        pendingCodes,
+        {
+          type: "SINGLE",
+          first: Number(colonSingle[2]),
+          second: null,
+          delimiter: ":"
+        },
+        modifier
+      );
+      pendingCodes = [];
+      rules.add("R_COLON_SINGLE_QUANTITY");
+      if (modifier.reverse) rules.add("R_REVERSE");
+      continue;
+    }
+
     // Handle attached A01/B01.
     if (inline && inline.attached) {
       // removeModifierToken already removes the leading letter
@@ -1180,6 +1242,10 @@ function isNonOrderSummaryLine(line) {
 
   // Clearly aggregate/reporting text sent back into the LINE group.
   // This must be narrow: never ignore merely because a line contains "รวม".
+  if (/^รวม\s+[23]\s*ตัว(?:ตรง|โต๊ด|บน|ล่าง)\s+[\d,]+(?:\.\d+)?$/iu.test(text)) {
+    return true;
+  }
+
   return /^(?:สรุป(?:ยอด)?|ยอดรวม|รวมยอด|ยอดวันนี้|ยอดปัจจุบัน|รวมตรง|รวมวิ่ง|รวมทั้งหมด)(?:\s|[:|]|$)/iu.test(text);
 }
 
@@ -1212,7 +1278,26 @@ function parseOrder(inputText, config = {}) {
     const segment = segmentRaw.trim();
     if (!segment) continue;
 
-    const lines = coalesceThreeDigitLines(segment.split("\n"));
+    const rawLines = segment.split("\n");
+
+    // A slash pair such as 500/500 is normally a valid 3-digit code list.
+    // But immediately after a pure 2-digit code list it is an A/B quantity pair:
+    // 07/70
+    // 500/500
+    const preserveTwoDigitSlashPair = rawLines.some((rawLine, index) => {
+      if (index < 1) return false;
+
+      const current = stripPoliteWords(String(rawLine || "").trim());
+      if (!/^\d+\s*\/\s*\d+$/.test(current)) return false;
+
+      const previous = stripPoliteWords(String(rawLines[index - 1] || "").trim());
+      return Boolean(splitTwoDigitCodeList(previous));
+    });
+
+    const lines = preserveTwoDigitSlashPair
+      ? rawLines
+      : coalesceThreeDigitLines(rawLines);
+
     const remaining = [];
     let threeDigitConsumed = false;
 
