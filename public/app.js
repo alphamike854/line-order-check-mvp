@@ -94,6 +94,7 @@ function buildDailyReportCsv(payload) {
   const lines = [headers.map(reportCsvCell).join(",")];
   const session = payload?.session || {};
   const finalReady = Boolean(payload?.actual_point_status?.actual_codes_ready);
+  const pointSpecified = Boolean((payload?.actual_special_codes || []).length);
   for (const group of payload?.groups || []) {
     for (const row of group.ledger || []) {
       const values = [
@@ -119,7 +120,7 @@ function buildDailyReportCsv(payload) {
       group.received_total ?? 0,
       group.reduction_pct ?? 0,
       group.after_reduction ?? 0,
-      finalReady ? (group.special_point_total ?? 0) : "รอระบุ",
+      pointSpecified ? (group.special_point_total ?? 0) : "รอระบุ",
       finalReady ? (group.reconciliation_total ?? 0) : "",
       "",
     ];
@@ -1372,12 +1373,14 @@ function renderReport(payload) {
   if(!payload.session){root.innerHTML=`<div class="empty">ยังไม่มีชุดยอดสำหรับรายงาน</div>`;return;}
   if(!payload.groups.length){root.innerHTML=`<div class="empty">ยังไม่มีข้อมูลในชุดยอดนี้</div>`;return;}
   const finalReady=Boolean(payload.actual_point_status?.actual_codes_ready);
-  const pointActionLabel=finalReady?"แก้ไข Point":"ระบุ Point";
-  const pointNotice=`<div class="report-point-state ${finalReady?"ready":"pending"}"><span><strong>${finalReady?"Point ครบ":"รอ Point"}</strong>${payload.session.status==="CLOSED"&&!finalReady?" · ปิดยอดแล้ว ระบุภายหลังได้":""}</span><button class="button ghost small edit-report-points" data-session-id="${escapeHtml(payload.session.id)}">${pointActionLabel}</button></div>`;
+  const pointSpecified=Boolean((payload.actual_special_codes||[]).length);
+  const pointActionLabel=pointSpecified?"แก้ไข Point":"ระบุ Point";
+  const pointStateLabel=finalReady?"Point ครบ":pointSpecified?"Point ระบุแล้ว · ยังไม่ครบ":"รอ Point";
+  const pointNotice=`<div class="report-point-state ${finalReady?"ready":"pending"}"><span><strong>${pointStateLabel}</strong>${payload.session.status==="CLOSED"&&!finalReady?" · ปิดยอดแล้ว ระบุ/แก้ไขภายหลังได้":""}</span><button class="button ghost small edit-report-points" data-session-id="${escapeHtml(payload.session.id)}">${pointActionLabel}</button></div>`;
   root.innerHTML=`<div class="report-session-heading"><strong>รายงานประจำวัน ${escapeHtml(formatThaiDate(payload.session.business_date))}</strong><span>${payload.session.status === "OPEN" ? "ยอดปัจจุบัน" : `ปิด ${escapeHtml(formatBangkokTime(payload.session.closed_at))}`}</span></div>${pointNotice}` + payload.groups.map(g=>`<section class="report-card">
     <div class="report-title"><div><h3>${escapeHtml(g.line_group_name)}</h3><span>${escapeHtml(groupName(g.summary_group_id))}</span></div><span>${formatNumber(g.message_count)} ข้อความ</span></div>
-    <div class="report-metrics"><div><span>ยอดรับจริง</span><strong>${formatNumber(g.received_total)}</strong></div><div><span>ลด</span><strong>${formatNumber(g.reduction_pct)}%</strong></div><div><span>ยอดหลังลด</span><strong>${formatNumber(g.after_reduction)}</strong></div><div><span>Point พิเศษ</span><strong>${finalReady?formatNumber(g.special_point_total):"รอระบุ"}</strong></div><div class="net"><span>ยอดสุทธิเทียบ</span><strong>${finalReady?formatNumber(g.reconciliation_total):"—"}</strong></div></div>
-    <div class="special-summary"><h4>Point พิเศษ</h4>${g.special_point_codes.length?`<div class="table-wrap"><table><thead><tr><th>รหัส</th><th class="num">จำนวนรวม</th><th class="num">ตัวคูณ</th><th class="num">Point</th></tr></thead><tbody>${g.special_point_codes.map(x=>`<tr><td><strong>${escapeHtml(x.category)}${escapeHtml(x.code)}</strong></td><td class="num">${formatNumber(x.quantity)}</td><td class="num">×${formatNumber(x.multiplier)}</td><td class="num">${formatNumber(x.points)}</td></tr>`).join("")}</tbody></table></div>`:`<div class="muted">${finalReady?"ไม่มี Point พิเศษ":"รอระบุ"}</div>`}</div>
+    <div class="report-metrics"><div><span>ยอดรับจริง</span><strong>${formatNumber(g.received_total)}</strong></div><div><span>ลด</span><strong>${formatNumber(g.reduction_pct)}%</strong></div><div><span>ยอดหลังลด</span><strong>${formatNumber(g.after_reduction)}</strong></div><div><span>Point พิเศษ</span><strong>${pointSpecified?formatNumber(g.special_point_total):"รอระบุ"}</strong></div><div class="net"><span>ยอดสุทธิเทียบ</span><strong>${finalReady?formatNumber(g.reconciliation_total):"—"}</strong></div></div>
+    <div class="special-summary"><h4>Point พิเศษ</h4>${g.special_point_codes.length?`<div class="table-wrap"><table><thead><tr><th>รหัส</th><th class="num">จำนวนรวม</th><th class="num">ตัวคูณ</th><th class="num">Point</th></tr></thead><tbody>${g.special_point_codes.map(x=>`<tr><td><strong>${escapeHtml(x.category)}${escapeHtml(x.code)}</strong></td><td class="num">${formatNumber(x.quantity)}</td><td class="num">×${formatNumber(x.multiplier)}</td><td class="num">${formatNumber(x.points)}</td></tr>`).join("")}</tbody></table></div>`:`<div class="muted">${pointSpecified?"ยังไม่มียอดตรงรหัส Point ที่ระบุ":"รอระบุ"}</div>`}</div>
     <div class="table-wrap"><table><thead><tr><th>ลำดับ</th><th>เวลา</th><th>รหัสแรก</th><th class="num">สรุปจำนวน</th><th>Point พิเศษ</th></tr></thead><tbody>${g.ledger.map(row=>`<tr><td>${String(row.sequence).padStart(3,"0")}</td><td>${escapeHtml(new Intl.DateTimeFormat("th-TH",{timeZone:"Asia/Bangkok",hour:"2-digit",minute:"2-digit",second:"2-digit"}).format(new Date(row.event_timestamp)))}</td><td class="report-first-code"><strong>${escapeHtml(row.first_code||"-")}</strong></td><td class="num"><strong>${formatNumber(row.summary_quantity)}</strong></td><td>${row.special_points.length?`★ ${row.special_points.map(x=>`${escapeHtml(x.category)}${escapeHtml(x.code)}=${formatNumber(x.quantity)} ×${formatNumber(x.multiplier)}`).join(", ")}`:""}</td></tr>`).join("")}</tbody><tfoot><tr><th colspan="3">รวม</th><th class="num">${formatNumber(g.received_total)}</th><th></th></tr></tfoot></table></div>
   </section>`).join("");
   $$(".edit-report-points").forEach(button=>button.addEventListener("click",()=>editReportPoints(button.dataset.sessionId)));

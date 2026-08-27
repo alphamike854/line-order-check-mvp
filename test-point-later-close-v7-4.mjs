@@ -31,7 +31,10 @@ assert.ok(
   "close confirmation should be one-click and explain Point can follow later",
 );
 assert.ok(!app.includes('กำหนด Point ให้ครบก่อนปิดยอด'), "UI must not block close on Point readiness");
-assert.ok(app.includes('finalReady?formatNumber(g.special_point_total):"รอระบุ"'), "pending report must not display Point zero as final");
+assert.ok(
+  app.includes('pointSpecified?formatNumber(g.special_point_total):"รอระบุ"'),
+  "saved Point should be visible even before all Point codes are complete",
+);
 assert.ok(app.includes('finalReady?formatNumber(g.reconciliation_total):"—"'), "pending report must not display a misleading final reconciliation total");
 assert.ok(app.includes('edit-report-points'), "closed report should expose a Point action");
 assert.ok(app.includes('settlement_session_id:sessionId'), "Point save must target the selected settlement explicitly");
