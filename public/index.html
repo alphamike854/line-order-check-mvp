@@ -28,7 +28,7 @@
       <header class="topbar">
         <div>
           <p class="eyebrow">LINE ORDER CHECK</p>
-          <h1>สรุปออเดอร์ชุดปัจจุบัน</h1>
+          <h1>ศูนย์ควบคุมออเดอร์</h1>
           <p id="freshness" class="muted">กำลังโหลดข้อมูล...</p>
         </div>
         <div class="top-actions">
@@ -36,7 +36,7 @@
         </div>
       </header>
 
-      <section id="settlementPanel" class="settlement-panel panel">
+      <section id="settlementPanel" class="settlement-panel panel operational-status-panel">
         <div>
           <div class="eyebrow">ยอดปัจจุบัน</div>
           <strong id="settlementStatus">กำลังตรวจสถานะ...</strong>
@@ -61,7 +61,7 @@
         </div>
       </section>
 
-      <section class="filters panel">
+      <section class="filters panel operational-filters">
         <label>
           วันที่อ้างอิง
           <input id="businessDate" type="date" />
@@ -85,15 +85,18 @@
 
       <section id="metrics" class="metrics"></section>
 
-      <nav class="tabs" aria-label="Dashboard sections">
-        <button class="tab active" data-tab="summary">สรุปยอด</button>
-        <button class="tab" data-tab="allocation">ตัดยอด</button>
-        <button class="tab" data-tab="postcut">หลังตัดยอด</button>
-        <button class="tab" data-tab="points">Point พิเศษ</button>
-        <button class="tab" data-tab="report">รายงานประจำวัน</button>
-        <button class="tab" data-tab="review">ตรวจรายการ <span id="reviewBadge" class="badge">0</span></button>
-        <button class="tab" data-tab="unsend">Unsend <span id="unsendBadge" class="badge">0</span></button>
-        <button class="tab" data-tab="settings">ตั้งค่า</button>
+      <nav class="tabs operational-tabs" aria-label="Dashboard sections">
+        <button class="tab active primary-tab" data-tab="summary">ภาพรวม</button>
+        <button class="tab primary-tab" data-tab="allocation">ตัดยอด</button>
+        <button class="tab primary-tab" data-tab="review">ตรวจรายการ <span id="reviewBadge" class="badge">0</span></button>
+        <button class="tab primary-tab" data-tab="report">รายงาน</button>
+
+        <span class="tab-spacer" aria-hidden="true"></span>
+
+        <button class="tab secondary-tab" data-tab="postcut">หลังตัดยอด</button>
+        <button class="tab secondary-tab" data-tab="points">Point พิเศษ</button>
+        <button class="tab secondary-tab" data-tab="unsend">Unsend <span id="unsendBadge" class="badge">0</span></button>
+        <button class="tab secondary-tab" data-tab="settings">ตั้งค่า</button>
       </nav>
 
       <section id="summaryTab" class="tab-panel panel">
@@ -101,41 +104,100 @@
         <div id="summaryBoard" class="order-board"></div>
       </section>
 
-      <section id="allocationTab" class="tab-panel panel hidden">
-        <div class="section-heading allocation-title">
-          <div><h2>ตัดยอด</h2><p class="muted">เลือกรหัสได้หลายตัว ระบบแบ่งรอบให้เอง</p></div>
+      <section id="allocationTab" class="tab-panel panel hidden operational-panel">
+        <div class="section-heading allocation-title operational-section-heading">
+          <div>
+            <p class="section-kicker">OPERATION</p>
+            <h2>ตัดยอด</h2>
+            <p class="muted">เลือกรหัสได้หลายตัว ระบบแบ่งรอบให้เอง · เลือก LINE Group → ตรวจยอดที่แนะนำ → เลือกคลัง → ยืนยัน</p>
+          </div>
+
+          <div class="allocation-flow">
+            <span><b>1</b> LINE Group</span>
+            <span><b>2</b> รหัส</span>
+            <span><b>3</b> คลัง</span>
+            <span><b>4</b> ยืนยัน</span>
+          </div>
         </div>
+
         <div id="allocationRiskSummary" class="risk-summary"></div>
-        <section id="bulkDistributionControls" class="bulk-distribution-controls">
-          <div class="bulk-control-head">
-              <div>
-                <h3>LINE Group</h3>
-                <p class="muted">คำนวณและตัดยอดแยกแต่ละ LINE Group</p>
-              </div>
+
+        <div class="allocation-workspace">
+          <aside id="bulkDistributionControls" class="bulk-distribution-controls allocation-control-panel">
+            <section class="allocation-control-block">
+              <div class="control-label">LINE Group</div>
+              <p class="muted small-text">ความเสี่ยงและยอดตัดคำนวณแยกแต่ละกลุ่ม</p>
+
               <select id="allocationLineGroupSelect">
                 <option value="">เลือก LINE Group</option>
               </select>
+            </section>
+
+            <div class="control-divider"></div>
+
+            <section class="allocation-control-block">
+              <div class="control-row">
+                <div>
+                  <div class="control-label">รหัสที่จะตัด</div>
+                  <p class="muted small-text">ระบบเลือกยอดที่แนะนำไว้ให้</p>
+                </div>
+
+                <div class="bulk-actions">
+                  <button id="selectAllRecommendedButton" class="button ghost small" type="button">เลือกที่แนะนำ</button>
+                  <button id="clearRecommendedButton" class="button ghost small" type="button">ล้าง</button>
+                </div>
+              </div>
+            </section>
+
+            <div class="control-divider"></div>
+
+            <section class="allocation-control-block">
+              <div class="control-label">คลังปลายทาง</div>
+              <p class="muted small-text">เลือกได้หลายคลัง ระบบแบ่งรอบให้อัตโนมัติ</p>
+
+              <div id="warehouseChoices" class="warehouse-choices"></div>
+            </section>
+
+            <div id="bulkDistributionSummary" class="transfer-selection-bar">
+              ยังไม่มีรายการที่ต้องตัด
             </div>
-            <div class="bulk-control-head">
-            <div><h3>คลังปลายทาง</h3><p class="muted">เลือกได้หลายคลัง</p></div>
-            <div class="bulk-actions">
-              <button id="selectAllRecommendedButton" class="button ghost small" type="button">เลือกที่แนะนำ</button>
-              <button id="clearRecommendedButton" class="button ghost small" type="button">ล้างที่เลือก</button>
+
+            <div class="allocation-submit">
+              <button id="runBulkDistributionButton" class="button primary" type="button">
+                ตรวจและตัดยอดที่เลือก
+              </button>
             </div>
+
+            <div id="transferPreview" class="transfer-preview"></div>
+          </aside>
+
+          <section class="allocation-main">
+            <div class="allocation-board-heading">
+              <div>
+                <h3>รายการรหัส</h3>
+                <p class="muted">แสดงยอดรับ · ตัดแล้ว · คงเหลือ · Limit · ยอดที่ต้องตัดเพิ่ม</p>
+              </div>
+            </div>
+
+            <div id="allocationBoard" class="allocation-board allocation-order-board"></div>
+          </section>
+        </div>
+
+        <section class="allocation-history-section">
+          <div class="section-heading subheading history-section-heading">
+            <div>
+              <p class="section-kicker">HISTORY</p>
+              <h3>รายการที่ตัดแล้ว</h3>
+              <p class="muted">ตรวจสอบ LINE Group, รหัส, คลัง และจำนวนที่ยืนยันแล้ว</p>
+            </div>
+
+            <button id="reloadAllocationHistoryButton" class="button ghost small">
+              โหลดประวัติใหม่
+            </button>
           </div>
-          <div id="warehouseChoices" class="warehouse-choices"></div>
-          <div id="bulkDistributionSummary" class="transfer-selection-bar">ยังไม่มีรายการที่ต้องตัด</div>
-          <div class="form-actions">
-            <button id="runBulkDistributionButton" class="button primary" type="button">ตัดยอดที่เลือก</button>
-          </div>
-          <div id="transferPreview" class="transfer-preview"></div>
-        </section>
-        <div id="allocationBoard" class="allocation-board allocation-order-board"></div>
-        <details class="allocation-history-details">
-          <summary>ประวัติการตัดยอด</summary>
-          <div class="section-heading subheading"><div><h3>รายการที่ตัดแล้ว</h3><p class="muted">แสดงรายการที่ตัดแล้ว</p></div><button id="reloadAllocationHistoryButton" class="button ghost small">โหลดประวัติใหม่</button></div>
+
           <div id="allocationHistoryList" class="transfer-history"></div>
-        </details>
+        </section>
       </section>
 
       <section id="postcutTab" class="tab-panel panel hidden">

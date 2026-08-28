@@ -276,18 +276,154 @@ function startFreshnessPolling() {
 }
 
 function renderMetrics(metrics) {
-  const cards = [
-    ["ยอดรับ", metrics.gross_received, false],
-    ["หลังหัก %", metrics.adjusted_received, false],
-    ["Point สำรอง", metrics.risk_point_total, Number(metrics.excess_point_risk) > 0],
-    ["ระดับที่รับได้", metrics.risk_budget, false],
-    ["Point เกิน", metrics.excess_point_risk, Number(metrics.excess_point_risk) > 0],
-    ["ควรตัด", metrics.distribution_incomplete ? "คำนวณไม่สำเร็จ" : metrics.transfer_required_total, !metrics.distribution_incomplete && Number(metrics.transfer_required_total) > 0],
-  ];
-  $("#metrics").innerHTML = cards.map(([label, value, alert]) => `
-    <article class="metric ${alert ? "alert" : ""}"><div class="label">${escapeHtml(label)}</div><div class="value">${typeof value === "string" ? escapeHtml(value) : formatNumber(value)}</div></article>`).join("");
-  $("#reviewBadge").textContent = formatNumber(metrics.review_open);
-  $("#freshness").textContent = `ล่าสุด ${formatBangkokClock(metrics.last_event_at)} · ${formatNumber(metrics.messages_total)} ข้อความ`;
+  const selectedGroup =
+    summaryGroupSelect.value || "ALL";
+
+  const lineGroupRows =
+    (
+      state.dashboard?.line_group_risk || []
+    ).filter(
+      (row) =>
+        row.enabled !== false
+        && (
+          selectedGroup === "ALL"
+          || row.summary_group_id === selectedGroup
+        )
+    );
+
+  const sumLineGroup =
+    (field) =>
+      lineGroupRows.reduce(
+        (sum, row) =>
+          sum + Number(row[field] || 0),
+        0
+      );
+
+  const useLineGroupModel =
+    lineGroupRows.length > 0;
+
+  const recommendedCut =
+    useLineGroupModel
+      ? sumLineGroup("recommended_cut_total")
+      : Number(
+          metrics.transfer_required_total || 0
+        );
+
+  const confirmedCut =
+    useLineGroupModel
+      ? sumLineGroup("confirmed_cut_total")
+      : 0;
+
+  const cards =
+    useLineGroupModel
+      ? [
+          [
+            "ยอดรับ",
+            sumLineGroup("gross_received"),
+            "",
+          ],
+          [
+            "Risk Budget",
+            sumLineGroup("risk_budget"),
+            "",
+          ],
+          [
+            "ต้องตัด",
+            recommendedCut,
+            recommendedCut > 0
+              ? "alert"
+              : "",
+          ],
+          [
+            "ตัดแล้ว",
+            confirmedCut,
+            confirmedCut > 0
+              ? "success"
+              : "",
+          ],
+          [
+            "คงเหลือ",
+            sumLineGroup("retained_total"),
+            "",
+          ],
+          [
+            "รอตรวจ",
+            Number(metrics.review_open || 0),
+            Number(metrics.review_open || 0) > 0
+              ? "attention"
+              : "",
+          ],
+        ]
+      : [
+          [
+            "ยอดรับ",
+            metrics.gross_received,
+            "",
+          ],
+          [
+            "หลังหัก %",
+            metrics.adjusted_received,
+            "",
+          ],
+          [
+            "Point สำรอง",
+            metrics.risk_point_total,
+            Number(metrics.excess_point_risk) > 0
+              ? "alert"
+              : "",
+          ],
+          [
+            "ระดับที่รับได้",
+            metrics.risk_budget,
+            "",
+          ],
+          [
+            "Point เกิน",
+            metrics.excess_point_risk,
+            Number(metrics.excess_point_risk) > 0
+              ? "alert"
+              : "",
+          ],
+          [
+            "ควรตัด",
+            metrics.distribution_incomplete
+              ? "คำนวณไม่สำเร็จ"
+              : metrics.transfer_required_total,
+            (
+              !metrics.distribution_incomplete
+              && Number(
+                metrics.transfer_required_total || 0
+              ) > 0
+            )
+              ? "alert"
+              : "",
+          ],
+        ];
+
+  $("#metrics").innerHTML =
+    cards.map(
+      ([label, value, tone]) => `
+        <article class="metric ${tone}">
+          <div class="label">
+            ${escapeHtml(label)}
+          </div>
+          <div class="value">
+            ${
+              typeof value === "string"
+                ? escapeHtml(value)
+                : formatNumber(value)
+            }
+          </div>
+        </article>
+      `
+    ).join("");
+
+  $("#reviewBadge").textContent =
+    formatNumber(metrics.review_open);
+
+  $("#freshness").textContent =
+    `ล่าสุด ${formatBangkokClock(metrics.last_event_at)}`
+    + ` · ${formatNumber(metrics.messages_total)} ข้อความ`;
 }
 
 function groupName(id) {
@@ -1943,46 +2079,141 @@ function renderAllocation() {
   }
 
 
+  const operationalRequired =
+    lineGroupAllocationRequired(
+      lineGroupId
+    );
+
+  const operationalRiskTone =
+    (
+      risk.risk_status === "DATA_INTEGRITY_ERROR"
+      || Number(
+        risk.over_cut_code_count || 0
+      ) > 0
+    )
+      ? "integrity"
+      : risk.calculation_status === "WAITING_FIRST_BAND"
+        ? "waiting"
+        : operationalRequired > 0
+          ? "required"
+          : "safe";
+
+  const operationalRiskLabel =
+    operationalRiskTone === "integrity"
+      ? "ต้องตรวจสอบ"
+      : operationalRiskTone === "waiting"
+        ? "รอครบ Band แรก"
+        : operationalRiskTone === "required"
+          ? "ต้องตัดยอด"
+          : "อยู่ในเกณฑ์";
+
   riskSummary.innerHTML = `
-    <div class="risk-notice">
+    <section class="line-group-risk-hero ${operationalRiskTone}">
+      <header class="risk-hero-header">
+        <div>
+          <span class="risk-hero-kicker">
+            LINE GROUP
+          </span>
 
-      <strong>
-        ${escapeHtml(
-          risk.line_group_name
-          || lineGroupId
-        )}
-      </strong>
+          <strong>
+            ${escapeHtml(
+              risk.line_group_name
+              || lineGroupId
+            )}
+          </strong>
 
-      · รับ ${formatNumber(
-        risk.gross_received || 0
-      )}
+          <small>
+            ${escapeHtml(lineGroupId)}
+          </small>
+        </div>
 
-      · Band ${formatNumber(
-        risk.calculation_band || 0
-      )}
+        <span class="risk-state-badge ${operationalRiskTone}">
+          ${escapeHtml(
+            operationalRiskLabel
+          )}
+        </span>
+      </header>
 
-      · ลดยอด ${formatNumber(
-        risk.reduction_pct || 0
-      )}%
+      <div class="risk-hero-grid">
+        <div>
+          <span>ยอดรับ</span>
+          <strong>
+            ${formatNumber(
+              risk.gross_received || 0
+            )}
+          </strong>
+        </div>
 
-      · Risk Budget ${formatNumber(
-        risk.risk_budget || 0
-      )}
+        <div>
+          <span>Calculation Band</span>
+          <strong>
+            ${formatNumber(
+              risk.calculation_band || 0
+            )}
+          </strong>
+        </div>
 
-    </div>
+        <div>
+          <span>Risk Budget</span>
+          <strong>
+            ${formatNumber(
+              risk.risk_budget || 0
+            )}
+          </strong>
+          <small>
+            ลดยอด ${formatNumber(
+              risk.reduction_pct || 0
+            )}%
+          </small>
+        </div>
 
-    <section class="pool-status-strip">
-      ${
-        ["MAIN", "H", "L"]
-          .map(
-            (pool) =>
-              renderLineGroupPoolStatus(
-                lineGroupId,
-                pool
-              )
-          )
-          .join("")
-      }
+        <div class="risk-hero-required">
+          <span>ต้องตัดเพิ่ม</span>
+          <strong>
+            ${formatNumber(
+              risk.recommended_cut_total
+              || operationalRequired
+              || 0
+            )}
+          </strong>
+        </div>
+
+        <div>
+          <span>ตัดแล้ว</span>
+          <strong>
+            ${formatNumber(
+              risk.confirmed_cut_total || 0
+            )}
+          </strong>
+        </div>
+
+        <div>
+          <span>คงเหลือ</span>
+          <strong>
+            ${formatNumber(
+              risk.retained_total || 0
+            )}
+          </strong>
+        </div>
+      </div>
+
+      <div class="risk-pool-heading">
+        สถานะตามกลุ่มความเสี่ยง
+      </div>
+
+      <section class="pool-status-strip">
+        ${
+          ["MAIN", "H", "L"]
+            .map(
+              (pool) =>
+                renderLineGroupPoolStatus(
+                  lineGroupId,
+                  pool
+                )
+            )
+            .join("")
+        }
+      </section>
     </section>
   `;
 
@@ -2860,21 +3091,236 @@ async function runBulkDistribution() {
   }
 }
 
-async function loadAllocationHistory({ silent = false } = {}) {
-  const root=$("#allocationHistoryList");
-  if(root && !silent) root.innerHTML=`<div class="empty compact">กำลังโหลด...</div>`;
-  try{
-    const group=summaryGroupSelect.value||"ALL";
-    const payload=await api(`/api/allocation-history?group=${encodeURIComponent(group)}`);
+function allocationHistoryLineGroupLabel(item) {
+  const lineGroupId =
+    item.line_group_id
+    || (
+      item.items || []
+    ).find(
+      (row) => row.line_group_id
+    )?.line_group_id
+    || "";
+
+  if (!lineGroupId) {
+    return "ข้อมูลเดิม";
+  }
+
+  return (
+    allocationLineGroupRiskFor(
+      lineGroupId
+    )?.line_group_name
+    || lineGroupId
+  );
+}
+
+
+function allocationHistoryItemsHtml(item) {
+  const rows =
+    Array.isArray(item.items)
+      ? item.items
+      : [];
+
+  if (!rows.length) {
+    return `
+      <div class="transfer-lines">
+        ${
+          (item.lines || [])
+            .map(
+              (line) =>
+                `<div>${escapeHtml(line)}</div>`
+            )
+            .join("")
+        }
+      </div>
+    `;
+  }
+
+  return `
+    <div class="history-code-list">
+      ${
+        rows.map((row) => `
+          <div class="history-code-row">
+            <div class="history-code-main">
+              <strong>
+                ${escapeHtml(row.category)}${escapeHtml(row.code)}
+              </strong>
+
+              <span>
+                ${formatNumber(row.quantity)}
+              </span>
+            </div>
+
+            <div class="history-code-meta">
+              <span>
+                คงก่อน ${formatNumber(
+                  row.retained_before || 0
+                )}
+              </span>
+
+              ${
+                row.retention_limit == null
+                  ? ""
+                  : `
+                    <span>
+                      Limit ${formatNumber(
+                        row.retention_limit
+                      )}
+                    </span>
+                  `
+              }
+
+              <span>
+                ×${formatNumber(
+                  row.effective_multiplier || 0
+                )}
+              </span>
+            </div>
+          </div>
+        `).join("")
+      }
+    </div>
+  `;
+}
+
+
+async function loadAllocationHistory(
+  { silent = false } = {}
+) {
+  const root =
+    $("#allocationHistoryList");
+
+  if (root && !silent) {
+    root.innerHTML =
+      `<div class="empty compact">กำลังโหลด...</div>`;
+  }
+
+  try {
+    const group =
+      summaryGroupSelect.value || "ALL";
+
+    const payload =
+      await api(
+        `/api/allocation-history?group=${encodeURIComponent(group)}`
+      );
+
     state.allocationHistory=payload.history||[];
+
     renderAfterCut();
-    if(!root)return;
-    if(!state.allocationHistory.length){root.innerHTML=`<div class="empty compact">ยังไม่มีรอบส่งในชุดยอดปัจจุบัน</div>`;return;}
-    root.innerHTML=state.allocationHistory.map((item)=>`<article class="history-card"><div class="history-head"><strong>รอบ #${formatNumber(item.batch_number)} · ${escapeHtml(item.destination)}</strong><span>${escapeHtml(formatBangkokTime(item.confirmed_at))}</span></div><div class="transfer-lines">${item.lines.map(line=>`<div>${escapeHtml(line)}</div>`).join("")}</div><div class="history-meta"><span>ตัด ${formatNumber(item.cut_total)}</span><span>สูงสุด ${formatNumber(item.warehouse_batch_limit || 0)}</span><span>${escapeHtml(item.confirmed_by||"-")}</span></div></article>`).join("");
-  }catch(error){
-    if(root && !silent) root.innerHTML=`<div class="empty compact">โหลดประวัติไม่สำเร็จ</div>`;
-    if(!silent) toast("โหลดประวัติไม่สำเร็จ",true);
-    else console.warn("silent allocation history refresh failed",error);
+
+    if (!root) return;
+
+    if (!state.allocationHistory.length) {
+      root.innerHTML =
+        `<div class="empty compact">
+          ยังไม่มีรายการตัดยอดในชุดปัจจุบัน
+        </div>`;
+      return;
+    }
+
+    root.innerHTML =
+      state.allocationHistory
+        .map((item) => {
+          const lineGroupLabel =
+            allocationHistoryLineGroupLabel(
+              item
+            );
+
+          const riskModelLabel =
+            item.risk_model
+              === "CATEGORY_RETENTION"
+              ? "LINE Group Retention"
+              : item.risk_model
+                ? item.risk_model
+                : "Legacy";
+
+          return `
+            <article class="history-card operational-history-card">
+              <div class="history-head">
+                <div class="history-head-main">
+                  <strong>
+                    ${escapeHtml(
+                      item.destination
+                    )}
+                  </strong>
+
+                  <span class="history-batch">
+                    รอบ #${formatNumber(
+                      item.batch_number
+                    )}
+                  </span>
+                </div>
+
+                <span>
+                  ${escapeHtml(
+                    formatBangkokTime(
+                      item.confirmed_at
+                    )
+                  )}
+                </span>
+              </div>
+
+              <div class="history-attribution">
+                <span class="history-line-group">
+                  ${escapeHtml(
+                    lineGroupLabel
+                  )}
+                </span>
+
+                <span class="history-model">
+                  ${escapeHtml(
+                    riskModelLabel
+                  )}
+                </span>
+              </div>
+
+              ${allocationHistoryItemsHtml(item)}
+
+              <div class="history-meta">
+                <span>
+                  ตัด
+                  <strong>
+                    ${formatNumber(
+                      item.cut_total
+                    )}
+                  </strong>
+                </span>
+
+                <span>
+                  ลิมิตคลัง
+                  ${formatNumber(
+                    item.warehouse_batch_limit || 0
+                  )}
+                </span>
+
+                <span>
+                  ${escapeHtml(
+                    item.confirmed_by || "-"
+                  )}
+                </span>
+              </div>
+            </article>
+          `;
+        })
+        .join("");
+  } catch (error) {
+    if (root && !silent) {
+      root.innerHTML =
+        `<div class="empty compact">
+          โหลดประวัติไม่สำเร็จ
+        </div>`;
+    }
+
+    if (!silent) {
+      toast(
+        "โหลดประวัติไม่สำเร็จ",
+        true
+      );
+    } else {
+      console.warn(
+        "silent allocation history refresh failed",
+        error
+      );
+    }
   }
 }
 
