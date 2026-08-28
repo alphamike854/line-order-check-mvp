@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * LINE Order Parser v1.6.2
+ * LINE Order Parser v1.6.3
  * Pure JavaScript, no external dependencies.
  *
  * Design goals:
@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.6.2";
+const PARSER_VERSION = "1.6.3";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -1921,11 +1921,363 @@ function isNonOrderSummaryLine(line) {
   return /^(?:สรุป(?:ยอด)?|ยอดรวม|รวมยอด|ยอดวันนี้|ยอดปัจจุบัน|รวมตรง|รวมวิ่ง|รวมทั้งหมด)(?:\s|[:|]|$)/iu.test(text);
 }
 
+
+function isA5TwoDigitCodeListLine(line) {
+  const raw = String(line || "").trim();
+  if (!raw) return null;
+
+  const parts = raw
+    .split(/[\s,/:.]+/u)
+    .filter(Boolean);
+
+  if (
+    !parts.length ||
+    parts.some((part) => !/^\d{2}$/.test(part))
+  ) {
+    return null;
+  }
+
+  const residue = raw
+    .replace(/\d{2}/g, "")
+    .replace(/[\s,/:.]/g, "");
+
+  return residue ? null : parts;
+}
+
+function isA5ThreeDigitCodeListLine(line) {
+  const raw = String(line || "").trim();
+  if (!raw) return null;
+
+  const parts = raw
+    .split(/[\s,/:.]+/u)
+    .filter(Boolean);
+
+  if (
+    !parts.length ||
+    parts.some((part) => !/^\d{3}$/.test(part))
+  ) {
+    return null;
+  }
+
+  const residue = raw
+    .replace(/\d{3}/g, "")
+    .replace(/[\s,/:.]/g, "");
+
+  return residue ? null : parts;
+}
+
+function isThaiTextualDateMetadataLine(line) {
+  const raw = String(line || "").trim();
+  if (!raw) return false;
+
+  // Examples:
+  //   28 สค. 69
+  //   28 ส.ค. 69
+  //
+  // Keep this narrow:
+  // - valid day
+  // - explicit Thai month abbreviation
+  // - 2-digit year >= 20 or 4-digit year
+  const month =
+    "(?:ม\\.?\\s*ค\\.?|ก\\.?\\s*พ\\.?|มี\\.?\\s*ค\\.?|เม\\.?\\s*ย\\.?|พ\\.?\\s*ค\\.?|มิ\\.?\\s*ย\\.?|ก\\.?\\s*ค\\.?|ส\\.?\\s*ค\\.?|ก\\.?\\s*ย\\.?|ต\\.?\\s*ค\\.?|พ\\.?\\s*ย\\.?|ธ\\.?\\s*ค\\.?)";
+
+  return new RegExp(
+    `^(?:0?[1-9]|[12]\\d|3[01])\\s+${month}\\s+(?:[2-9]\\d|\\d{4})$`,
+    "iu",
+  ).test(raw);
+}
+
+function normalizeReviewA5Grammar(text) {
+  const lines = String(text || "").split("\n");
+  const out = [];
+
+  const nextNonBlankIndex = (start) => {
+    let i = start;
+
+    while (
+      i < lines.length &&
+      !String(lines[i] || "").trim()
+    ) {
+      i++;
+    }
+
+    return i;
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = String(lines[i] || "");
+    const line = raw.trim();
+
+    if (!line) {
+      out.push("");
+      continue;
+    }
+
+    // --------------------------------------------------------
+    // A5-07
+    // Thai textual date metadata.
+    //
+    // 28 สค. 69
+    // --------------------------------------------------------
+    if (isThaiTextualDateMetadataLine(line)) {
+      continue;
+    }
+
+
+    // --------------------------------------------------------
+    // A5-03
+    //
+    // 753 539 397 975-50*50
+    //
+    // At least TWO 3-digit codes are required.
+    // This deliberately excludes:
+    //
+    // 593-50*50
+    // --------------------------------------------------------
+    const multiThreeDigitDashPair = line.match(
+      /^((?:\d{3}\s+)+\d{3})\s*-\s*(\d+\s*[xX*\/]\s*\d+)(?:\s+(.+))?$/u
+    );
+
+    if (multiThreeDigitDashPair) {
+      const codes =
+        multiThreeDigitDashPair[1]
+          .trim()
+          .split(/\s+/);
+
+      if (codes.length >= 2) {
+        const suffix = String(
+          multiThreeDigitDashPair[3] || ""
+        ).trim();
+
+        out.push(
+          `${codes.join(" ")}=${multiThreeDigitDashPair[2]}${suffix ? ` ${suffix}` : ""}`
+        );
+
+        continue;
+      }
+    }
+
+
+    // --------------------------------------------------------
+    // A5-01 / A5-02
+    //
+    // 247
+    // 471
+    // 712
+    // 124
+    // -50*50 บน
+    //
+    // Require at least TWO accumulated 3-digit codes.
+    // --------------------------------------------------------
+    const firstThreeCodes =
+      isA5ThreeDigitCodeListLine(line);
+
+    if (firstThreeCodes) {
+      const codes = [...firstThreeCodes];
+      let j = i + 1;
+
+      while (j < lines.length) {
+        const candidate =
+          String(lines[j] || "").trim();
+
+        if (!candidate) {
+          j++;
+          continue;
+        }
+
+        const moreCodes =
+          isA5ThreeDigitCodeListLine(candidate);
+
+        if (!moreCodes) break;
+
+        codes.push(...moreCodes);
+        j++;
+      }
+
+      const quantityIndex =
+        nextNonBlankIndex(j);
+
+      if (
+        codes.length >= 2 &&
+        quantityIndex < lines.length
+      ) {
+        const quantityLine =
+          String(lines[quantityIndex] || "").trim();
+
+        const trailingPair = quantityLine.match(
+          /^-\s*(\d+\s*[xX*\/]\s*\d+)(?:\s+(.+))?$/u
+        );
+
+        if (trailingPair) {
+          const suffix =
+            String(trailingPair[2] || "").trim();
+
+          out.push(
+            `${codes.join(" ")}=${trailingPair[1]}${suffix ? ` ${suffix}` : ""}`
+          );
+
+          i = quantityIndex;
+          continue;
+        }
+      }
+    }
+
+
+    // --------------------------------------------------------
+    // A5-04 / A5-05
+    //
+    // บลก 1500*1500
+    // 53 37 96 45 48
+    //
+    // or:
+    //
+    // 2000*2000
+    // 06
+    // 60
+    // ...
+    // --------------------------------------------------------
+    const modifierHeader = line.match(
+      /^(บลก|บล|ล-บ|บ-ล|บน-ล่าง|ล่าง-บน|บนล่าง)\s+(\d+\s*[xX*\/]\s*\d+)$/u
+    );
+
+    const plainPairHeader = line.match(
+      /^(\d+\s*[xX*\/]\s*\d+)$/u
+    );
+
+    if (modifierHeader || plainPairHeader) {
+      const modifier =
+        modifierHeader
+          ? modifierHeader[1]
+          : null;
+
+      const quantity =
+        modifierHeader
+          ? modifierHeader[2]
+          : plainPairHeader[1];
+
+      const codes = [];
+
+      let j =
+        nextNonBlankIndex(i + 1);
+
+      while (j < lines.length) {
+        const candidate =
+          String(lines[j] || "").trim();
+
+        if (!candidate) {
+          j++;
+          continue;
+        }
+
+        const codeList =
+          isA5TwoDigitCodeListLine(candidate);
+
+        if (!codeList) break;
+
+        codes.push(...codeList);
+        j++;
+      }
+
+      if (codes.length) {
+        if (modifier) {
+          out.push(modifier);
+        }
+
+        out.push(
+          `${codes.join(" ")}=${quantity}`
+        );
+
+        i = j - 1;
+        continue;
+      }
+    }
+
+
+    // --------------------------------------------------------
+    // A5-06
+    //
+    // 78-500*500
+    // 87-500*500
+    // 12-500*500
+    // 21-500*500
+    // บนล่าง
+    //
+    // Require a trailing exact บนล่าง context.
+    // Do not generalize arbitrary dash assignment.
+    // --------------------------------------------------------
+    const firstTwoDigitDashPair = line.match(
+      /^(\d{2})\s*-\s*(\d+\s*[xX*\/]\s*\d+)$/u
+    );
+
+    if (firstTwoDigitDashPair) {
+      const assignments = [
+        {
+          code: firstTwoDigitDashPair[1],
+          quantity: firstTwoDigitDashPair[2],
+        },
+      ];
+
+      let j = i + 1;
+
+      while (j < lines.length) {
+        const candidate =
+          String(lines[j] || "").trim();
+
+        if (!candidate) {
+          j++;
+          continue;
+        }
+
+        const assignment = candidate.match(
+          /^(\d{2})\s*-\s*(\d+\s*[xX*\/]\s*\d+)$/u
+        );
+
+        if (!assignment) break;
+
+        assignments.push({
+          code: assignment[1],
+          quantity: assignment[2],
+        });
+
+        j++;
+      }
+
+      const directionIndex =
+        nextNonBlankIndex(j);
+
+      if (
+        directionIndex < lines.length &&
+        /^บน\s*ล่าง$/u.test(
+          String(lines[directionIndex] || "").trim()
+        )
+      ) {
+        out.push("บนล่าง");
+
+        for (const assignment of assignments) {
+          out.push(
+            `${assignment.code}=${assignment.quantity}`
+          );
+        }
+
+        i = directionIndex;
+        continue;
+      }
+    }
+
+
+    out.push(raw);
+  }
+
+  return out.join("\n");
+}
+
 function parseOrder(inputText, config = {}) {
   const cfg = mergeConfig(config);
   const normalized = normalizeText(inputText);
-  const parserText = normalizeCollectiveReviewGrammar(
-    normalizeSafeReviewGrammar(normalized)
+  const parserText = normalizeReviewA5Grammar(
+    normalizeCollectiveReviewGrammar(
+      normalizeSafeReviewGrammar(normalized)
+    )
   );
   const acc = makeAccumulator();
   const rules = new Set();

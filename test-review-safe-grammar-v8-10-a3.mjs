@@ -10,7 +10,7 @@ function byKey(result) {
   );
 }
 
-assert.equal(PARSER_VERSION, "1.6.2");
+assert.equal(PARSER_VERSION, "1.6.3");
 
 // ------------------------------------------------------------
 // Pending 2-digit codes + composite modifier quantity.
