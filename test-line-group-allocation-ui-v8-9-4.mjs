@@ -342,6 +342,13 @@ assert.match(
 );
 
 
+
+// Allocation rows prioritize highest order volume.
+assert.match(
+  app,
+  /Number\(b\.order_total \|\| 0\)[\s\S]*Number\(a\.order_total \|\| 0\)/
+);
+
 console.log(
   'PASS: LINE Group allocation UI cutover v8.9.4',
 );

@@ -908,9 +908,18 @@ function lineGroupCodeRowsFor(
 
   return [...map.values()]
     .sort(
-      (a, b) =>
-        String(a.code)
-          .localeCompare(String(b.code))
+      (a, b) => {
+        const orderDifference =
+          Number(b.order_total || 0)
+          - Number(a.order_total || 0);
+
+        if (orderDifference !== 0) {
+          return orderDifference;
+        }
+
+        return String(a.code)
+          .localeCompare(String(b.code));
+      }
     );
 }
 
