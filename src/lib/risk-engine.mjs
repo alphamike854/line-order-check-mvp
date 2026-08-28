@@ -1,3 +1,7 @@
+// Legacy/safety fallbacks only.
+// Company Point multipliers must come from point_category_profiles /
+// settlement_point_profiles. In particular, H/L remain zero here so a
+// missing configuration can never invent a company multiplier.
 export const DEFAULT_POINT_PROFILES = Object.freeze({
   A: { multiplier: 14, max_special_codes: 1 },
   B: { multiplier: 14, max_special_codes: 1 },
@@ -8,8 +12,58 @@ export const DEFAULT_POINT_PROFILES = Object.freeze({
   L: { multiplier: 0, max_special_codes: 2 },
 });
 
+export const DEFAULT_RISK_BAND_SIZE = 100000;
+
 export function round2(value) {
   return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+}
+
+
+export function calculateLineGroupRiskBand({
+  grossReceived = 0,
+  reductionPct = 0,
+  bandSize = DEFAULT_RISK_BAND_SIZE,
+} = {}) {
+  const gross = Number(grossReceived);
+  const reduction = Number(reductionPct);
+  const size = Number(bandSize);
+
+  if (!Number.isFinite(gross) || gross < 0) {
+    throw new Error("INVALID_LINE_GROUP_GROSS_RECEIVED");
+  }
+
+  if (!Number.isFinite(reduction) || reduction < 0 || reduction > 100) {
+    throw new Error("INVALID_LINE_GROUP_REDUCTION_PCT");
+  }
+
+  if (!Number.isSafeInteger(size) || size <= 0) {
+    throw new Error("INVALID_RISK_BAND_SIZE");
+  }
+
+  const calculationBand = Math.floor(gross / size) * size;
+  const riskBudgetPct = round2(100 - reduction);
+  const riskBudget = round2(
+    calculationBand * riskBudgetPct / 100,
+  );
+
+  const nextBand = calculationBand > 0
+    ? calculationBand + size
+    : size;
+
+  return {
+    gross_received: round2(gross),
+    calculation_band: calculationBand,
+    reduction_pct: round2(reduction),
+    risk_budget_pct: riskBudgetPct,
+    risk_budget: riskBudget,
+    calculation_status:
+      calculationBand > 0
+        ? "READY"
+        : "WAITING_FIRST_BAND",
+    amount_to_next_band: round2(
+      Math.max(0, nextBand - gross),
+    ),
+  };
 }
 
 export function effectiveMultiplier(multiplier, promotionFactorPct = 100) {
@@ -18,6 +72,124 @@ export function effectiveMultiplier(multiplier, promotionFactorPct = 100) {
   if (!Number.isFinite(base) || base < 0) throw new Error("INVALID_POINT_MULTIPLIER");
   if (!Number.isFinite(factor) || factor < 0 || factor > 100) throw new Error("INVALID_PROMOTION_FACTOR");
   return round2(base * factor / 100);
+}
+
+
+export function categoryRiskBudgetDivisor(
+  category,
+  maxSpecialCodes = 1,
+) {
+  const normalizedCategory = String(category || "").trim().toUpperCase();
+  const maxCodes = Number(maxSpecialCodes);
+
+  if (!["A", "B", "E", "F", "G", "H", "L"].includes(normalizedCategory)) {
+    throw new Error("INVALID_RISK_CATEGORY");
+  }
+
+  if (!Number.isSafeInteger(maxCodes) || maxCodes <= 0) {
+    throw new Error("INVALID_MAX_SPECIAL_CODES");
+  }
+
+  // A and B share one two-digit risk budget:
+  // one A code + one B code may hit the same Point.
+  if (normalizedCategory === "A" || normalizedCategory === "B") {
+    return 2;
+  }
+
+  // Other categories divide their category budget across the maximum
+  // number of codes that may hit the same Point.
+  return maxCodes;
+}
+
+
+export function calculateCategoryRetentionLimit({
+  category,
+  riskBudget = 0,
+  multiplier = 0,
+  maxSpecialCodes = 1,
+  promotionFactorPct = 100,
+} = {}) {
+  const budget = Number(riskBudget);
+  const effective = effectiveMultiplier(
+    multiplier,
+    promotionFactorPct,
+  );
+
+  if (!Number.isFinite(budget) || budget < 0) {
+    throw new Error("INVALID_RISK_BUDGET");
+  }
+
+  if (!(effective > 0)) {
+    throw new Error("POINT_MULTIPLIER_NOT_CONFIGURED");
+  }
+
+  const divisor = categoryRiskBudgetDivisor(
+    category,
+    maxSpecialCodes,
+  );
+
+  return Math.floor(
+    budget / effective / divisor,
+  );
+}
+
+
+export function calculateCodeRetentionRecommendation({
+  category,
+  quantity = 0,
+  riskBudget = 0,
+  multiplier = 0,
+  maxSpecialCodes = 1,
+  promotionFactorPct = 100,
+} = {}) {
+  const qty = Number(quantity);
+
+  if (!Number.isSafeInteger(qty) || qty < 0) {
+    throw new Error("INVALID_ORDER_QUANTITY");
+  }
+
+  const effective = effectiveMultiplier(
+    multiplier,
+    promotionFactorPct,
+  );
+
+  const retentionLimit = calculateCategoryRetentionLimit({
+    category,
+    riskBudget,
+    multiplier,
+    maxSpecialCodes,
+    promotionFactorPct,
+  });
+
+  const projectedRetained = Math.min(
+    qty,
+    retentionLimit,
+  );
+
+  const recommendedCut = Math.max(
+    0,
+    qty - retentionLimit,
+  );
+
+  return {
+    category: String(category || "").trim().toUpperCase(),
+    quantity: qty,
+    risk_budget: round2(riskBudget),
+    effective_multiplier: effective,
+    budget_divisor: categoryRiskBudgetDivisor(
+      category,
+      maxSpecialCodes,
+    ),
+    retention_limit: retentionLimit,
+    recommended_cut: recommendedCut,
+    projected_retained: projectedRetained,
+    projected_point_exposure: round2(
+      projectedRetained * effective,
+    ),
+    recommended_point_reduction: round2(
+      recommendedCut * effective,
+    ),
+  };
 }
 
 export function pointExposure(quantity, multiplier, promotionFactorPct = 100) {
