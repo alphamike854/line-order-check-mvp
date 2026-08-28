@@ -18,7 +18,7 @@ function canonical(result) {
     );
 }
 
-assert.equal(PARSER_VERSION, "1.6.3");
+assert.equal(PARSER_VERSION, "1.6.4");
 
 // ------------------------------------------------------------
 // Gold Review #335.

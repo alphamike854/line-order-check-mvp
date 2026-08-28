@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * LINE Order Parser v1.6.3
+ * LINE Order Parser v1.6.4
  * Pure JavaScript, no external dependencies.
  *
  * Design goals:
@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.6.3";
+const PARSER_VERSION = "1.6.4";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -2206,7 +2206,7 @@ function normalizeReviewA5Grammar(text) {
     // Do not generalize arbitrary dash assignment.
     // --------------------------------------------------------
     const firstTwoDigitDashPair = line.match(
-      /^(\d{2})\s*-\s*(\d+\s*[xX*\/]\s*\d+)$/u
+      /^(\d{2})\s*-\s*(\d+\s*[xX*\/×]\s*\d+)$/u
     );
 
     if (firstTwoDigitDashPair) {
@@ -2229,7 +2229,7 @@ function normalizeReviewA5Grammar(text) {
         }
 
         const assignment = candidate.match(
-          /^(\d{2})\s*-\s*(\d+\s*[xX*\/]\s*\d+)$/u
+          /^(\d{2})\s*-\s*(\d+\s*[xX*\/×]\s*\d+)$/u
         );
 
         if (!assignment) break;
@@ -2264,6 +2264,35 @@ function normalizeReviewA5Grammar(text) {
       }
     }
 
+
+
+    // Phase 2A1: standalone 2-digit dash quantity pair.
+    //
+    //   17-500*500 => 17=500*500
+    //   96-25×25  => 96=25*25
+    //
+    // firstTwoDigitDashPair is deliberately limited to exactly
+    // two code digits plus an explicit PAIR quantity. Therefore
+    // this cannot consume:
+    //
+    //   77-50
+    //   71-25 บลก
+    //   68-86-100
+    //   593-50*50
+    //
+    // A5-06 above still takes precedence when a trailing
+    // explicit บนล่าง block is present.
+    if (firstTwoDigitDashPair) {
+      const canonicalQuantity =
+        firstTwoDigitDashPair[2]
+          .replace(/[xX×]/gu, "*");
+
+      out.push(
+        `${firstTwoDigitDashPair[1]}=${canonicalQuantity}`
+      );
+
+      continue;
+    }
 
     out.push(raw);
   }
@@ -2383,6 +2412,27 @@ function parseOrder(inputText, config = {}) {
   // not recognized, route it to Review instead of returning IGNORE.
   const hasOrderLikeWarning = warnings.some((warning) => warning.code === "UNRECOGNIZED_ORDER_LIKE_TEXT");
 
+  // Safety: a single 3-digit dash quantity pair is intentionally
+  // unsupported, but it must not disappear when another line in the
+  // same message parses successfully.
+  //
+  //   832-100*100
+  //   32-50*50
+  //
+  // The 2-digit line may be recovered, but the unsupported 3-digit
+  // line must keep the whole message PARTIAL/REVIEW.
+  //
+  // Inspect only lines that already produced an order-like warning.
+  // This avoids penalizing A5 collective forms that preprocessing
+  // successfully normalized before parsing.
+  const hasUnsupportedThreeDigitDashPairWarning =
+    warnings.some((warning) =>
+      warning.code === "UNRECOGNIZED_ORDER_LIKE_TEXT" &&
+      /^\d{3}\s*-\s*\d+\s*[xX*\/×]\s*\d+$/u.test(
+        String(warning.detail || "").trim()
+      )
+    );
+
   // Explicit known order command whose grammar is not yet supported.
   //
   // Example:
@@ -2401,6 +2451,7 @@ function parseOrder(inputText, config = {}) {
 
   if (
     explicitUnsupportedOrderLike ||
+    hasUnsupportedThreeDigitDashPairWarning ||
     (hasOrderLikeWarning && stronglyOrderLike)
   ) {
     const details = warnings

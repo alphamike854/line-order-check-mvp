@@ -11,7 +11,7 @@ function byKey(result) {
   return new Map(result.items.map((item) => [`${item.category}${item.code}`, item.quantity]));
 }
 
-assert.equal(PARSER_VERSION, "1.6.3");
+assert.equal(PARSER_VERSION, "1.6.4");
 
 // TOP/BOTTOM are contextual synonyms, not global aliases.
 for (const word of ["บน", "บ"]) {
