@@ -3,6 +3,20 @@
 const MAX_INLINE_IMAGE_BYTES = 15 * 1024 * 1024;
 const DEFAULT_GEMINI_MODEL = "gemini-3.7-flash";
 
+// First request + 2 retries = at most 3 Gemini attempts.
+// Retry only transient provider/server conditions; permanent client/config
+// errors must fail immediately.
+const DEFAULT_GEMINI_RETRY_DELAYS_MS = [1000, 2000];
+const RETRYABLE_GEMINI_HTTP_STATUS = new Set([429, 500, 502, 503, 504]);
+
+function sleepMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableGeminiStatus(status) {
+  return RETRYABLE_GEMINI_HTTP_STATUS.has(Number(status));
+}
+
 export function cleanOcrText(text) {
   let value = String(text ?? "").trim();
   value = value.replace(/^```(?:text)?\s*/i, "").replace(/\s*```$/i, "").trim();
@@ -61,6 +75,9 @@ export async function transcribeOrderImage({
   mimeType,
   apiKey,
   model = DEFAULT_GEMINI_MODEL,
+  fetchImpl = fetch,
+  sleepImpl = sleepMs,
+  retryDelaysMs = DEFAULT_GEMINI_RETRY_DELAYS_MS,
 }) {
   if (!apiKey) throw new Error("GEMINI_API_KEY_MISSING");
   if (!bytes?.length) throw new Error("OCR_IMAGE_BYTES_MISSING");
@@ -78,40 +95,73 @@ export async function transcribeOrderImage({
     "- If any character or token cannot be read confidently, write ? at that position instead of guessing.",
   ].join("\n");
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-goog-api-key": apiKey,
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: "user",
-            parts: [
-              { text: prompt },
-              {
-                inlineData: {
-                  mimeType,
-                  data: Buffer.from(bytes).toString("base64"),
-                },
-              },
-            ],
-          },
-        ],
-        generationConfig: {
-          temperature: 0,
-          maxOutputTokens: 2048,
-        },
-      }),
-    },
-  );
+  const retrySchedule = Array.isArray(retryDelaysMs)
+    ? retryDelaysMs
+    : DEFAULT_GEMINI_RETRY_DELAYS_MS;
 
-  if (!response.ok) {
+  let response;
+  let attempts = 0;
+
+  for (;;) {
+    attempts += 1;
+
+    response = await fetchImpl(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-goog-api-key": apiKey,
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [
+                { text: prompt },
+                {
+                  inlineData: {
+                    mimeType,
+                    data: Buffer.from(bytes).toString("base64"),
+                  },
+                },
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: 0,
+            maxOutputTokens: 2048,
+          },
+        }),
+      },
+    );
+
+    if (response.ok) break;
+
     const detail = await response.text().catch(() => "");
-    throw new Error(`GEMINI_OCR_FAILED_${response.status}${detail ? `: ${detail.slice(0, 300)}` : ""}`);
+    const retryIndex = attempts - 1;
+    const canRetry =
+      isRetryableGeminiStatus(response.status)
+      && retryIndex < retrySchedule.length;
+
+    if (!canRetry) {
+      const detailSuffix = detail
+        ? `: ${detail.slice(0, 300)}`
+        : "";
+
+      throw new Error(
+        `GEMINI_OCR_FAILED_${response.status}${detailSuffix} [attempts=${attempts}]`
+      );
+    }
+
+    const delayMs = Math.max(
+      0,
+      Number(retrySchedule[retryIndex] || 0),
+    );
+
+    if (delayMs > 0) {
+      await sleepImpl(delayMs);
+    }
   }
 
   const payload = await response.json();
@@ -123,5 +173,6 @@ export async function transcribeOrderImage({
     provider: "GEMINI",
     model,
     uncertain: hasOcrUncertainty(text),
+    attempts,
   };
 }
