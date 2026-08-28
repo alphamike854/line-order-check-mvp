@@ -349,6 +349,45 @@ assert.match(
   /Number\(b\.order_total \|\| 0\)[\s\S]*Number\(a\.order_total \|\| 0\)/
 );
 
+
+// Compact Top 20 operational allocation board.
+assert.match(
+  app,
+  /function topAllocationVisibleCodes/
+);
+
+assert.match(
+  app,
+  /\.slice\(0,\s*limit\)/
+);
+
+assert.match(
+  app,
+  /Number\(row\.order_total \|\| 0\) > 0/
+);
+
+assert.match(
+  app,
+  /allocation-ranked-hidden/
+);
+
+assert.match(
+  app,
+  /allocation-compact-code/
+);
+
+assert.match(
+  app,
+  /allocation-compact-qty/
+);
+
+// Hidden rows remain rendered so recommended selections
+// are not silently dropped from the existing bulk flow.
+assert.match(
+  app,
+  /allocation-ranked-hidden[\s\S]*allocation-code-select/
+);
+
 console.log(
   'PASS: LINE Group allocation UI cutover v8.9.4',
 );

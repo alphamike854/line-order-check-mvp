@@ -1595,6 +1595,25 @@ function renderLineGroupPoolStatus(
 }
 
 
+function topAllocationVisibleCodes(
+  rows,
+  limit = 20
+) {
+  return new Set(
+    rows
+      .filter(
+        (row) =>
+          Number(row.order_total || 0) > 0
+      )
+      .slice(0, limit)
+      .map(
+        (row) =>
+          String(row.code)
+      )
+  );
+}
+
+
 function renderLineGroupAllocationCategoryColumn(
   lineGroupId,
   category,
@@ -1612,52 +1631,11 @@ function renderLineGroupAllocationCategoryColumn(
       riskPool
     );
 
-  const profile =
-    profileFor(category);
-
-
-  const maxQty =
-    Math.max(
-      1,
-      ...rows.map(
-        (row) =>
-          Number(row.order_total || 0)
-      )
+  const visibleCodes =
+    topAllocationVisibleCodes(
+      rows,
+      20
     );
-
-
-  const recommendedTotal =
-    rows.reduce(
-      (sum, row) =>
-        sum
-        + Number(
-          recommendations.get(
-            `${category}|${row.code}`
-          )?.recommended_transfer || 0
-        ),
-      0
-    );
-
-
-  const header = `
-    <div class="board-column-head">
-      <div class="category-title">
-
-        <strong>${escapeHtml(category)}</strong>
-
-        <span>
-          ×${formatNumber(
-            profile?.special_multiplier || 0
-          )}
-          · ควรตัด ${formatNumber(
-            recommendedTotal
-          )}
-        </span>
-
-      </div>
-    </div>
-  `;
-
 
   const list =
     rows.map((row) => {
@@ -1681,7 +1659,6 @@ function renderLineGroupAllocationCategoryColumn(
           `${category}|${row.code}`
         );
 
-
       const recommended =
         Math.min(
           Math.max(
@@ -1693,56 +1670,19 @@ function renderLineGroupAllocationCategoryColumn(
           )
         );
 
-
-      const width =
-        qty > 0
-          ? Math.max(
-              3,
-              qty / maxQty * 100
-            )
-          : 0;
-
-
-      const transferred =
-        Number(
-          row.confirmed_cut || 0
-        ) > 0
-          ? `<span class="promo-badge">ส่งแล้ว ${formatNumber(row.confirmed_cut)}</span>`
-          : "";
-
-
-      const effective =
-        Number(
-          row.effective_multiplier || 0
+      const visible =
+        visibleCodes.has(
+          String(row.code)
         );
-
-
-      const configuredMultiplier =
-        Number(
-          profile?.special_multiplier || 0
-        );
-
-
-      const multiplier =
-        effective > 0
-        && Math.abs(
-          effective
-          - configuredMultiplier
-        ) > 0.0009
-          ? `<span class="promo-badge">×${formatNumber(effective)}</span>`
-          : "";
-
 
       return `
-        <label class="board-code-row allocation-code-row ${
-          qty === 0
-            ? "zero"
-            : ""
-        } ${
-          recommended > 0
-            ? "recommended"
-            : ""
-        }">
+        <label class="
+          board-code-row
+          allocation-code-row
+          allocation-compact-row
+          ${visible ? "" : "allocation-ranked-hidden"}
+          ${recommended > 0 ? "recommended" : ""}
+        ">
 
           <div class="allocation-code-check">
             ${
@@ -1761,66 +1701,52 @@ function renderLineGroupAllocationCategoryColumn(
             }
           </div>
 
-          <div class="allocation-code-content">
+          <div class="allocation-compact-main">
 
-            <div class="board-code-main">
-              <strong>${escapeHtml(row.code)}</strong>
-              <span>${formatNumber(qty)}</span>
-            </div>
+            <strong class="allocation-compact-code">
+              ${escapeHtml(category)}${escapeHtml(row.code)}
+            </strong>
 
-            <div class="board-code-badges">
-              ${multiplier}${transferred}
-            </div>
+            <span class="allocation-compact-qty">
+              ${formatNumber(qty)}
+            </span>
 
-            <div class="allocation-code-meta">
-
-              <span>
-                คง ${formatNumber(retained)}
-                · ลิมิต ${formatNumber(limit)}
-              </span>
-
-              ${
-                recommended > 0
-                  ? `<strong>ตัด ${formatNumber(recommended)}</strong>`
-                  : `<span>—</span>`
-              }
-
-            </div>
-
-            <div class="qty-track">
-              <div
-                class="qty-fill"
-                style="width:${width}%"
-              ></div>
-            </div>
+            ${
+              recommended > 0
+                ? `<small class="allocation-compact-cut">
+                    ตัด ${formatNumber(recommended)}
+                  </small>`
+                : `<span class="allocation-compact-empty"></span>`
+            }
 
           </div>
+
         </label>
       `;
     }).join("");
 
-
   return `
     <section class="board-column allocation-board-column">
-      ${header}
+
+      <div class="board-column-head allocation-compact-head">
+        <strong>${escapeHtml(category)}</strong>
+        <span>
+          ${formatNumber(visibleCodes.size)} รายการ
+        </span>
+      </div>
+
       <div class="board-code-list">
         ${list}
       </div>
+
     </section>
   `;
 }
-
 
 function renderLineGroupOneDigitCategory(
   lineGroupId,
   category
 ) {
-  const plan =
-    lineGroupDistributionPlanFor(
-      lineGroupId,
-      category
-    );
-
   const rows =
     lineGroupCodeRowsFor(
       lineGroupId,
@@ -1833,9 +1759,11 @@ function renderLineGroupOneDigitCategory(
       category
     );
 
-  const profile =
-    profileFor(category);
-
+  const visibleCodes =
+    topAllocationVisibleCodes(
+      rows,
+      20
+    );
 
   const list =
     rows.map((row) => {
@@ -1859,7 +1787,6 @@ function renderLineGroupOneDigitCategory(
           `${category}|${row.code}`
         );
 
-
       const recommended =
         Math.min(
           Math.max(
@@ -1871,85 +1798,70 @@ function renderLineGroupOneDigitCategory(
           )
         );
 
+      const visible =
+        visibleCodes.has(
+          String(row.code)
+        );
 
       return `
-        <label class="one-digit-code allocation-one-digit-code ${
-          qty === 0
-            ? "zero"
-            : ""
-        } ${
-          recommended > 0
-            ? "recommended"
-            : ""
-        }">
+        <label class="
+          one-digit-code
+          allocation-one-digit-code
+          allocation-compact-row
+          ${visible ? "" : "allocation-ranked-hidden"}
+          ${recommended > 0 ? "recommended" : ""}
+        ">
 
-          ${
-            recommended > 0
-              ? `<input
-                  class="allocation-code-select"
-                  type="checkbox"
-                  checked
-                  data-line-group="${escapeHtml(lineGroupId)}"
-                  data-pool="${category}"
-                  data-category="${category}"
-                  data-code="${escapeHtml(row.code)}"
-                />`
-              : `<span class="allocation-code-spacer"></span>`
-          }
-
-          <strong>
-            ${category}${escapeHtml(row.code)}
-          </strong>
-
-          <span>
-            ${formatNumber(qty)}
-          </span>
-
-          <small>
+          <div class="allocation-code-check">
             ${
               recommended > 0
-                ? `คง ${formatNumber(retained)} · ตัด ${formatNumber(recommended)}`
-                : Number(row.confirmed_cut || 0) > 0
-                  ? `คง ${formatNumber(retained)}`
-                  : ""
+                ? `<input
+                    class="allocation-code-select"
+                    type="checkbox"
+                    checked
+                    data-line-group="${escapeHtml(lineGroupId)}"
+                    data-pool="${escapeHtml(category)}"
+                    data-category="${escapeHtml(category)}"
+                    data-code="${escapeHtml(row.code)}"
+                    aria-label="เลือก ${escapeHtml(category)}${escapeHtml(row.code)}"
+                  />`
+                : `<span class="allocation-code-spacer"></span>`
             }
-          </small>
+          </div>
+
+          <div class="allocation-compact-main">
+
+            <strong class="allocation-compact-code">
+              ${escapeHtml(category)}${escapeHtml(row.code)}
+            </strong>
+
+            <span class="allocation-compact-qty">
+              ${formatNumber(qty)}
+            </span>
+
+            ${
+              recommended > 0
+                ? `<small class="allocation-compact-cut">
+                    ตัด ${formatNumber(recommended)}
+                  </small>`
+                : `<span class="allocation-compact-empty"></span>`
+            }
+
+          </div>
 
         </label>
       `;
     }).join("");
 
-
   return `
-    <section class="one-digit-category allocation-one-digit-category ${
-      Number(
-        plan?.transfer_required_total || 0
-      ) > 0
-        ? "risk-active"
-        : ""
-    }">
+    <section class="one-digit-category allocation-one-digit-category">
 
-      <div class="one-digit-head">
+      <div class="one-digit-head allocation-compact-head">
+        <strong>${escapeHtml(category)}</strong>
 
-        <div>
-          <strong>${category}</strong>
-        </div>
-
-        <div class="one-digit-head-metrics">
-
-          <span>
-            ×${formatNumber(
-              profile?.special_multiplier || 0
-            )}
-          </span>
-
-          <strong>
-            ตัด ${formatNumber(
-              plan?.transfer_required_total || 0
-            )}
-          </strong>
-
-        </div>
+        <span>
+          ${formatNumber(visibleCodes.size)} รายการ
+        </span>
       </div>
 
       <div class="one-digit-code-grid">
@@ -1959,7 +1871,6 @@ function renderLineGroupOneDigitCategory(
     </section>
   `;
 }
-
 
 function renderAllocation() {
   const riskSummary =
