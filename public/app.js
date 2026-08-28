@@ -34,6 +34,7 @@ const accessKeyInput = $("#accessKey");
 const loginError = $("#loginError");
 const businessDateInput = $("#businessDate");
 const summaryGroupSelect = $("#summaryGroup");
+const allocationLineGroupSelect = $("#allocationLineGroupSelect");
 const refreshButton = $("#refreshButton");
 const logoutButton = $("#logoutButton");
 
@@ -574,11 +575,407 @@ function recommendationMapFor(groupId, riskPool = "MAIN") {
   return new Map((distributionPlanFor(groupId, riskPool)?.recommendations || []).map((row) => [`${row.category}|${row.code}`, row]));
 }
 
+
+function allocationLineGroupsFor(groupId) {
+  if (!groupId || groupId === "ALL") return [];
+
+  return (state.dashboard?.line_group_risk || [])
+    .filter(
+      (row) =>
+        row.summary_group_id === groupId
+        && row.enabled !== false
+    )
+    .sort(
+      (a, b) =>
+        String(a.line_group_name || a.line_group_id)
+          .localeCompare(
+            String(b.line_group_name || b.line_group_id)
+          )
+    );
+}
+
+
+function allocationLineGroupRiskFor(lineGroupId) {
+  if (!lineGroupId) return null;
+
+  return (
+    state.dashboard?.line_group_risk || []
+  ).find(
+    (row) =>
+      row.line_group_id === lineGroupId
+  ) || null;
+}
+
+
+function lineGroupDistributionPlanFor(
+  lineGroupId,
+  riskPool = "MAIN"
+) {
+  if (!lineGroupId) return null;
+
+  return (
+    state.dashboard?.line_group_distribution_plans || []
+  ).find(
+    (row) =>
+      row.line_group_id === lineGroupId
+      && (row.risk_pool || "MAIN") === riskPool
+  ) || null;
+}
+
+
+function lineGroupRecommendationMapFor(
+  lineGroupId,
+  riskPool = "MAIN"
+) {
+  return new Map(
+    (
+      lineGroupDistributionPlanFor(
+        lineGroupId,
+        riskPool
+      )?.recommendations || []
+    ).map(
+      (row) => [
+        `${row.category}|${row.code}`,
+        row,
+      ]
+    )
+  );
+}
+
+
+function lineGroupCodeRowsFor(
+  lineGroupId,
+  category
+) {
+  const risk =
+    allocationLineGroupRiskFor(lineGroupId);
+
+  const rows = (
+    state.dashboard?.line_group_risk_codes || []
+  ).filter(
+    (row) =>
+      row.line_group_id === lineGroupId
+      && row.category === category
+  );
+
+
+  const map = new Map(
+    rows.map(
+      (row) => [row.code, row]
+    )
+  );
+
+
+  // Preserve full 00–99 board for A/B.
+  if (["A", "B"].includes(category)) {
+    for (let i = 0; i < 100; i += 1) {
+      const code =
+        String(i).padStart(2, "0");
+
+      if (!map.has(code)) {
+        map.set(code, {
+          line_group_id:
+            lineGroupId,
+
+          summary_group_id:
+            risk?.summary_group_id,
+
+          category,
+          code,
+
+          order_total:
+            0,
+
+          confirmed_cut:
+            0,
+
+          retained_quantity:
+            0,
+
+          effective_multiplier:
+            Number(
+              profileFor(category)
+                ?.special_multiplier || 0
+            ),
+
+          retention_limit:
+            0,
+
+          recommended_cut:
+            0,
+
+          recommended_point_reduction:
+            0,
+
+          retention_status:
+            "SAFE",
+
+          confirmed_cut_exceeds_order_total:
+            false,
+        });
+      }
+    }
+  }
+
+
+  // Preserve H0–H9 / L0–L9 board.
+  if (["H", "L"].includes(category)) {
+    for (let i = 0; i < 10; i += 1) {
+      const code =
+        String(i);
+
+      if (!map.has(code)) {
+        map.set(code, {
+          line_group_id:
+            lineGroupId,
+
+          summary_group_id:
+            risk?.summary_group_id,
+
+          category,
+          code,
+
+          order_total:
+            0,
+
+          confirmed_cut:
+            0,
+
+          retained_quantity:
+            0,
+
+          effective_multiplier:
+            Number(
+              profileFor(category)
+                ?.special_multiplier || 0
+            ),
+
+          retention_limit:
+            0,
+
+          recommended_cut:
+            0,
+
+          recommended_point_reduction:
+            0,
+
+          retention_status:
+            "SAFE",
+
+          confirmed_cut_exceeds_order_total:
+            false,
+        });
+      }
+    }
+  }
+
+
+  return [...map.values()]
+    .sort(
+      (a, b) =>
+        String(a.code)
+          .localeCompare(String(b.code))
+    );
+}
+
+
+function syncAllocationLineGroupOptions(groupId) {
+  if (!allocationLineGroupSelect) return;
+
+  const previous =
+    allocationLineGroupSelect.value;
+
+  const rows =
+    allocationLineGroupsFor(groupId);
+
+
+  allocationLineGroupSelect.innerHTML =
+    `<option value="">เลือก LINE Group</option>`;
+
+
+  for (const row of rows) {
+    const option =
+      document.createElement("option");
+
+    option.value =
+      row.line_group_id;
+
+    option.textContent =
+      `${row.line_group_name || row.line_group_id}`
+      + (
+        Number(row.gross_received || 0) > 0
+          ? ` · ${formatNumber(row.gross_received)}`
+          : ""
+      );
+
+    allocationLineGroupSelect.append(option);
+  }
+
+
+  allocationLineGroupSelect.disabled =
+    !groupId
+    || groupId === "ALL"
+    || rows.length === 0;
+
+
+  // Keep current selection if still valid.
+  if (
+    previous
+    && rows.some(
+      (row) =>
+        row.line_group_id === previous
+    )
+  ) {
+    allocationLineGroupSelect.value =
+      previous;
+
+    return;
+  }
+
+
+  // If only one LINE Group exists, select it automatically.
+  if (rows.length === 1) {
+    allocationLineGroupSelect.value =
+      rows[0].line_group_id;
+
+    return;
+  }
+
+
+  allocationLineGroupSelect.value = "";
+}
+
+
+function lineGroupAllocationBlockReason(
+  lineGroupId
+) {
+  const risk =
+    allocationLineGroupRiskFor(lineGroupId);
+
+  if (!risk) {
+    return "LINE_GROUP_NOT_READY";
+  }
+
+
+  if (risk.enabled === false) {
+    return "LINE_GROUP_DISABLED";
+  }
+
+
+  if (
+    risk.risk_status === "DATA_INTEGRITY_ERROR"
+    || Number(risk.over_cut_code_count || 0) > 0
+  ) {
+    return "DATA_INTEGRITY_ERROR";
+  }
+
+
+  if (
+    risk.risk_model !== "CATEGORY_RETENTION"
+  ) {
+    return "RISK_MODEL_NOT_READY";
+  }
+
+
+  // WAITING_FIRST_BAND is a valid read state.
+  // It simply has no cut recommendation yet.
+  if (
+    risk.calculation_status === "WAITING_FIRST_BAND"
+  ) {
+    return null;
+  }
+
+
+  if (
+    risk.calculation_status !== "READY"
+  ) {
+    return (
+      risk.calculation_status
+      || "NOT_READY"
+    );
+  }
+
+
+  const plans =
+    ["MAIN", "H", "L"]
+      .map(
+        (pool) =>
+          lineGroupDistributionPlanFor(
+            lineGroupId,
+            pool
+          )
+      )
+      .filter(Boolean);
+
+
+  if (
+    plans.some(
+      (plan) =>
+        plan.calculation_status
+        === "DATA_INTEGRITY_ERROR"
+    )
+  ) {
+    return "DATA_INTEGRITY_ERROR";
+  }
+
+
+  if (
+    plans.some(
+      (plan) =>
+        plan.calculation_status
+        === "UNCONFIGURED"
+    )
+  ) {
+    return "UNCONFIGURED";
+  }
+
+
+  if (
+    plans.some(
+      (plan) =>
+        ![
+          "READY",
+          "WAITING_FIRST_BAND",
+        ].includes(plan.calculation_status)
+    )
+  ) {
+    return "NOT_READY";
+  }
+
+
+  return null;
+}
+
+
+function lineGroupAllocationRequired(
+  lineGroupId
+) {
+  return ["MAIN", "H", "L"].reduce(
+    (sum, pool) => {
+      const value =
+        lineGroupDistributionPlanFor(
+          lineGroupId,
+          pool
+        )?.transfer_required_total;
+
+      // Integrity state uses null deliberately.
+      if (value == null) {
+        return sum;
+      }
+
+      return sum + Number(value || 0);
+    },
+    0
+  );
+}
+
+
 function selectedRecommendedCodes() {
   return $$(".allocation-code-select:checked").map((input) => ({
     category: input.dataset.category,
     code: input.dataset.code,
     risk_pool: input.dataset.pool || "MAIN",
+    line_group_id: input.dataset.lineGroup || "",
   }));
 }
 
@@ -658,41 +1055,228 @@ function renderAllocationCategoryColumn(groupId, category, riskPool = "MAIN") {
   return `<section class="board-column allocation-board-column">${header}<div class="board-code-list">${list}</div></section>`;
 }
 
-function updateBulkDistributionSummary(invalidatePreview = true) {
-  const groupId = summaryGroupSelect.value;
-  const codes = selectedRecommendedCodes();
-  const warehouses = selectedWarehouseNames();
-  const selectedQty = codes.reduce((sum, item) => sum + Number(recommendationMapFor(groupId, item.risk_pool).get(`${item.category}|${item.code}`)?.recommended_transfer || 0), 0);
-  const required = ["MAIN","H","L"].reduce((sum, pool) => sum + Number(distributionPlanFor(groupId, pool)?.transfer_required_total || 0), 0);
-  const root = $("#bulkDistributionSummary");
-  const button = $("#runBulkDistributionButton");
-  const calculationFailed = groupId && groupId !== "ALL"
-    ? anyDistributionPlanCalculationFailed(groupId)
-    : false;
 
-  if (calculationFailed) {
-    root.className = "transfer-selection-bar over";
-    root.innerHTML = `<span>แผนตัดยอด</span><strong>คำนวณไม่สำเร็จ</strong>`;
+function updateBulkDistributionSummary(
+  invalidatePreview = true
+) {
+  const groupId =
+    summaryGroupSelect.value;
+
+  const lineGroupId =
+    allocationLineGroupSelect?.value || "";
+
+  const root =
+    $("#bulkDistributionSummary");
+
+  const button =
+    $("#runBulkDistributionButton");
+
+
+  if (
+    !groupId
+    || groupId === "ALL"
+  ) {
+    root.className =
+      "transfer-selection-bar";
+
+    root.innerHTML =
+      `<span>ตัดยอด</span><strong>เลือกกลุ่มสรุป</strong>`;
+
     button.disabled = true;
-    if (invalidatePreview) clearTransferPreview();
+
+    if (invalidatePreview) {
+      clearTransferPreview();
+    }
+
     return;
   }
 
-  if (!required) {
-    root.className = "transfer-selection-bar";
-    root.innerHTML = `<span>ยอดปัจจุบัน</span><strong>ยังไม่ต้องตัด</strong>`;
-  } else if (!codes.length) {
-    root.className = "transfer-selection-bar over";
-    root.innerHTML = `<span>ควรตัด ${formatNumber(required)}</span><strong>เลือกรหัส</strong>`;
-  } else if (!warehouses.length) {
-    root.className = "transfer-selection-bar over";
-    root.innerHTML = `<span>${formatNumber(codes.length)} รหัส · ${formatNumber(selectedQty)}</span><strong>เลือกคลัง</strong>`;
-  } else {
-    root.className = "transfer-selection-bar ready";
-    root.innerHTML = `<span>${formatNumber(codes.length)} รหัส · ${formatNumber(selectedQty)} หน่วย</span><strong>${formatNumber(warehouses.length)} คลัง</strong>`;
+
+  if (!lineGroupId) {
+    root.className =
+      "transfer-selection-bar";
+
+    root.innerHTML =
+      `<span>ตัดยอด</span><strong>เลือก LINE Group</strong>`;
+
+    button.disabled = true;
+
+    if (invalidatePreview) {
+      clearTransferPreview();
+    }
+
+    return;
   }
-  button.disabled = state.dashboardStale || required <= 0 || !codes.length || !warehouses.length;
-  if (invalidatePreview) clearTransferPreview();
+
+
+  const risk =
+    allocationLineGroupRiskFor(
+      lineGroupId
+    );
+
+  const blockReason =
+    lineGroupAllocationBlockReason(
+      lineGroupId
+    );
+
+
+  if (blockReason) {
+    const label = {
+      DATA_INTEGRITY_ERROR:
+        "ข้อมูลตัดยอดไม่สอดคล้อง",
+
+      LINE_GROUP_DISABLED:
+        "LINE Group ถูกปิดใช้งาน",
+
+      UNCONFIGURED:
+        "ยังตั้งค่าไม่ครบ",
+
+      NOT_READY:
+        "ยังคำนวณไม่ได้",
+
+      RISK_MODEL_NOT_READY:
+        "โมเดล Risk ยังไม่พร้อม",
+
+      LINE_GROUP_NOT_READY:
+        "ยังไม่มีข้อมูล LINE Group",
+    }[blockReason] || blockReason;
+
+
+    root.className =
+      "transfer-selection-bar over";
+
+    root.innerHTML =
+      `<span>${escapeHtml(
+        risk?.line_group_name
+        || lineGroupId
+      )}</span><strong>${escapeHtml(label)}</strong>`;
+
+    button.disabled = true;
+
+    if (invalidatePreview) {
+      clearTransferPreview();
+    }
+
+    return;
+  }
+
+
+  const codes =
+    selectedRecommendedCodes();
+
+  const warehouses =
+    selectedWarehouseNames();
+
+
+  const wrongLineGroup =
+    codes.some(
+      (item) =>
+        item.line_group_id
+        && item.line_group_id !== lineGroupId
+    );
+
+
+  if (wrongLineGroup) {
+    root.className =
+      "transfer-selection-bar over";
+
+    root.innerHTML =
+      `<span>ข้อมูลเปลี่ยน</span><strong>โหลดใหม่ก่อนตัดยอด</strong>`;
+
+    button.disabled = true;
+
+    if (invalidatePreview) {
+      clearTransferPreview();
+    }
+
+    return;
+  }
+
+
+  const selectedQty =
+    codes.reduce(
+      (sum, item) =>
+        sum
+        + Number(
+          lineGroupRecommendationMapFor(
+            lineGroupId,
+            item.risk_pool
+          ).get(
+            `${item.category}|${item.code}`
+          )?.recommended_transfer || 0
+        ),
+      0
+    );
+
+
+  const required =
+    lineGroupAllocationRequired(
+      lineGroupId
+    );
+
+
+  if (
+    risk?.calculation_status === "WAITING_FIRST_BAND"
+  ) {
+    root.className =
+      "transfer-selection-bar";
+
+    root.innerHTML =
+      `<span>ยังไม่ถึงรอบคำนวณ</span>`
+      + `<strong>รออีก ${formatNumber(
+        risk.amount_to_next_band || 0
+      )}</strong>`;
+
+  } else if (!required) {
+    root.className =
+      "transfer-selection-bar";
+
+    root.innerHTML =
+      `<span>ยอดปัจจุบัน</span>`
+      + `<strong>ยังไม่ต้องตัด</strong>`;
+
+  } else if (!codes.length) {
+    root.className =
+      "transfer-selection-bar over";
+
+    root.innerHTML =
+      `<span>ควรตัด ${formatNumber(required)}</span>`
+      + `<strong>เลือกรหัส</strong>`;
+
+  } else if (!warehouses.length) {
+    root.className =
+      "transfer-selection-bar over";
+
+    root.innerHTML =
+      `<span>${formatNumber(codes.length)} รหัส · `
+      + `${formatNumber(selectedQty)}</span>`
+      + `<strong>เลือกคลัง</strong>`;
+
+  } else {
+    root.className =
+      "transfer-selection-bar ready";
+
+    root.innerHTML =
+      `<span>${formatNumber(codes.length)} รหัส · `
+      + `${formatNumber(selectedQty)} หน่วย</span>`
+      + `<strong>${formatNumber(
+        warehouses.length
+      )} คลัง</strong>`;
+  }
+
+
+  button.disabled =
+    state.dashboardStale
+    || required <= 0
+    || !codes.length
+    || !warehouses.length;
+
+  button.title = "";
+
+
+  if (invalidatePreview) {
+    clearTransferPreview();
+  }
 }
 
 function renderAllocationPoolStatus(groupId, pool) {
@@ -744,146 +1328,1535 @@ function renderOneDigitAllocationCategory(groupId, category) {
   </section>`;
 }
 
+
+function renderLineGroupPoolStatus(
+  lineGroupId,
+  pool
+) {
+  const plan =
+    lineGroupDistributionPlanFor(
+      lineGroupId,
+      pool
+    );
+
+  const risk =
+    allocationLineGroupRiskFor(
+      lineGroupId
+    );
+
+
+  if (!plan || !risk) {
+    return "";
+  }
+
+
+  const required =
+    plan.transfer_required_total == null
+      ? null
+      : Number(
+          plan.transfer_required_total || 0
+        );
+
+
+  const status =
+    plan.calculation_status;
+
+
+  let label =
+    Number(required || 0) > 0
+      ? "ควรตัด"
+      : "ปกติ";
+
+
+  if (
+    status === "WAITING_FIRST_BAND"
+  ) {
+    label =
+      `รออีก ${formatNumber(
+        risk.amount_to_next_band || 0
+      )}`;
+
+  } else if (
+    status === "DATA_INTEGRITY_ERROR"
+  ) {
+    label =
+      "ข้อมูลผิดปกติ";
+
+  } else if (
+    status === "UNCONFIGURED"
+  ) {
+    label =
+      "ตั้งค่าไม่ครบ";
+
+  } else if (
+    status === "NOT_READY"
+  ) {
+    label =
+      "ยังคำนวณไม่ได้";
+  }
+
+
+  return `
+    <div class="pool-status-card ${
+      Number(required || 0) > 0
+        ? "active"
+        : ""
+    } ${
+      ![
+        "READY",
+        "WAITING_FIRST_BAND",
+      ].includes(status)
+        ? "unconfigured"
+        : ""
+    }">
+
+      <span>${escapeHtml(
+        riskPoolLabel(pool)
+      )}</span>
+
+      <strong>${
+        status === "READY"
+          ? formatNumber(required || 0)
+          : "—"
+      }</strong>
+
+      <small>${escapeHtml(label)}</small>
+
+      <details>
+        <summary>รายละเอียด</summary>
+
+        <div>
+          <span>
+            รับ ${formatNumber(
+              risk.gross_received || 0
+            )}
+          </span>
+
+          <span>
+            Band ${formatNumber(
+              risk.calculation_band || 0
+            )}
+          </span>
+
+          <span>
+            งบ ${formatNumber(
+              risk.risk_budget || 0
+            )}
+          </span>
+        </div>
+      </details>
+    </div>
+  `;
+}
+
+
+function renderLineGroupAllocationCategoryColumn(
+  lineGroupId,
+  category,
+  riskPool = "MAIN"
+) {
+  const rows =
+    lineGroupCodeRowsFor(
+      lineGroupId,
+      category
+    );
+
+  const recommendations =
+    lineGroupRecommendationMapFor(
+      lineGroupId,
+      riskPool
+    );
+
+  const profile =
+    profileFor(category);
+
+
+  const maxQty =
+    Math.max(
+      1,
+      ...rows.map(
+        (row) =>
+          Number(row.order_total || 0)
+      )
+    );
+
+
+  const recommendedTotal =
+    rows.reduce(
+      (sum, row) =>
+        sum
+        + Number(
+          recommendations.get(
+            `${category}|${row.code}`
+          )?.recommended_transfer || 0
+        ),
+      0
+    );
+
+
+  const header = `
+    <div class="board-column-head">
+      <div class="category-title">
+
+        <strong>${escapeHtml(category)}</strong>
+
+        <span>
+          ×${formatNumber(
+            profile?.special_multiplier || 0
+          )}
+          · ควรตัด ${formatNumber(
+            recommendedTotal
+          )}
+        </span>
+
+      </div>
+    </div>
+  `;
+
+
+  const list =
+    rows.map((row) => {
+      const qty =
+        Number(
+          row.order_total || 0
+        );
+
+      const retained =
+        Number(
+          row.retained_quantity || 0
+        );
+
+      const limit =
+        Number(
+          row.retention_limit || 0
+        );
+
+      const rec =
+        recommendations.get(
+          `${category}|${row.code}`
+        );
+
+
+      const recommended =
+        Math.min(
+          Math.max(
+            0,
+            retained - limit
+          ),
+          Number(
+            rec?.recommended_transfer || 0
+          )
+        );
+
+
+      const width =
+        qty > 0
+          ? Math.max(
+              3,
+              qty / maxQty * 100
+            )
+          : 0;
+
+
+      const transferred =
+        Number(
+          row.confirmed_cut || 0
+        ) > 0
+          ? `<span class="promo-badge">ส่งแล้ว ${formatNumber(row.confirmed_cut)}</span>`
+          : "";
+
+
+      const effective =
+        Number(
+          row.effective_multiplier || 0
+        );
+
+
+      const configuredMultiplier =
+        Number(
+          profile?.special_multiplier || 0
+        );
+
+
+      const multiplier =
+        effective > 0
+        && Math.abs(
+          effective
+          - configuredMultiplier
+        ) > 0.0009
+          ? `<span class="promo-badge">×${formatNumber(effective)}</span>`
+          : "";
+
+
+      return `
+        <label class="board-code-row allocation-code-row ${
+          qty === 0
+            ? "zero"
+            : ""
+        } ${
+          recommended > 0
+            ? "recommended"
+            : ""
+        }">
+
+          <div class="allocation-code-check">
+            ${
+              recommended > 0
+                ? `<input
+                    class="allocation-code-select"
+                    type="checkbox"
+                    checked
+                    data-line-group="${escapeHtml(lineGroupId)}"
+                    data-pool="${escapeHtml(riskPool)}"
+                    data-category="${escapeHtml(category)}"
+                    data-code="${escapeHtml(row.code)}"
+                    aria-label="เลือก ${escapeHtml(category)}${escapeHtml(row.code)}"
+                  />`
+                : `<span class="allocation-code-spacer"></span>`
+            }
+          </div>
+
+          <div class="allocation-code-content">
+
+            <div class="board-code-main">
+              <strong>${escapeHtml(row.code)}</strong>
+              <span>${formatNumber(qty)}</span>
+            </div>
+
+            <div class="board-code-badges">
+              ${multiplier}${transferred}
+            </div>
+
+            <div class="allocation-code-meta">
+
+              <span>
+                คง ${formatNumber(retained)}
+                · ลิมิต ${formatNumber(limit)}
+              </span>
+
+              ${
+                recommended > 0
+                  ? `<strong>ตัด ${formatNumber(recommended)}</strong>`
+                  : `<span>—</span>`
+              }
+
+            </div>
+
+            <div class="qty-track">
+              <div
+                class="qty-fill"
+                style="width:${width}%"
+              ></div>
+            </div>
+
+          </div>
+        </label>
+      `;
+    }).join("");
+
+
+  return `
+    <section class="board-column allocation-board-column">
+      ${header}
+      <div class="board-code-list">
+        ${list}
+      </div>
+    </section>
+  `;
+}
+
+
+function renderLineGroupOneDigitCategory(
+  lineGroupId,
+  category
+) {
+  const plan =
+    lineGroupDistributionPlanFor(
+      lineGroupId,
+      category
+    );
+
+  const rows =
+    lineGroupCodeRowsFor(
+      lineGroupId,
+      category
+    );
+
+  const recommendations =
+    lineGroupRecommendationMapFor(
+      lineGroupId,
+      category
+    );
+
+  const profile =
+    profileFor(category);
+
+
+  const list =
+    rows.map((row) => {
+      const qty =
+        Number(
+          row.order_total || 0
+        );
+
+      const retained =
+        Number(
+          row.retained_quantity || 0
+        );
+
+      const limit =
+        Number(
+          row.retention_limit || 0
+        );
+
+      const rec =
+        recommendations.get(
+          `${category}|${row.code}`
+        );
+
+
+      const recommended =
+        Math.min(
+          Math.max(
+            0,
+            retained - limit
+          ),
+          Number(
+            rec?.recommended_transfer || 0
+          )
+        );
+
+
+      return `
+        <label class="one-digit-code allocation-one-digit-code ${
+          qty === 0
+            ? "zero"
+            : ""
+        } ${
+          recommended > 0
+            ? "recommended"
+            : ""
+        }">
+
+          ${
+            recommended > 0
+              ? `<input
+                  class="allocation-code-select"
+                  type="checkbox"
+                  checked
+                  data-line-group="${escapeHtml(lineGroupId)}"
+                  data-pool="${category}"
+                  data-category="${category}"
+                  data-code="${escapeHtml(row.code)}"
+                />`
+              : `<span class="allocation-code-spacer"></span>`
+          }
+
+          <strong>
+            ${category}${escapeHtml(row.code)}
+          </strong>
+
+          <span>
+            ${formatNumber(qty)}
+          </span>
+
+          <small>
+            ${
+              recommended > 0
+                ? `คง ${formatNumber(retained)} · ตัด ${formatNumber(recommended)}`
+                : Number(row.confirmed_cut || 0) > 0
+                  ? `คง ${formatNumber(retained)}`
+                  : ""
+            }
+          </small>
+
+        </label>
+      `;
+    }).join("");
+
+
+  return `
+    <section class="one-digit-category allocation-one-digit-category ${
+      Number(
+        plan?.transfer_required_total || 0
+      ) > 0
+        ? "risk-active"
+        : ""
+    }">
+
+      <div class="one-digit-head">
+
+        <div>
+          <strong>${category}</strong>
+        </div>
+
+        <div class="one-digit-head-metrics">
+
+          <span>
+            ×${formatNumber(
+              profile?.special_multiplier || 0
+            )}
+          </span>
+
+          <strong>
+            ตัด ${formatNumber(
+              plan?.transfer_required_total || 0
+            )}
+          </strong>
+
+        </div>
+      </div>
+
+      <div class="one-digit-code-grid">
+        ${list}
+      </div>
+
+    </section>
+  `;
+}
+
+
 function renderAllocation() {
-  const riskSummary = $("#allocationRiskSummary");
-  const board = $("#allocationBoard");
-  const groupId = summaryGroupSelect.value;
-  const warehouses = state.dashboard?.warehouse_limits || [];
+  const riskSummary =
+    $("#allocationRiskSummary");
 
-  if (!state.dashboard?.settlement_session) {
+  const board =
+    $("#allocationBoard");
+
+  const groupId =
+    summaryGroupSelect.value;
+
+  const warehouses =
+    state.dashboard?.warehouse_limits || [];
+
+
+  syncAllocationLineGroupOptions(
+    groupId
+  );
+
+
+  if (
+    !state.dashboard?.settlement_session
+  ) {
     riskSummary.innerHTML = "";
-    $("#warehouseChoices").innerHTML = "";
-    board.innerHTML = `<div class="empty">ยังไม่ได้เปิดยอด</div>`;
+
+    $("#warehouseChoices").innerHTML =
+      "";
+
+    board.innerHTML =
+      `<div class="empty">ยังไม่ได้เปิดยอด</div>`;
+
     updateBulkDistributionSummary(false);
+
     return;
   }
-  if (!groupId || groupId === "ALL") {
-    riskSummary.innerHTML = `<div class="risk-notice">เลือก <strong>กลุ่มสรุป</strong> ด้านบน 1 กลุ่มก่อนตัดยอด</div>`;
-    $("#warehouseChoices").innerHTML = "";
+
+
+  if (
+    !groupId
+    || groupId === "ALL"
+  ) {
+    riskSummary.innerHTML =
+      `<div class="risk-notice">
+        เลือก <strong>กลุ่มสรุป</strong>
+        ด้านบน 1 กลุ่มก่อนตัดยอด
+      </div>`;
+
+    $("#warehouseChoices").innerHTML =
+      "";
+
     board.innerHTML = "";
+
     updateBulkDistributionSummary(false);
+
     return;
   }
 
-  const poolStates = ["MAIN","H","L"].map((pool) => riskPoolFor(groupId, pool)).filter(Boolean);
-  const totalReceived = poolStates.reduce((sum,row)=>sum+Number(row.gross_received||0),0);
-  if (!totalReceived) {
-    riskSummary.innerHTML = `<div class="risk-notice">${escapeHtml(groupName(groupId))} ยังไม่มีออเดอร์สำหรับคำนวณ</div>`;
-    $("#warehouseChoices").innerHTML = "";
+
+  const lineGroupId =
+    allocationLineGroupSelect?.value
+    || "";
+
+
+  if (!lineGroupId) {
+    riskSummary.innerHTML =
+      `<div class="risk-notice">
+        ${escapeHtml(groupName(groupId))}
+        · เลือก <strong>LINE Group</strong>
+        ที่ต้องการคำนวณและตัดยอด
+      </div>`;
+
+    $("#warehouseChoices").innerHTML =
+      "";
+
     board.innerHTML = "";
+
     updateBulkDistributionSummary(false);
+
     return;
   }
 
-  riskSummary.innerHTML = `<section class="pool-status-strip">${["MAIN","H","L"].map((pool)=>renderAllocationPoolStatus(groupId,pool)).join("")}</section>`;
-  renderWarehouseChoices(warehouses);
 
-  const gRows = codeRowsFor(groupId, "G");
-  const gRecommendations = recommendationMapFor(groupId, "MAIN");
-  const mainHasOrders = ["A","B","E","F","G"].some((category)=>codeRowsFor(groupId,category).some((row)=>Number(row.order_total||0)>0));
-  const mainBoard = mainHasOrders ? `<div class="allocation-pool-section"><div class="allocation-pool-heading"><strong>หมวดหลัก</strong><span>แยกจาก H / L</span></div>
-    <div class="four-column-board">${["A","B","E","F"].map((category) => renderAllocationCategoryColumn(groupId,category,"MAIN")).join("")}</div>
-    ${gRows.length ? `<div class="g-board allocation-g-board"><div class="category-heading"><h3>หมวด G</h3><span>Point ×${formatNumber(profileFor("G")?.special_multiplier || 0)}</span></div><div class="g-code-grid">${gRows.map((row) => {
-      const rec = gRecommendations.get(`G|${row.code}`);
-      const recommended = Math.min(Number(row.retained_quantity ?? row.available_to_cut ?? 0),Number(rec?.recommended_transfer || 0));
-      return `<label class="g-code allocation-g-code ${recommended > 0 ? "recommended" : ""}">
-        ${recommended > 0 ? `<input class="allocation-code-select" type="checkbox" checked data-pool="MAIN" data-category="G" data-code="${escapeHtml(row.code)}" aria-label="เลือก G${escapeHtml(row.code)}" />` : `<span></span>`}
-        <strong>G${escapeHtml(row.code)}</strong><span>รับ ${formatNumber(row.order_total)} · คง ${formatNumber(row.retained_quantity ?? 0)}</span>${recommended > 0 ? `<em>ตัด ${formatNumber(recommended)}</em>` : ""}
-      </label>`;
-    }).join("")}</div></div>` : ""}</div>` : "";
+  const risk =
+    allocationLineGroupRiskFor(
+      lineGroupId
+    );
 
-  const hlHasOrders = ["H","L"].some((category)=>codeRowsFor(groupId,category).some((row)=>Number(row.order_total||0)>0));
-  const hlBoard = hlHasOrders ? `<div class="allocation-pool-section one-digit-allocation-section"><div class="allocation-pool-heading"><strong>วิ่ง</strong><span>คำนวณความเสี่ยงแยก</span></div><div class="one-digit-board">${["H","L"].map((category)=>renderOneDigitAllocationCategory(groupId,category)).join("")}</div></div>` : "";
 
-  board.innerHTML = `<section class="summary-group-board allocation-summary-board">${mainBoard}${hlBoard}</section>`;
-  const failedPools = ["MAIN","H","L"].filter((pool)=>distributionPlanCalculationFailed(groupId,pool));
-  if (failedPools.length) {
+  if (!risk) {
+    riskSummary.innerHTML =
+      `<div class="risk-notice">
+        ไม่พบสถานะความเสี่ยงของ LINE Group นี้
+      </div>`;
+
+    $("#warehouseChoices").innerHTML =
+      "";
+
+    board.innerHTML = "";
+
+    updateBulkDistributionSummary(false);
+
+    return;
+  }
+
+
+  if (
+    Number(risk.gross_received || 0) <= 0
+  ) {
+    riskSummary.innerHTML =
+      `<div class="risk-notice">
+        ${escapeHtml(
+          risk.line_group_name
+          || lineGroupId
+        )}
+        ยังไม่มีออเดอร์สำหรับคำนวณ
+      </div>`;
+
+    $("#warehouseChoices").innerHTML =
+      "";
+
+    board.innerHTML = "";
+
+    updateBulkDistributionSummary(false);
+
+    return;
+  }
+
+
+  riskSummary.innerHTML = `
+    <div class="risk-notice">
+
+      <strong>
+        ${escapeHtml(
+          risk.line_group_name
+          || lineGroupId
+        )}
+      </strong>
+
+      · รับ ${formatNumber(
+        risk.gross_received || 0
+      )}
+
+      · Band ${formatNumber(
+        risk.calculation_band || 0
+      )}
+
+      · ลดยอด ${formatNumber(
+        risk.reduction_pct || 0
+      )}%
+
+      · Risk Budget ${formatNumber(
+        risk.risk_budget || 0
+      )}
+
+    </div>
+
+    <section class="pool-status-strip">
+      ${
+        ["MAIN", "H", "L"]
+          .map(
+            (pool) =>
+              renderLineGroupPoolStatus(
+                lineGroupId,
+                pool
+              )
+          )
+          .join("")
+      }
+    </section>
+  `;
+
+
+  renderWarehouseChoices(
+    warehouses
+  );
+
+
+  const mainHasOrders =
+    ["A", "B", "E", "F", "G"]
+      .some(
+        (category) =>
+          lineGroupCodeRowsFor(
+            lineGroupId,
+            category
+          ).some(
+            (row) =>
+              Number(
+                row.order_total || 0
+              ) > 0
+          )
+      );
+
+
+  const gRows =
+    lineGroupCodeRowsFor(
+      lineGroupId,
+      "G"
+    );
+
+
+  const gRecommendations =
+    lineGroupRecommendationMapFor(
+      lineGroupId,
+      "MAIN"
+    );
+
+
+  const mainBoard =
+    mainHasOrders
+      ? `
+        <div class="allocation-pool-section">
+
+          <div class="allocation-pool-heading">
+            <strong>หมวดหลัก</strong>
+            <span>คำนวณความเสี่ยงแยกตาม LINE Group</span>
+          </div>
+
+          <div class="four-column-board">
+            ${
+              ["A", "B", "E", "F"]
+                .map(
+                  (category) =>
+                    renderLineGroupAllocationCategoryColumn(
+                      lineGroupId,
+                      category,
+                      "MAIN"
+                    )
+                )
+                .join("")
+            }
+          </div>
+
+          ${
+            gRows.length
+              ? `
+                <div class="g-board allocation-g-board">
+
+                  <div class="category-heading">
+                    <h3>หมวด G</h3>
+
+                    <span>
+                      Point ×${formatNumber(
+                        profileFor("G")
+                          ?.special_multiplier || 0
+                      )}
+                    </span>
+                  </div>
+
+                  <div class="g-code-grid">
+
+                    ${
+                      gRows.map((row) => {
+                        const retained =
+                          Number(
+                            row.retained_quantity || 0
+                          );
+
+                        const limit =
+                          Number(
+                            row.retention_limit || 0
+                          );
+
+                        const rec =
+                          gRecommendations.get(
+                            `G|${row.code}`
+                          );
+
+
+                        const recommended =
+                          Math.min(
+                            Math.max(
+                              0,
+                              retained - limit
+                            ),
+                            Number(
+                              rec?.recommended_transfer
+                              || 0
+                            )
+                          );
+
+
+                        return `
+                          <label class="g-code allocation-g-code ${
+                            recommended > 0
+                              ? "recommended"
+                              : ""
+                          }">
+
+                            ${
+                              recommended > 0
+                                ? `<input
+                                    class="allocation-code-select"
+                                    type="checkbox"
+                                    checked
+                                    data-line-group="${escapeHtml(lineGroupId)}"
+                                    data-pool="MAIN"
+                                    data-category="G"
+                                    data-code="${escapeHtml(row.code)}"
+                                  />`
+                                : `<span></span>`
+                            }
+
+                            <strong>
+                              G${escapeHtml(row.code)}
+                            </strong>
+
+                            <span>
+                              รับ ${formatNumber(
+                                row.order_total
+                              )}
+                              · คง ${formatNumber(retained)}
+                              · ลิมิต ${formatNumber(limit)}
+                            </span>
+
+                            ${
+                              recommended > 0
+                                ? `<em>ตัด ${formatNumber(recommended)}</em>`
+                                : ""
+                            }
+
+                          </label>
+                        `;
+                      }).join("")
+                    }
+
+                  </div>
+                </div>
+              `
+              : ""
+          }
+
+        </div>
+      `
+      : "";
+
+
+  const hlHasOrders =
+    ["H", "L"].some(
+      (category) =>
+        lineGroupCodeRowsFor(
+          lineGroupId,
+          category
+        ).some(
+          (row) =>
+            Number(
+              row.order_total || 0
+            ) > 0
+        )
+    );
+
+
+  const hlBoard =
+    hlHasOrders
+      ? `
+        <div class="allocation-pool-section one-digit-allocation-section">
+
+          <div class="allocation-pool-heading">
+            <strong>วิ่ง</strong>
+            <span>แยกตาม LINE Group</span>
+          </div>
+
+          <div class="one-digit-board">
+            ${
+              ["H", "L"]
+                .map(
+                  (category) =>
+                    renderLineGroupOneDigitCategory(
+                      lineGroupId,
+                      category
+                    )
+                )
+                .join("")
+            }
+          </div>
+
+        </div>
+      `
+      : "";
+
+
+  board.innerHTML =
+    `<section class="summary-group-board allocation-summary-board">
+      ${mainBoard}
+      ${hlBoard}
+    </section>`;
+
+
+  const blockReason =
+    lineGroupAllocationBlockReason(
+      lineGroupId
+    );
+
+
+  if (blockReason) {
+    const message = {
+      DATA_INTEGRITY_ERROR:
+        "พบข้อมูลตัดยอดไม่สอดคล้อง · ระบบปิดการตัดเพิ่มจนกว่าจะตรวจสอบ",
+
+      LINE_GROUP_DISABLED:
+        "LINE Group นี้ถูกปิดใช้งาน",
+
+      UNCONFIGURED:
+        "ยังตั้งค่าตัวคูณ Point ไม่ครบ",
+
+      NOT_READY:
+        "สถานะ Risk ยังไม่พร้อมสำหรับการตัดยอด",
+
+      RISK_MODEL_NOT_READY:
+        "LINE Group นี้ยังไม่ได้ใช้โมเดล Category Retention",
+
+      LINE_GROUP_NOT_READY:
+        "ยังไม่มีข้อมูล LINE Group",
+    }[blockReason] || blockReason;
+
+
     board.insertAdjacentHTML(
       "afterbegin",
-      `<div class="risk-notice">คำนวณแผนตัดยอดไม่สำเร็จสำหรับ ${failedPools.map(riskPoolLabel).join(" / ")} · ยังไม่ควรตัดยอดจนกว่าจะคำนวณใหม่ได้</div>`
+      `<div class="risk-notice">
+        ${escapeHtml(message)}
+      </div>`
     );
-  } else if (!["MAIN","H","L"].some((pool)=>Number(distributionPlanFor(groupId,pool)?.transfer_required_total||0)>0)) {
-    board.insertAdjacentHTML("afterbegin", `<div class="risk-notice">ยังไม่ต้องตัดยอด</div>`);
+
+  } else if (
+    risk.calculation_status
+      === "WAITING_FIRST_BAND"
+  ) {
+    board.insertAdjacentHTML(
+      "afterbegin",
+      `<div class="risk-notice">
+        ยังไม่ถึง 100,000 แรก
+        · รออีก ${formatNumber(
+          risk.amount_to_next_band || 0
+        )}
+        ก่อนเริ่มคำนวณ Risk
+      </div>`
+    );
+
+  } else if (
+    lineGroupAllocationRequired(
+      lineGroupId
+    ) <= 0
+  ) {
+    board.insertAdjacentHTML(
+      "afterbegin",
+      `<div class="risk-notice">
+        ยังไม่ต้องตัดยอด
+      </div>`
+    );
   }
-  $$(".allocation-code-select").forEach((input) => input.addEventListener("change", () => updateBulkDistributionSummary(true)));
+
+
+  $$(".allocation-code-select")
+    .forEach(
+      (input) =>
+        input.addEventListener(
+          "change",
+          () =>
+            updateBulkDistributionSummary(
+              true
+            )
+        )
+    );
+
+
   updateBulkDistributionSummary(false);
 }
 
+
 async function runBulkDistribution() {
-  if (state.dashboardStale) return toast("ข้อมูลเปลี่ยน กรุณาอัปเดต", true);
-  const groupId = summaryGroupSelect.value;
-  if (groupId && groupId !== "ALL" && anyDistributionPlanCalculationFailed(groupId)) {
-    return toast("แผนตัดยอดคำนวณไม่สำเร็จ กรุณายังไม่ตัดยอด", true);
+  if (state.dashboardStale) {
+    return toast(
+      "ข้อมูลเปลี่ยน กรุณาอัปเดต",
+      true
+    );
   }
-  const selectedCodes = selectedRecommendedCodes();
-  const destinations = selectedWarehouseNames();
-  if (!groupId || groupId === "ALL") return toast("กรุณาเลือกกลุ่มสรุป", true);
-  if (!selectedCodes.length) return toast("กรุณาเลือกรหัสที่ต้องการตัด", true);
-  if (!destinations.length) return toast("กรุณาเลือกคลังปลายทาง", true);
 
-  const byPool = new Map();
+
+  const groupId =
+    summaryGroupSelect.value;
+
+  const lineGroupId =
+    allocationLineGroupSelect?.value || "";
+
+
+  if (
+    !groupId
+    || groupId === "ALL"
+  ) {
+    return toast(
+      "กรุณาเลือกกลุ่มสรุป",
+      true
+    );
+  }
+
+
+  if (!lineGroupId) {
+    return toast(
+      "กรุณาเลือก LINE Group",
+      true
+    );
+  }
+
+
+  const risk =
+    allocationLineGroupRiskFor(
+      lineGroupId
+    );
+
+
+  if (!risk) {
+    return toast(
+      "ไม่พบข้อมูล Risk ของ LINE Group",
+      true
+    );
+  }
+
+
+  if (
+    risk.summary_group_id !== groupId
+  ) {
+    setDashboardStale(true);
+
+    return toast(
+      "ข้อมูล LINE Group เปลี่ยน กรุณาอัปเดต",
+      true
+    );
+  }
+
+
+  const blockReason =
+    lineGroupAllocationBlockReason(
+      lineGroupId
+    );
+
+
+  if (blockReason) {
+    const friendly = {
+      DATA_INTEGRITY_ERROR:
+        "พบข้อมูลตัดยอดไม่สอดคล้อง",
+
+      LINE_GROUP_DISABLED:
+        "LINE Group ถูกปิดใช้งาน",
+
+      UNCONFIGURED:
+        "ยังตั้งค่าตัวคูณ Point ไม่ครบ",
+
+      NOT_READY:
+        "สถานะ Risk ยังไม่พร้อม",
+
+      RISK_MODEL_NOT_READY:
+        "LINE Group ยังไม่ได้ใช้ Category Retention",
+
+      LINE_GROUP_NOT_READY:
+        "ยังไม่มีข้อมูล LINE Group",
+    }[blockReason] || blockReason;
+
+
+    return toast(
+      `ยังตัดยอดไม่ได้: ${friendly}`,
+      true
+    );
+  }
+
+
+  if (
+    risk.calculation_status
+      === "WAITING_FIRST_BAND"
+  ) {
+    return toast(
+      "ยังไม่ถึง 100,000 แรก จึงยังไม่ต้องตัดยอด",
+      true
+    );
+  }
+
+
+  const required =
+    lineGroupAllocationRequired(
+      lineGroupId
+    );
+
+
+  if (required <= 0) {
+    return toast(
+      "ยังไม่ต้องตัดเพิ่ม",
+      true
+    );
+  }
+
+
+  const selectedCodes =
+    selectedRecommendedCodes();
+
+  const destinations =
+    selectedWarehouseNames();
+
+
+  if (!selectedCodes.length) {
+    return toast(
+      "กรุณาเลือกรหัสที่ต้องการตัด",
+      true
+    );
+  }
+
+
+  if (!destinations.length) {
+    return toast(
+      "กรุณาเลือกคลังปลายทาง",
+      true
+    );
+  }
+
+
+  // Every selected checkbox rendered by the LINE Group
+  // allocation board must carry the exact same LINE Group.
+  if (
+    selectedCodes.some(
+      (item) =>
+        !item.line_group_id
+        || item.line_group_id !== lineGroupId
+    )
+  ) {
+    setDashboardStale(true);
+
+    return toast(
+      "รายการที่เลือกไม่ตรงกับ LINE Group กรุณาอัปเดต",
+      true
+    );
+  }
+
+
+  const byPool =
+    new Map();
+
+
   for (const item of selectedCodes) {
-    const pool = item.risk_pool || "MAIN";
-    if (!byPool.has(pool)) byPool.set(pool, []);
-    byPool.get(pool).push({ category:item.category, code:item.code });
+    const riskPool =
+      item.risk_pool || "MAIN";
+
+
+    if (
+      !["MAIN", "H", "L"].includes(
+        riskPool
+      )
+    ) {
+      return toast(
+        "ชุดความเสี่ยงไม่ถูกต้อง",
+        true
+      );
+    }
+
+
+    if (!byPool.has(riskPool)) {
+      byPool.set(
+        riskPool,
+        []
+      );
+    }
+
+
+    byPool.get(riskPool).push({
+      category:
+        item.category,
+
+      code:
+        item.code,
+    });
   }
 
-  const button = $("#runBulkDistributionButton");
+
+  const button =
+    $("#runBulkDistributionButton");
+
   button.disabled = true;
-  button.textContent = "กำลังจัดแผน...";
+
+  button.textContent =
+    "กำลังจัดแผน...";
+
+
   try {
     const previews = [];
-    for (const [riskPool, codes] of byPool.entries()) {
-      const preview = await api("/api/risk-distribution-preview", {
-        method:"POST",
-        body:JSON.stringify({ summary_group_id:groupId, risk_pool:riskPool, destinations, selected_codes:codes }),
-      });
-      previews.push(preview);
+
+
+    for (
+      const [riskPool, codes]
+      of byPool.entries()
+    ) {
+      const preview =
+        await api(
+          "/api/risk-distribution-preview",
+          {
+            method:
+              "POST",
+
+            body:
+              JSON.stringify({
+                line_group_id:
+                  lineGroupId,
+
+                summary_group_id:
+                  groupId,
+
+                risk_pool:
+                  riskPool,
+
+                destinations,
+
+                selected_codes:
+                  codes,
+              }),
+          }
+        );
+
+
+      // A LINE Group request must never silently fall back
+      // to the legacy Summary Group confirmation contract.
+      if (
+        preview.preview_mode
+        !== "LINE_GROUP_CATEGORY_RETENTION"
+      ) {
+        throw new Error(
+          "LINE_GROUP_PREVIEW_REQUIRED"
+        );
+      }
+
+
+      if (
+        preview.confirmation_token_version
+        !== "v3"
+      ) {
+        throw new Error(
+          "LINE_GROUP_CONFIRMATION_TOKEN_REQUIRED"
+        );
+      }
+
+
+      if (!preview.confirmation_token) {
+        throw new Error(
+          "CONFIRMATION_TOKEN_MISSING"
+        );
+      }
+
+
+      // Validate identity when the preview response exposes
+      // these fields. The signed token remains authoritative.
+      if (
+        preview.line_group_id
+        && preview.line_group_id
+          !== lineGroupId
+      ) {
+        throw new Error(
+          "LINE_GROUP_PREVIEW_MISMATCH"
+        );
+      }
+
+
+      if (
+        preview.summary_group_id
+        && preview.summary_group_id
+          !== groupId
+      ) {
+        throw new Error(
+          "SUMMARY_GROUP_PREVIEW_MISMATCH"
+        );
+      }
+
+
+      if (
+        preview.risk_pool
+        && preview.risk_pool
+          !== riskPool
+      ) {
+        throw new Error(
+          "RISK_POOL_PREVIEW_MISMATCH"
+        );
+      }
+
+
+      previews.push(
+        preview
+      );
     }
-    state.bulkDistributionPreview = previews;
-    const totalQty = previews.reduce((sum,p)=>sum+Number(p.planned_quantity||0),0);
-    const totalRounds = previews.reduce((sum,p)=>sum+Number(p.planned_rounds||0),0);
-    const totalCodes = previews.reduce((sum,p)=>sum+Number(p.selected_code_count||0),0);
-    const poolLines = previews.map((p)=>`${riskPoolLabel(p.risk_pool)} ${formatNumber(p.planned_quantity)} · ${formatNumber(p.planned_rounds)} รอบ`).join("\n");
-    $("#transferPreview").innerHTML = `<div class="preview-box ok transfer-confirm-card">
-      <div class="preview-heading"><strong>พร้อมตัดยอด</strong><span>${formatNumber(totalCodes)} รหัส · ${formatNumber(destinations.length)} คลัง</span></div>
-      <div class="confirm-totals"><div><span>ยอดตัด</span><strong>${formatNumber(totalQty)}</strong></div><div><span>รอบ</span><strong>${formatNumber(totalRounds)}</strong></div><div><span>ชุดความเสี่ยง</span><strong>${formatNumber(previews.length)}</strong></div></div>
-      <div class="preview-policy-note">ระบบแบ่ง H / L ออกจากหมวดหลักอัตโนมัติ</div>
-    </div>`;
 
-    const confirmed = window.confirm(`ยืนยันตัดยอด?\n\nรวม ${formatNumber(totalQty)} หน่วย · ${formatNumber(totalRounds)} รอบ\n\n${poolLines}`);
-    if (!confirmed) return;
 
-    button.textContent = "กำลังยืนยันทุกรอบ...";
+    state.bulkDistributionPreview =
+      previews;
+
+
+    const totalQty =
+      previews.reduce(
+        (sum, preview) =>
+          sum
+          + Number(
+            preview.planned_quantity || 0
+          ),
+        0
+      );
+
+
+    const totalRounds =
+      previews.reduce(
+        (sum, preview) =>
+          sum
+          + Number(
+            preview.planned_rounds || 0
+          ),
+        0
+      );
+
+
+    const totalCodes =
+      previews.reduce(
+        (sum, preview) =>
+          sum
+          + Number(
+            preview.selected_code_count || 0
+          ),
+        0
+      );
+
+
+    const lineGroupName =
+      risk.line_group_name
+      || lineGroupId;
+
+
+    const poolLines =
+      previews.map(
+        (preview) =>
+          `${riskPoolLabel(
+            preview.risk_pool
+          )} `
+          + `${formatNumber(
+            preview.planned_quantity || 0
+          )}`
+          + ` · ${formatNumber(
+            preview.planned_rounds || 0
+          )} รอบ`
+      ).join("\n");
+
+
+    $("#transferPreview").innerHTML = `
+      <div class="preview-box ok transfer-confirm-card">
+
+        <div class="preview-heading">
+
+          <strong>
+            พร้อมตัดยอด
+          </strong>
+
+          <span>
+            ${escapeHtml(lineGroupName)}
+          </span>
+
+        </div>
+
+        <div class="confirm-totals">
+
+          <div>
+            <span>ยอดตัด</span>
+            <strong>
+              ${formatNumber(totalQty)}
+            </strong>
+          </div>
+
+          <div>
+            <span>รอบ</span>
+            <strong>
+              ${formatNumber(totalRounds)}
+            </strong>
+          </div>
+
+          <div>
+            <span>รหัส</span>
+            <strong>
+              ${formatNumber(totalCodes)}
+            </strong>
+          </div>
+
+        </div>
+
+        <div class="preview-policy-note">
+          Risk Band ${formatNumber(
+            risk.calculation_band || 0
+          )}
+          · Risk Budget ${formatNumber(
+            risk.risk_budget || 0
+          )}
+          · คำนวณเฉพาะ LINE Group นี้
+        </div>
+
+      </div>
+    `;
+
+
+    const confirmed =
+      window.confirm(
+        `ยืนยันตัดยอด?\n\n`
+        + `${lineGroupName}\n`
+        + `รวม ${formatNumber(
+          totalQty
+        )} หน่วย`
+        + ` · ${formatNumber(
+          totalRounds
+        )} รอบ\n\n`
+        + poolLines
+      );
+
+
+    if (!confirmed) {
+      return;
+    }
+
+
+    button.textContent =
+      "กำลังยืนยันทุกรอบ...";
+
+
     let confirmedQty = 0;
+
+
+    // Confirmation intentionally sends ONLY the signed token.
+    // The server derives line group, summary group, risk
+    // snapshot and rounds from the verified v3 token.
     for (const preview of previews) {
-      const payload = await api("/api/risk-distribution-confirm", {
-        method:"POST",
-        body:JSON.stringify({ confirmation_token:preview.confirmation_token }),
-      });
-      confirmedQty += Number(payload.run?.confirmed_quantity || 0);
+      const payload =
+        await api(
+          "/api/risk-distribution-confirm",
+          {
+            method:
+              "POST",
+
+            body:
+              JSON.stringify({
+                confirmation_token:
+                  preview.confirmation_token,
+              }),
+          }
+        );
+
+
+      confirmedQty +=
+        Number(
+          payload.run
+            ?.confirmed_quantity || 0
+        );
     }
-    toast(`ตัดยอดสำเร็จ ${formatNumber(confirmedQty)}`);
+
+
+    toast(
+      `ตัดยอดสำเร็จ ${formatNumber(
+        confirmedQty
+      )}`
+    );
+
+
     clearTransferPreview();
+
     await loadDashboard();
+
     await loadAllocationHistory();
+
   } catch (error) {
-    const stale = ["RISK_STATE_STALE","CONFIRMATION_EXPIRED","TRANSFER_EXCEEDS_CODE_AVAILABLE","DESTINATION_LIMIT_NOT_CONFIGURED"].includes(error.message);
-    if (stale) {
+    const staleErrors =
+      new Set([
+        "RISK_STATE_STALE",
+        "CONFIRMATION_EXPIRED",
+        "TRANSFER_EXCEEDS_CODE_AVAILABLE",
+        "DESTINATION_LIMIT_NOT_CONFIGURED",
+        "RETENTION_RECOMMENDATION_MISMATCH",
+        "POST_CONFIRM_RETENTION_MISMATCH",
+        "LINE_GROUP_NOT_IN_SETTLEMENT",
+        "LINE_GROUP_DISABLED",
+        "INVALID_RISK_SNAPSHOT",
+        "INVALID_TRANSFER_ITEM",
+        "LINE_GROUP_MISMATCH",
+        "INCONSISTENT_TRANSFER_SNAPSHOT",
+        "DUPLICATE_TRANSFER_ITEM",
+        "LINE_GROUP_PREVIEW_MISMATCH",
+        "SUMMARY_GROUP_PREVIEW_MISMATCH",
+        "RISK_POOL_PREVIEW_MISMATCH",
+      ]);
+
+
+    if (
+      staleErrors.has(
+        error.message
+      )
+    ) {
       setDashboardStale(true);
-      toast("ข้อมูลเปลี่ยน กรุณาตรวจใหม่", true);
+
+      toast(
+        "ข้อมูลเปลี่ยน กรุณาตรวจใหม่",
+        true
+      );
+
     } else {
       const friendly = {
-        NO_RISK_DISTRIBUTION_REQUIRED:"ยังไม่ต้องตัดเพิ่ม",
-        NO_SELECTED_DISTRIBUTION_TARGETS:"รหัสที่เลือกไม่มีส่วนเกินตามแผนปัจจุบัน",
-        WAREHOUSE_SELECTION_REQUIRED:"กรุณาเลือกคลังปลายทาง",
-        POINT_MULTIPLIER_NOT_CONFIGURED:"กรุณาตั้งตัวคูณ Point ของ H/L ก่อน",
-      }[error.message] || error.message;
-      toast(`ตัดยอดไม่สำเร็จ: ${friendly}`, true);
+        NO_RISK_DISTRIBUTION_REQUIRED:
+          "ยังไม่ต้องตัดเพิ่ม",
+
+        NO_SELECTED_DISTRIBUTION_TARGETS:
+          "รหัสที่เลือกไม่มีส่วนเกินตามแผนปัจจุบัน",
+
+        WAREHOUSE_SELECTION_REQUIRED:
+          "กรุณาเลือกคลังปลายทาง",
+
+        POINT_MULTIPLIER_NOT_CONFIGURED:
+          "กรุณาตั้งตัวคูณ Point ก่อน",
+
+        DATA_INTEGRITY_ERROR:
+          "ข้อมูลตัดยอดไม่สอดคล้อง กรุณาตรวจสอบก่อน",
+
+        CONFIRMATION_REQUEST_ID_COLLISION:
+          "คำขอยืนยันซ้ำไม่ตรงกับแผนเดิม",
+
+        LINE_GROUP_PREVIEW_REQUIRED:
+          "ระบบ Preview ยังไม่ได้ใช้ LINE Group model",
+
+        LINE_GROUP_CONFIRMATION_TOKEN_REQUIRED:
+          "ระบบไม่ได้รับ Confirmation Token v3",
+
+        CONFIRMATION_TOKEN_MISSING:
+          "ไม่พบ Confirmation Token",
+      }[error.message]
+        || error.message;
+
+
+      toast(
+        `ตัดยอดไม่สำเร็จ: ${friendly}`,
+        true
+      );
     }
+
   } finally {
-    button.textContent = "ตัดยอดที่เลือก";
-    updateBulkDistributionSummary(false);
+    button.textContent =
+      "ตัดยอดที่เลือก";
+
+
+    // Re-evaluate using the latest visible LINE Group state.
+    updateBulkDistributionSummary(
+      false
+    );
   }
 }
 
@@ -1462,6 +3435,12 @@ function bindV5Controls() {
   $("#saveSpecialPointsButton").addEventListener("click",saveSpecialPoints);
   $("#selectAllRecommendedButton").addEventListener("click",()=>setRecommendedSelection(true));
   $("#clearRecommendedButton").addEventListener("click",()=>setRecommendedSelection(false));
+
+  allocationLineGroupSelect.addEventListener("change",()=>{
+    clearTransferPreview();
+    renderAllocation();
+  });
+
   $("#runBulkDistributionButton").addEventListener("click",runBulkDistribution);
   $("#reportSessionSelect").addEventListener("change",loadReport);$("#reportLineGroupSelect").addEventListener("change",loadReport);
   $("#exportReportCsvButton").addEventListener("click",exportDailyReportCsv);
