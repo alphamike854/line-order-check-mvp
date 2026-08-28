@@ -20,7 +20,7 @@ function total(result) {
   );
 }
 
-assert.equal(PARSER_VERSION, "1.6.4");
+assert.equal(PARSER_VERSION, "1.7.0");
 
 // ------------------------------------------------------------
 // Real chat: pending 2-digit codes + semicolon A/B quantity pair.

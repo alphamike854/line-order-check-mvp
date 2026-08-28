@@ -4,7 +4,7 @@ import {
   PARSER_VERSION,
 } from "./src/lib/order-parser.mjs";
 
-assert.equal(PARSER_VERSION, "1.6.4");
+assert.equal(PARSER_VERSION, "1.7.0");
 
 function byKey(result) {
   return Object.fromEntries(

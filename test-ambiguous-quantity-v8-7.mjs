@@ -13,7 +13,7 @@ function byKey(result) {
   );
 }
 
-assert.equal(PARSER_VERSION, "1.6.4");
+assert.equal(PARSER_VERSION, "1.7.0");
 
 // ------------------------------------------------------------
 // Production bug:

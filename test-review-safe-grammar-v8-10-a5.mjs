@@ -352,12 +352,17 @@ check("SAFETY-03 two bare 2-digit values remain ambiguous", () => {
 
 
 // ============================================================
-// A5-08 intentionally NOT recovered yet.
-//
-// "ยึด4" contains a digit and may have domain semantics.
-// Keep it Review-safe until explicitly classified.
 // ============================================================
-check("SAFETY-04 ยึด4 is not silently ignored yet", () => {
+// SAFETY-04
+//
+// Sender/name shorthand that is not itself a complete order
+// must not poison an otherwise valid order block.
+//
+// The numeral in "ยึด4" must not become an additional order
+// code or quantity.
+// ============================================================
+
+check("SAFETY-04 sender shorthand does not poison valid order", () => {
   const result = parseOrder(`96
 69
 77
@@ -366,15 +371,28 @@ check("SAFETY-04 ยึด4 is not silently ignored yet", () => {
 200฿
 ยึด4`);
 
-  assert.notEqual(
-    result.status,
-    "PARSED",
-    "A5 grammar phase must not silently classify ยึด4 as harmless metadata"
+  assert.equal(result.status, "PARSED");
+
+  assert.equal(result.items.length, 8);
+
+  assert.equal(
+    result.items.reduce(
+      (sum, item) => sum + item.quantity,
+      0
+    ),
+    200
   );
 
-  assert.notEqual(
-    result.status,
-    "IGNORE"
+  assert.equal(result.errors.length, 0);
+
+  assert.equal(
+    result.items.some(
+      (item) =>
+        item.code === "4" ||
+        item.code === "04"
+    ),
+    false,
+    "sender shorthand numeral must not become an order code"
   );
 });
 

@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * LINE Order Parser v1.6.4
+ * LINE Order Parser v1.7.0
  * Pure JavaScript, no external dependencies.
  *
  * Design goals:
@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.6.4";
+const PARSER_VERSION = "1.7.0";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -541,6 +541,17 @@ function isSafeChatMetadataLine(line) {
 
   if (!raw) return true;
 
+  // LINE chat summaries may be decorated with a flag/emoji:
+  //
+  //   🇱🇦รวม 60
+  //
+  // Strip only leading non-letter/non-digit decoration for summary
+  // recognition. Do not alter the actual parser input or ordinary
+  // sender/name text such as 🇱🇦ดอม1080.
+  const summaryText = raw
+    .replace(/^[^\p{L}\p{M}\d=]+/u, "")
+    .trimStart();
+
   // Never classify lines containing known order operators/context as
   // metadata merely because they also contain currency.
   if (
@@ -593,7 +604,7 @@ function isSafeChatMetadataLine(line) {
   // รวม 90
   // รวม 400฿ พี่เมล์
   if (
-    /^(?:ยอด|รวม)\s*[\d,]+(?:\.\d+)?(?:\s*(?:฿|บาท|\.-))?(?:\s+.*)?$/u.test(raw)
+    /^(?:ยอด|รวม)\s*[\d,]+(?:\.\d+)?(?:\s*(?:฿|บาท|\.-))?(?:\s+.*)?$/u.test(summaryText)
   ) {
     return true;
   }
@@ -852,6 +863,95 @@ function contextualDirectionFromToken(token) {
   return null;
 }
 
+// Domain-scoped 3-digit vocabulary.
+//
+// Do not put these words into the global category alias table:
+// their meaning belongs specifically to 3-digit order grammar.
+//
+// DIRECT  => canonical E (เต็ง/ตรง)
+// TOD     => canonical F (โต๊ด/โต้ด)
+// PERMUTE => all unique permutations (กลับ/ประตู/ปะตู/ปต)
+function resolveThreeDigitVocabulary(token) {
+  const raw = String(token || "")
+    .trim()
+    .replace(/\s+/g, " ");
+
+  if (!raw) return null;
+
+  if (/^(?:เต็ง|ตรง)$/u.test(raw)) return "DIRECT";
+  if (/^(?:โต๊ด|โต้ด)$/u.test(raw)) return "TOD";
+  if (/^(?:กลับ|ประตู|ปะตู|ปต)$/u.test(raw)) return "PERMUTE";
+
+  return null;
+}
+
+
+// A standalone 3-digit vocabulary header applies only when the next
+// non-blank line is unmistakably a 3-digit '=' assignment.
+//
+// Example:
+//
+//   โต๊ด
+//   123=20
+//
+// becomes:
+//
+//   123=20 โต๊ด
+//
+// This is deliberately code-width scoped. Therefore:
+//
+//   กลับ
+//   01=20
+//
+// is NOT rewritten as a 3-digit command.
+function normalizeThreeDigitVocabularyHeaders(text) {
+  const lines = String(text || "").split("\n");
+  const out = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = String(lines[i] || "");
+    const header = raw.trim();
+
+    if (!resolveThreeDigitVocabulary(header)) {
+      out.push(raw);
+      continue;
+    }
+
+    let j = i + 1;
+
+    while (
+      j < lines.length &&
+      !String(lines[j] || "").trim()
+    ) {
+      j++;
+    }
+
+    if (j >= lines.length) {
+      out.push(raw);
+      continue;
+    }
+
+    const candidate =
+      String(lines[j] || "").trim();
+
+    const clearThreeDigitAssignment =
+      /^\d{3}(?:[\s,/:.]+\d{3})*\s*=\s*\d+$/u.test(
+        candidate
+      );
+
+    if (!clearThreeDigitAssignment) {
+      out.push(raw);
+      continue;
+    }
+
+    out.push(`${candidate} ${header}`);
+    i = j;
+  }
+
+  return out.join("\n");
+}
+
+
 function directionModifier(direction) {
   if (direction === "TOP") return { categories: ["A"], reverse: false };
   if (direction === "BOTTOM") return { categories: ["B"], reverse: false };
@@ -1072,8 +1172,36 @@ function parseThreeDigitRhs(right, cfg) {
   // 998 = 100 3ปต
   // 093 = 100 6 ประตู
   m = raw.match(/^(\d+)\s+(.+)$/u);
-  if (m && isPermuteAllCommand(m[2], cfg)) {
-    return { kind: "PERMUTE_ALL", quantity: Number(m[1]) };
+  if (m) {
+    const vocabulary =
+      resolveThreeDigitVocabulary(m[2]);
+
+    if (vocabulary === "DIRECT") {
+      return {
+        kind: "VOCAB_CATEGORY",
+        category: "E",
+        quantity: Number(m[1]),
+      };
+    }
+
+    if (vocabulary === "TOD") {
+      return {
+        kind: "VOCAB_CATEGORY",
+        category: "F",
+        quantity: Number(m[1]),
+      };
+    }
+
+    if (vocabulary === "PERMUTE") {
+      return {
+        kind: "PERMUTE_ALL",
+        quantity: Number(m[1]),
+      };
+    }
+
+    if (isPermuteAllCommand(m[2], cfg)) {
+      return { kind: "PERMUTE_ALL", quantity: Number(m[1]) };
+    }
   }
 
   // Also allow a compact star immediately after the quantity: 998=100*ทุกกลับ
@@ -1149,6 +1277,32 @@ function parseThreeDigitLine(line, cfg, acc, rules, errors) {
   // TOP/BOTTOM are contextual: บน/บ => E for 3 digits, ล่าง/ล => G.
   let natural = t.match(/^(\d{3})\s+(\d+)\s+(.+)$/u);
   if (natural) {
+    const vocabulary =
+      resolveThreeDigitVocabulary(natural[3]);
+
+    if (vocabulary === "DIRECT") {
+      acc.add("E", natural[1], Number(natural[2]));
+      rules.add("R_3DIGIT_VOCAB_DIRECT");
+      return true;
+    }
+
+    if (vocabulary === "TOD") {
+      acc.add("F", natural[1], Number(natural[2]));
+      rules.add("R_3DIGIT_VOCAB_TOD");
+      return true;
+    }
+
+    if (vocabulary === "PERMUTE") {
+      emitThreeDigitPermutations(
+        acc,
+        [natural[1]],
+        Number(natural[2]),
+        "E"
+      );
+      rules.add("R_3DIGIT_VOCAB_PERMUTE");
+      return true;
+    }
+
     const direction = contextualDirectionFromToken(natural[3]);
     if (direction) {
       const category = direction === "TOP" ? "E" : "G";
@@ -1156,6 +1310,7 @@ function parseThreeDigitLine(line, cfg, acc, rules, errors) {
       rules.add(`R_3DIGIT_CONTEXT_${direction}`);
       return true;
     }
+
     const category = resolveThreeDigitCategory(natural[3], cfg);
     if (["E", "F", "G"].includes(category)) {
       acc.add(category, natural[1], Number(natural[2]));
@@ -1167,11 +1322,52 @@ function parseThreeDigitLine(line, cfg, acc, rules, errors) {
   // Natural permutation marker between code(s) and quantity:
   // "812 หกกลับ 20" / "812 6กลับ 20".
   natural = t.match(/^(\d{3}(?:[\s,/:.]+\d{3})*)\s+(.+?)\s+(\d+)$/u);
-  if (natural && isThreeDigitPermuteMarker(natural[2], cfg)) {
-    const codes = dedupeCodes(natural[1].split(/[\s,/:.]+/u).filter(Boolean));
-    emitThreeDigitPermutations(acc, codes, Number(natural[3]), "E");
-    rules.add("R_3DIGIT_NATURAL_PERMUTE");
-    return true;
+  if (natural) {
+    const codes =
+      dedupeCodes(
+        natural[1]
+          .split(/[\s,/:.]+/u)
+          .filter(Boolean)
+      );
+
+    const vocabulary =
+      resolveThreeDigitVocabulary(natural[2]);
+
+    if (vocabulary === "DIRECT") {
+      for (const code of codes) {
+        acc.add("E", code, Number(natural[3]));
+      }
+      rules.add("R_3DIGIT_VOCAB_DIRECT");
+      return true;
+    }
+
+    if (vocabulary === "TOD") {
+      for (const code of codes) {
+        acc.add("F", code, Number(natural[3]));
+      }
+      rules.add("R_3DIGIT_VOCAB_TOD");
+      return true;
+    }
+
+    if (
+      vocabulary === "PERMUTE" ||
+      isThreeDigitPermuteMarker(natural[2], cfg)
+    ) {
+      emitThreeDigitPermutations(
+        acc,
+        codes,
+        Number(natural[3]),
+        "E"
+      );
+
+      rules.add(
+        vocabulary === "PERMUTE"
+          ? "R_3DIGIT_VOCAB_PERMUTE"
+          : "R_3DIGIT_NATURAL_PERMUTE"
+      );
+
+      return true;
+    }
   }
 
   const eqIndex = t.indexOf("=");
@@ -1232,6 +1428,40 @@ function parseThreeDigitLine(line, cfg, acc, rules, errors) {
   if (contextualDirection === "BOTTOM" && prefix && !["B", "G"].includes(prefix)) {
     errors.push({ code: "CONTEXT_CATEGORY_CONFLICT", detail: line });
     rules.add("R_3DIGIT_CONTEXT_CONFLICT");
+    return true;
+  }
+
+  if (rhs.kind === "VOCAB_CATEGORY") {
+    // Vocabulary category is already explicit. Do not combine it with
+    // another explicit category/direction/prefix because that would make
+    // the destination ambiguous.
+    if (
+      explicitCategory ||
+      contextualDirection ||
+      prefix
+    ) {
+      errors.push({
+        code: "CONTEXT_CATEGORY_CONFLICT",
+        detail: line,
+      });
+      rules.add("R_3DIGIT_CONTEXT_CONFLICT");
+      return true;
+    }
+
+    for (const code of codes) {
+      acc.add(
+        rhs.category,
+        code,
+        rhs.quantity
+      );
+    }
+
+    rules.add(
+      rhs.category === "F"
+        ? "R_3DIGIT_VOCAB_TOD"
+        : "R_3DIGIT_VOCAB_DIRECT"
+    );
+
     return true;
   }
 
@@ -1447,7 +1677,25 @@ function parseSweepTwoDigitLine(line, cfg, acc, rules) {
   const clean = excluded.text;
 
   // Longest/specific generator first: "รูดเบิ้ล" must never be consumed as "รูด".
-  const doubleLead = matchLeadingAlias(clean, cfg, "DOUBLE");
+  const configuredDoubleLead =
+    matchLeadingAlias(clean, cfg, "DOUBLE");
+
+  const builtinDoubleMatch =
+    clean.match(/^เบิ้ล(?=$|\s|[-=0-9])/u);
+
+  const builtinDoubleLead =
+    builtinDoubleMatch
+      ? {
+          alias: builtinDoubleMatch[0],
+          remainder: clean
+            .slice(builtinDoubleMatch[0].length)
+            .trim(),
+        }
+      : null;
+
+  const doubleLead =
+    configuredDoubleLead ||
+    builtinDoubleLead;
   if (doubleLead) {
     const m = doubleLead.remainder.match(/^[\s]*[-=]?[\s]*(\d+(?:\s*[xX*\/]\s*\d+)?)(?:\s+(.*))?$/u);
     if (!m) return false;
@@ -1904,21 +2152,27 @@ function isNonOrderSummaryLine(line) {
   const text = String(line || "").trim();
   if (!text) return false;
 
+  // Allow only decorative symbols/emoji before a known summary phrase.
+  // The original text is preserved for all other parser semantics.
+  const summaryText = text
+    .replace(/^[^\p{L}\p{M}\d=]+/u, "")
+    .trimStart();
+
   // Clearly aggregate/reporting text sent back into the LINE group.
   // This must be narrow: never ignore merely because a line contains "รวม".
   if (
-    /^รวม\s+[23]\s*ตัว(?:ตรง|โต๊ด|บน|ล่าง)(?:\s+[\d,]+(?:\.\d+)?)?$/iu.test(text)
+    /^รวม\s+[23]\s*ตัว(?:ตรง|โต๊ด|บน|ล่าง)(?:\s+[\d,]+(?:\.\d+)?)?$/iu.test(summaryText)
   ) {
     return true;
   }
 
   if (
-    /^(?:ยอด|รวม)\s*[\d,]+(?:\.\d+)?(?:\s*(?:฿|บาท|\.-))?(?:\s+.*)?$/iu.test(text)
+    /^(?:ยอด|รวม)\s*[\d,]+(?:\.\d+)?(?:\s*(?:฿|บาท|\.-))?(?:\s+.*)?$/iu.test(summaryText)
   ) {
     return true;
   }
 
-  return /^(?:สรุป(?:ยอด)?|ยอดรวม|รวมยอด|ยอดวันนี้|ยอดปัจจุบัน|รวมตรง|รวมวิ่ง|รวมทั้งหมด)(?:\s|[:|]|$)/iu.test(text);
+  return /^(?:สรุป(?:ยอด)?|ยอดรวม|รวมยอด|ยอดวันนี้|ยอดปัจจุบัน|รวมตรง|รวมวิ่ง|รวมทั้งหมด)(?:\s|[:|]|$)/iu.test(summaryText);
 }
 
 
@@ -2300,12 +2554,189 @@ function normalizeReviewA5Grammar(text) {
   return out.join("\n");
 }
 
+// Return true only when THIS text fragment itself has a recognizable
+// order skeleton. Do not infer order-likeness from unrelated lines in
+// the same chat message.
+//
+// This intentionally answers:
+//
+//   "Does this line look structurally like an order?"
+//
+// rather than:
+//
+//   "Does this line contain a digit?"
+//
+// Therefore:
+//
+//   ลาวยึด4        => false
+//   สมชาย99        => false
+//   4=20           => true
+//   01=20          => true
+//   123=20         => true
+//   593-50*50      => true
+//   522=20*20*20   => true
+function isOrderSkeletonLikeText(text) {
+  const raw = String(text || "").trim();
+
+  if (!raw) return false;
+
+  // Explicit code assignment.
+  //
+  // Recognize both:
+  //
+  //   01=20
+  //   123=20*30
+  //
+  // and malformed assignments whose LEFT side is unmistakably an
+  // order-code expression:
+  //
+  //   999=abc
+  //   397 349=foo
+  //
+  // The latter must go to Review rather than silently disappear.
+  //
+  // This stays line-local, so unrelated text such as:
+  //
+  //   ลาวยึด4
+  //
+  // is still harmless.
+  if (
+    /^\d{1,3}(?:[\s,./:\-]+\d{1,3})*\s*=\s*\S.*$/u.test(
+      raw
+    )
+  ) {
+    return true;
+  }
+
+  // Unsupported but clearly order-like 3-digit dash pair.
+  if (
+    /^\d{3}\s*-\s*\d+\s*[xX*\/]\s*\d+$/u.test(raw)
+  ) {
+    return true;
+  }
+
+  // Natural 3-digit order forms:
+  //
+  //   123 20 โต๊ด
+  //   123 โต๊ด 20
+  if (
+    /^\d{3}(?:[\s,./:]+\d{3})*\s+\d+\s+\S+/u.test(raw) ||
+    /^\d{3}(?:[\s,./:]+\d{3})*\s+\S+\s+\d+\s*$/u.test(raw)
+  ) {
+    return true;
+  }
+
+  // Explicit 1-digit category/operator grammar.
+  if (
+    /^(?:[HL]|วิ่งบน|วิ่งล่าง|วิ่ง\s*[บล])\s*\d(?:[\s,./:]+\d)*\s*=\s*\d+/iu.test(
+      raw
+    )
+  ) {
+    return true;
+  }
+
+  // Known order generators. Malformed variants must not disappear.
+  if (
+    /^(?:รูด|เบิ้ล)(?=\s|[-=0-9]|$)/u.test(raw)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+
+// Detect a multi-line 3-digit order block whose business semantics are
+// not yet implemented.
+//
+// Examples:
+//
+//   487
+//   233
+//   ตัวละ5*5
+//
+//   940
+//   694
+//   5*5
+//
+//   000-111-222-333-444-555-666-777-888-999
+//   =20 ตรง
+//
+// These are strong order structures. They must remain Review-safe
+// rather than silently becoming IGNORE.
+//
+// This helper does NOT parse or emit items.
+function hasUnsupportedThreeDigitBlockSkeleton(text) {
+  const lines = String(text || "")
+    .split("\n")
+    .map((line) => String(line || "").trim())
+    .filter(Boolean);
+
+  if (lines.length < 2) return false;
+
+  function threeDigitCodeFragment(line) {
+    const raw = String(line || "").trim();
+
+    if (
+      !/^\d{3}(?:[\s,./:\-]+\d{3})*$/u.test(raw)
+    ) {
+      return 0;
+    }
+
+    const codes =
+      raw.match(/\d{3}/g) || [];
+
+    return codes.length;
+  }
+
+  function quantityFragment(line) {
+    const raw = String(line || "").trim();
+
+    return (
+      /^(?:ตัวละ\s*)?\d+\s*[xX*\/]\s*\d+(?:\s+\S+)?$/u.test(
+        raw
+      ) ||
+      /^=\s*\d+(?:\s*[xX*\/]\s*\d+)*(?:\s+\S+)?$/u.test(
+        raw
+      )
+    );
+  }
+
+  let accumulatedCodes = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const count =
+      threeDigitCodeFragment(lines[i]);
+
+    if (count > 0) {
+      accumulatedCodes += count;
+      continue;
+    }
+
+    if (
+      accumulatedCodes >= 2 &&
+      quantityFragment(lines[i])
+    ) {
+      return true;
+    }
+
+    // Once unrelated natural text interrupts the candidate block,
+    // restart. This keeps the detector narrow.
+    accumulatedCodes = 0;
+  }
+
+  return false;
+}
+
+
 function parseOrder(inputText, config = {}) {
   const cfg = mergeConfig(config);
   const normalized = normalizeText(inputText);
-  const parserText = normalizeReviewA5Grammar(
-    normalizeCollectiveReviewGrammar(
-      normalizeSafeReviewGrammar(normalized)
+  const parserText = normalizeThreeDigitVocabularyHeaders(
+    normalizeReviewA5Grammar(
+      normalizeCollectiveReviewGrammar(
+        normalizeSafeReviewGrammar(normalized)
+      )
     )
   );
   const acc = makeAccumulator();
@@ -2394,6 +2825,61 @@ function parseOrder(inputText, config = {}) {
 
   const items = acc.values();
 
+  // ----------------------------------------------------------
+  // Vocabulary architecture safety
+  // ----------------------------------------------------------
+  //
+  // A bare 1-digit assignment has a recognizable order skeleton,
+  // but without วิ่งบน/วิ่งล่าง (or H/L) the destination cannot
+  // be determined safely.
+  //
+  //   4=20
+  //
+  // Do not guess H or L and do not silently IGNORE it.
+  const normalizedLines =
+    normalized
+      .split("\n")
+      .map((line) => String(line || "").trim())
+      .filter(Boolean);
+
+  for (const line of normalizedLines) {
+    if (
+      /^\d(?:[\s,./:]+\d)*\s*=\s*\d+(?:\s*[xX*\/]\s*\d+)?$/u.test(
+        line
+      )
+    ) {
+      errors.push({
+        code: "ONE_DIGIT_DIRECTION_REQUIRED",
+        detail: line,
+      });
+
+      rules.add("R_1DIGIT_DIRECTION_REQUIRED");
+    }
+  }
+
+  // A 3-digit '*' quantity chain is unmistakably order-like but is
+  // intentionally not assigned semantics here.
+  //
+  // Existing x/x/x repeated-permutation grammar remains untouched.
+  //
+  //   522=20*20*20
+  //
+  // must therefore go to Review instead of disappearing as IGNORE.
+  for (const line of normalizedLines) {
+    if (
+      /^\d{3}(?:[\s,/:.]+\d{3})*\s*=\s*\d+(?:\s*\*\s*\d+){2,}$/u.test(
+        line
+      )
+    ) {
+      errors.push({
+        code: "UNSUPPORTED_QUANTITY_EXPRESSION",
+        detail: line,
+      });
+
+      rules.add("R_ORDER_SKELETON_UNSUPPORTED_QUANTITY");
+    }
+  }
+
   for (const check of checksums) {
     const actual = items
       .filter(x => x.category === check.category)
@@ -2408,59 +2894,91 @@ function parseOrder(inputText, config = {}) {
     }
   }
 
-  // Never silently discard text that strongly looks like an order. If grammar is
-  // not recognized, route it to Review instead of returning IGNORE.
-  const hasOrderLikeWarning = warnings.some((warning) => warning.code === "UNRECOGNIZED_ORDER_LIKE_TEXT");
-
-  // Safety: a single 3-digit dash quantity pair is intentionally
-  // unsupported, but it must not disappear when another line in the
-  // same message parses successfully.
+  // Never silently discard text that itself has an order skeleton.
   //
-  //   832-100*100
-  //   32-50*50
+  // IMPORTANT:
+  // Evaluate each warning DETAIL locally. A valid order elsewhere in
+  // the same chat message must not turn unrelated text into an error.
   //
-  // The 2-digit line may be recovered, but the unsupported 3-digit
-  // line must keep the whole message PARTIAL/REVIEW.
+  // Before:
   //
-  // Inspect only lines that already produced an order-like warning.
-  // This avoids penalizing A5 collective forms that preprocessing
-  // successfully normalized before parsing.
-  const hasUnsupportedThreeDigitDashPairWarning =
-    warnings.some((warning) =>
-      warning.code === "UNRECOGNIZED_ORDER_LIKE_TEXT" &&
-      /^\d{3}\s*-\s*\d+\s*[xX*\/×]\s*\d+$/u.test(
+  //   ลาวยึด4
+  //   01=20
+  //
+  // "01=20" made the whole message stronglyOrderLike and promoted
+  // "ลาวยึด4" to an error.
+  //
+  // Now only warning lines whose own structure is order-like are
+  // eligible for Review/Partial promotion.
+  const orderLikeWarningDetails =
+    warnings
+      .filter(
+        (warning) =>
+          warning.code === "UNRECOGNIZED_ORDER_LIKE_TEXT"
+      )
+      .map((warning) =>
         String(warning.detail || "").trim()
+      )
+      .filter(Boolean)
+      .filter(isOrderSkeletonLikeText);
+
+  // Remove false order-like warnings from ordinary text/name lines.
+  // Other warning types are preserved unchanged.
+  const effectiveWarnings =
+    warnings.filter((warning) => {
+      if (
+        warning.code !== "UNRECOGNIZED_ORDER_LIKE_TEXT"
+      ) {
+        return true;
+      }
+
+      return isOrderSkeletonLikeText(
+        warning.detail
+      );
+    });
+
+  // Keep the dedicated historical protection for a single unsupported
+  // 3-digit dash pair.
+  const hasUnsupportedThreeDigitDashPairWarning =
+    orderLikeWarningDetails.some((detail) =>
+      /^\d{3}\s*-\s*\d+\s*[xX*\/×]\s*\d+$/u.test(
+        detail
       )
     );
 
+  // Some unsupported order structures only become identifiable when
+  // several lines are considered together. Require an existing raw
+  // order-like warning so a fully parsed legitimate block is never
+  // downgraded merely because its source text resembles this shape.
+  const hasRawOrderLikeWarning =
+    warnings.some(
+      (warning) =>
+        warning.code ===
+        "UNRECOGNIZED_ORDER_LIKE_TEXT"
+    );
+
+  const hasUnsupportedThreeDigitBlock =
+    hasRawOrderLikeWarning &&
+    hasUnsupportedThreeDigitBlockSkeleton(
+      normalized
+    );
+
   // Explicit known order command whose grammar is not yet supported.
-  //
-  // Example:
-  //   รูด 7 = 500 บ/ล
-  //
-  // Do not invent order_items here. The purpose of this signal is only
-  // to prevent known order-looking text from silently becoming IGNORE.
   const explicitUnsupportedOrderLike =
     /รูด[^\n=]*=/u.test(normalized);
-
-  const stronglyOrderLike =
-    /\d{2,3}(?:[\s,./:\-]+\d{2,3})*\s*(?:\n\s*)?=/u.test(normalized) ||
-    /^\s*\d{3}(?:[\s,./:]+\d{3})*\s+\d+\s+\S+/mu.test(normalized) ||
-    /^\s*\d{3}(?:[\s,./:]+\d{3})*\s+\S+\s+\d+\s*$/mu.test(normalized) ||
-    /^\s*(?:[HL]|วิ่งบน|วิ่งล่าง|วิ่ง\s*[บล])\s*\d(?:[\s,./:]+\d)*\s*=\s*\d+/miu.test(normalized);
 
   if (
     explicitUnsupportedOrderLike ||
     hasUnsupportedThreeDigitDashPairWarning ||
-    (hasOrderLikeWarning && stronglyOrderLike)
+    hasUnsupportedThreeDigitBlock ||
+    orderLikeWarningDetails.length > 0
   ) {
-    const details = warnings
-      .filter((warning) => warning.code === "UNRECOGNIZED_ORDER_LIKE_TEXT")
-      .map((warning) => warning.detail)
-      .filter(Boolean);
     errors.push({
       code: "UNRECOGNIZED_ORDER_SYNTAX",
-      detail: details.length ? details.join(" | ") : normalized
+      detail:
+        orderLikeWarningDetails.length
+          ? orderLikeWarningDetails.join(" | ")
+          : normalized,
     });
   }
 
@@ -2479,7 +2997,7 @@ function parseOrder(inputText, config = {}) {
   return {
     status,
     items,
-    warnings,
+    warnings: effectiveWarnings,
     errors,
     checksums,
     parser_version: PARSER_VERSION,
