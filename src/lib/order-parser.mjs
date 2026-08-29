@@ -1105,6 +1105,35 @@ function coalesceThreeDigitLines(lines) {
       continue;
     }
 
+    // Standalone E/F quantity pair after exactly one pending 3-digit code:
+    //
+    // 778
+    // 100*100
+    //
+    // => 778=100*100
+    //
+    // Keep this intentionally narrow:
+    // - exactly one pending 3-digit code
+    // - exactly two numeric quantities
+    // - x/X/*/× delimiter
+    //
+    // Multiple pending 3-digit codes remain Review-safe because a bare
+    // quantity pair does not provide enough evidence that it applies to
+    // every preceding code.
+    if (pendingCodes.length === 1) {
+      const standalonePair = line.match(
+        /^((?:\d{1,3}(?:,\d{3})+|\d+)\s*[xX*×]\s*(?:\d{1,3}(?:,\d{3})+|\d+))$/u
+      );
+
+      if (standalonePair) {
+        out.push(
+          `${pendingCodes.join(" ")}=${standalonePair[1]}`
+        );
+        pendingCodes = [];
+        continue;
+      }
+    }
+
     // Natural pending form:
     // 396\n394\n364\n964-10*10
     // means the four 3-digit codes share the final quantity expression.
