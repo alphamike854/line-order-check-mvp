@@ -15,7 +15,7 @@ function total(result) {
 }
 
 assert.ok(
-  ["1.7.0", "1.7.1"].includes(PARSER_VERSION),
+  ["1.7.0", "1.7.1", "1.7.2"].includes(PARSER_VERSION),
 );
 
 // Pending 2-digit codes completed by code:top:bottom.

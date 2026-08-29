@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * LINE Order Parser v1.7.1
+ * LINE Order Parser v1.7.2
  * Pure JavaScript, no external dependencies.
  *
  * Design goals:
@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.7.1";
+const PARSER_VERSION = "1.7.2";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -80,6 +80,161 @@ function normalizeText(text) {
     .replace(/[ \t]+/g, " ")
     .replace(/ *\n */g, "\n")
     .trim();
+}
+
+function normalizeContextualShortDateMetadata(text) {
+  const lines = String(text || "").split("\n");
+  const out = [];
+
+  const exactShortDate =
+    /^(?:0?[1-9]|[12]\d|3[01])\/(?:0?[1-9]|1[0-2])$/u;
+
+  const inlineShortDate =
+    /(?:^|\s)(?:0?[1-9]|[12]\d|3[01])\/(?:0?[1-9]|1[0-2])(?:$|\s)/u;
+
+  const dateContext =
+    /(?:ลาว|วันที่|งวด)/u;
+
+  const hasOrderOperator =
+    /[=xX*×]/u;
+
+  const previousNonBlank = (index) => {
+    for (let i = index - 1; i >= 0; i--) {
+      const candidate =
+        String(lines[i] || "").trim();
+
+      if (candidate) return candidate;
+    }
+
+    return "";
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = String(lines[i] || "");
+    const line = raw.trim();
+
+    if (!line) {
+      out.push(raw);
+      continue;
+    }
+
+    // "ลาว 28/8"
+    //
+    // Require an explicit date-context word and no assignment/
+    // multiplication operator. This deliberately does NOT make
+    // every D/M slash expression metadata.
+    if (
+      dateContext.test(line)
+      && inlineShortDate.test(line)
+      && !hasOrderOperator.test(line)
+    ) {
+      continue;
+    }
+
+    // "ลาวๆ"
+    // "28/8"
+    //
+    // A bare short date is metadata only when immediately preceded
+    // by a narrow known date-context line.
+    if (exactShortDate.test(line)) {
+      const previous =
+        previousNonBlank(i);
+
+      if (
+        previous
+        && dateContext.test(previous)
+        && !/\d/u.test(previous)
+        && !hasOrderOperator.test(previous)
+      ) {
+        continue;
+      }
+    }
+
+    out.push(raw);
+  }
+
+  return out.join("\n");
+}
+
+function normalizeMixedWidthInlineAssignments(text) {
+  const lines = String(text || "").split("\n");
+  const out = [];
+
+  const quantityToken =
+    String.raw`(?:\d{1,3}(?:,\d{3})+|\d+)`;
+
+  const pairPattern =
+    new RegExp(
+      `^(.+?)\\s*=\\s*(${quantityToken}\\s*[xX*×]\\s*${quantityToken})\\s*$`,
+      "u",
+    );
+
+  for (const raw of lines) {
+    const line = String(raw || "").trim();
+    const match = line.match(pairPattern);
+
+    if (!match) {
+      out.push(raw);
+      continue;
+    }
+
+    const left = match[1].trim();
+    const quantity = match[2];
+
+    // Keep this normalizer deliberately narrow:
+    // only plain comma/space-separated numeric codes.
+    if (!/^[0-9,\s]+$/u.test(left)) {
+      out.push(raw);
+      continue;
+    }
+
+    const codes =
+      left
+        .split(/[,\s]+/u)
+        .filter(Boolean);
+
+    if (
+      codes.length < 2
+      || codes.some(
+        (code) =>
+          !/^\d{2}$/.test(code)
+          && !/^\d{3}$/.test(code)
+      )
+    ) {
+      out.push(raw);
+      continue;
+    }
+
+    const twoDigit =
+      codes.filter(
+        (code) => /^\d{2}$/.test(code)
+      );
+
+    const threeDigit =
+      codes.filter(
+        (code) => /^\d{3}$/.test(code)
+      );
+
+    if (
+      !twoDigit.length
+      || !threeDigit.length
+    ) {
+      out.push(raw);
+      continue;
+    }
+
+    // Send each width through its existing canonical grammar.
+    // No category semantics are invented here.
+    out.push(
+      `${threeDigit.join(" ")}=${quantity}`
+    );
+
+    out.push(
+      `${twoDigit.join(" ")}=${quantity}`
+    );
+  }
+
+  return out.join("\n");
 }
 
 function isStandaloneDateMetadataLine(line) {
@@ -2773,7 +2928,13 @@ function parseOrder(inputText, config = {}) {
   const parserText = normalizeThreeDigitVocabularyHeaders(
     normalizeReviewA5Grammar(
       normalizeCollectiveReviewGrammar(
-        normalizeSafeReviewGrammar(normalized)
+        normalizeSafeReviewGrammar(
+          normalizeMixedWidthInlineAssignments(
+            normalizeContextualShortDateMetadata(
+              normalized
+            )
+          )
+        )
       )
     )
   );
