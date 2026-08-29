@@ -170,6 +170,46 @@ assert.match(
 );
 
 
+
+// ---------------------------------------------------------
+// Allocation Summary-style row contract.
+// ---------------------------------------------------------
+
+assert.match(
+  app,
+  /allocation-summary-row/
+);
+
+assert.match(
+  app,
+  /allocation-summary-main/
+);
+
+// Checkbox owns a separate column before code.
+assert.match(
+  css,
+  /\.allocation-code-row\.allocation-summary-row,[\s\S]*?grid-template-columns:24px minmax\(0,1fr\)/
+);
+
+// Code / quantity / cut have independent columns.
+assert.match(
+  css,
+  /\.allocation-summary-row \.allocation-summary-main\s*\{[\s\S]*?minmax\(38px,48px\)[\s\S]*?minmax\(58px,1fr\)[\s\S]*?minmax\(58px,max-content\)/
+);
+
+// Allocation Top 20 must not require an internal scroll.
+assert.match(
+  css,
+  /\.allocation-board-column \.board-code-list,[\s\S]*?max-height:none!important[\s\S]*?overflow:visible!important/
+);
+
+// Visible code remains code-only.
+assert.match(
+  app,
+  /allocation-compact-code">\s*\$\{escapeHtml\(row\.code\)\}/
+);
+
+
 console.log(
   "PASS: Top 20 + expandable overflow boards v9.2"
 );

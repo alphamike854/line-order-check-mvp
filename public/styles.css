@@ -1010,3 +1010,169 @@ body{background:#f3f6fa}
     gap:5px;
   }
 }
+
+
+/* =========================================================
+   v9.2.1
+   Summary-style Allocation rows
+   checkbox | code | order | cut
+   ========================================================= */
+
+/*
+ * Top 20 should be readable directly.
+ * No nested vertical scrolling inside Allocation columns.
+ */
+.allocation-board-column .board-code-list,
+.allocation-one-digit-category .one-digit-code-grid{
+  max-height:none!important;
+  overflow:visible!important;
+}
+
+
+/*
+ * One horizontal row:
+ * [checkbox] [code / order / cut]
+ */
+.allocation-code-row.allocation-summary-row,
+.allocation-one-digit-code.allocation-summary-row{
+  width:100%;
+  box-sizing:border-box;
+  display:grid;
+  grid-template-columns:24px minmax(0,1fr);
+  align-items:center;
+  column-gap:7px;
+  min-height:27px;
+  padding:3px 9px;
+}
+
+
+/*
+ * Checkbox gets its own fixed column.
+ * It must never overlap code or quantity.
+ */
+.allocation-summary-row .allocation-code-check{
+  width:24px;
+  min-width:24px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  align-self:center;
+  padding:0;
+  margin:0;
+}
+
+.allocation-summary-row .allocation-code-check input{
+  display:block;
+  width:16px;
+  height:16px;
+  min-width:16px;
+  margin:0;
+}
+
+.allocation-summary-row .allocation-code-spacer{
+  display:block;
+  width:16px;
+  height:16px;
+}
+
+
+/*
+ * Same scanning direction as Summary:
+ *
+ * code      received      cut
+ * 05        1,250         ตัด 300
+ *
+ * Keep a real gutter before the code so the first digit
+ * cannot touch or disappear under the card edge.
+ */
+.allocation-summary-row .allocation-summary-main{
+  min-width:0;
+  width:100%;
+  display:grid;
+  grid-template-columns:
+    minmax(38px,48px)
+    minmax(58px,1fr)
+    minmax(58px,max-content);
+  align-items:center;
+  column-gap:10px;
+  padding-left:3px;
+}
+
+
+/* Code */
+.allocation-summary-row .allocation-compact-code{
+  display:block;
+  min-width:0;
+  margin:0;
+  padding:0 0 0 2px;
+  text-align:left;
+  overflow:visible;
+  font-size:12px;
+  font-weight:800;
+  line-height:1.15;
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap;
+}
+
+
+/* Received order quantity */
+.allocation-summary-row .allocation-compact-qty{
+  display:block;
+  min-width:0;
+  margin:0;
+  text-align:right;
+  font-size:12px;
+  font-weight:800;
+  line-height:1.15;
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap;
+}
+
+
+/* Recommended cut */
+.allocation-summary-row .allocation-compact-cut{
+  justify-self:end;
+  margin:0;
+  padding:2px 5px;
+  font-size:9px;
+  line-height:1.1;
+  white-space:nowrap;
+}
+
+.allocation-summary-row .allocation-compact-empty{
+  justify-self:end;
+  width:1px;
+}
+
+
+/*
+ * Keep each of the first 20 rows compact enough to scan
+ * similarly to the Summary board.
+ */
+.allocation-summary-row + .allocation-summary-row{
+  border-top:1px solid #edf1f5;
+}
+
+
+@media(max-width:700px){
+  .allocation-code-row.allocation-summary-row,
+  .allocation-one-digit-code.allocation-summary-row{
+    grid-template-columns:22px minmax(0,1fr);
+    column-gap:5px;
+    padding:3px 7px;
+  }
+
+  .allocation-summary-row .allocation-code-check{
+    width:22px;
+    min-width:22px;
+  }
+
+  .allocation-summary-row .allocation-summary-main{
+    grid-template-columns:
+      minmax(34px,42px)
+      minmax(52px,1fr)
+      minmax(54px,max-content);
+    column-gap:6px;
+    padding-left:2px;
+  }
+}

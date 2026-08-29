@@ -1697,6 +1697,7 @@ function renderLineGroupAllocationCategoryColumn(
           board-code-row
           allocation-code-row
           allocation-compact-row
+          allocation-summary-row
           ${recommended > 0 ? "recommended" : ""}
         ">
 
@@ -1717,7 +1718,7 @@ function renderLineGroupAllocationCategoryColumn(
             }
           </div>
 
-          <div class="allocation-compact-main">
+          <div class="allocation-compact-main allocation-summary-main">
 
             <strong class="allocation-compact-code">
               ${escapeHtml(row.code)}
@@ -1852,6 +1853,7 @@ function renderLineGroupOneDigitCategory(
           one-digit-code
           allocation-one-digit-code
           allocation-compact-row
+          allocation-summary-row
           ${recommended > 0 ? "recommended" : ""}
         ">
 
@@ -1872,7 +1874,7 @@ function renderLineGroupOneDigitCategory(
             }
           </div>
 
-          <div class="allocation-compact-main">
+          <div class="allocation-compact-main allocation-summary-main">
 
             <strong class="allocation-compact-code">
               ${escapeHtml(row.code)}
