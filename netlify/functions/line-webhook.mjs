@@ -30,7 +30,7 @@ function json(body, status = 200) {
   });
 }
 
-function verifyLineSignature(rawBody, signature) {
+export function verifyLineSignature(rawBody, signature) {
   if (!signature || !LINE_CHANNEL_SECRET) return false;
   const expected = createHmac("sha256", LINE_CHANNEL_SECRET)
     .update(rawBody)
@@ -589,7 +589,7 @@ async function handleUnsend(destination, event) {
   };
 }
 
-async function processEvent(destination, event) {
+export async function processEvent(destination, event) {
   if (!event.webhookEventId) {
     return { skipped: "NO_WEBHOOK_EVENT_ID" };
   }
@@ -685,58 +685,118 @@ async function processEvent(destination, event) {
 
 export default async (req) => {
   if (req.method === "GET") {
-    return json({ ok: true, service: "line-order-webhook" });
+    return json({
+      ok: true,
+      service: "line-order-webhook",
+      mode: "ASYNC_GATEWAY",
+    });
   }
 
-  if (req.method !== "POST") return json({ ok: false, error: "METHOD_NOT_ALLOWED" }, 405);
+  if (req.method !== "POST") {
+    return json(
+      {
+        ok: false,
+        error: "METHOD_NOT_ALLOWED",
+      },
+      405,
+    );
+  }
 
   const rawBody = await req.text();
   const signature = req.headers.get("x-line-signature");
 
   if (!verifyLineSignature(rawBody, signature)) {
-    return json({ ok: false, error: "INVALID_LINE_SIGNATURE" }, 401);
-  }
-
-  let payload;
-  try {
-    payload = JSON.parse(rawBody);
-  } catch {
-    return json({ ok: false, error: "INVALID_JSON" }, 400);
-  }
-
-  const destination = payload.destination;
-  const events = Array.isArray(payload.events) ? payload.events : [];
-  const results = [];
-  let processingFailed = false;
-
-  for (const event of events) {
-    try {
-      results.push(await processEvent(destination, event));
-    } catch (error) {
-      processingFailed = true;
-      results.push({
-        error: "PROCESSING_FAILED",
-        detail: error?.message ?? String(error),
-      });
-    }
-  }
-
-  if (processingFailed) {
     return json(
       {
         ok: false,
-        error: "PROCESSING_FAILED",
-        received: events.length,
-        results,
+        error: "INVALID_LINE_SIGNATURE",
       },
-      500,
+      401,
     );
   }
 
+  let payload;
+
+  try {
+    payload = JSON.parse(rawBody);
+  } catch {
+    return json(
+      {
+        ok: false,
+        error: "INVALID_JSON",
+      },
+      400,
+    );
+  }
+
+  const events =
+    Array.isArray(payload.events)
+      ? payload.events
+      : [];
+
+  const workerUrl = new URL(
+    "/.netlify/functions/line-webhook-background",
+    req.url,
+  );
+
+  let workerResponse;
+
+  try {
+    workerResponse = await fetch(
+      workerUrl,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-line-signature": signature,
+        },
+        body: rawBody,
+      },
+    );
+  } catch (error) {
+    console.error(
+      "Failed to invoke LINE webhook background worker",
+      error,
+    );
+
+    return json(
+      {
+        ok: false,
+        error: "BACKGROUND_INVOKE_FAILED",
+      },
+      503,
+    );
+  }
+
+  if (workerResponse.status !== 202) {
+    const detail =
+      await workerResponse
+        .text()
+        .catch(() => "");
+
+    console.error(
+      "Unexpected background worker response",
+      workerResponse.status,
+      detail.slice(0, 500),
+    );
+
+    return json(
+      {
+        ok: false,
+        error: "BACKGROUND_NOT_ACCEPTED",
+        status: workerResponse.status,
+      },
+      502,
+    );
+  }
+
+  // LINE receives 200 immediately after Netlify has accepted the
+  // asynchronous background invocation. The background worker owns
+  // claim/process/retry/persistence from this point onward.
   return json({
     ok: true,
+    queued: true,
     received: events.length,
-    results,
   });
 };
 

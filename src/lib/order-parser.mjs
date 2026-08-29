@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * LINE Order Parser v1.7.0
+ * LINE Order Parser v1.7.1
  * Pure JavaScript, no external dependencies.
  *
  * Design goals:
@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.7.0";
+const PARSER_VERSION = "1.7.1";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -992,7 +992,12 @@ function mergeContextualDirections(first, second) {
 }
 
 function parseQuantityExpression(expr) {
-  const s = String(expr || "").trim();
+  // Commas are thousands separators only after a token has already been
+  // isolated as a quantity expression. Never normalize commas globally,
+  // because code lists may legitimately use commas as separators.
+  const s = String(expr || "")
+    .trim()
+    .replace(/,/g, "");
   let m = s.match(/^(\d+)\s*[xX*]\s*(\d+)$/);
   if (m) return { type: "PAIR", first: Number(m[1]), second: Number(m[2]), delimiter: m[0].includes("*") ? "*" : "x" };
 
@@ -2080,11 +2085,15 @@ function parseTwoDigitSegment(segment, cfg, acc, rules, warnings, errors) {
       const right = working.slice(idx + 1).trim();
 
       // Keep only leading quantity expression from RHS; modifier may have been removed already.
-      const qm = right.match(/^(\d+(?:\s*[xX*\/]\s*\d+)?)/);
+      const qm = right.match(
+        /^((?:\d{1,3}(?:,\d{3})+|\d+)(?:\s*[xX*\/]\s*(?:\d{1,3}(?:,\d{3})+|\d+))?)/
+      );
       if (qm) quantitySpec = parseQuantityExpression(qm[1]);
     } else {
       // Inline pair at end: "01-05 AB 20x20" / "... 5*5"
-      let qm = working.match(/(?:^|\s)(\d+\s*[xX*]\s*\d+)\s*$/);
+      let qm = working.match(
+        /(?:^|\s)((?:\d{1,3}(?:,\d{3})+|\d+)\s*[xX*]\s*(?:\d{1,3}(?:,\d{3})+|\d+))\s*$/
+      );
       if (qm) {
         quantitySpec = parseQuantityExpression(qm[1]);
         codePart = working.slice(0, qm.index).trim();
@@ -2964,8 +2973,14 @@ function parseOrder(inputText, config = {}) {
     );
 
   // Explicit known order command whose grammar is not yet supported.
+  //
+  // Only promote an actual unconsumed warning. A supported sweep such as
+  // "รูด6=300*300" has already been consumed by parseSweepTwoDigitLine()
+  // and must not be downgraded merely because its source contains "รูด...=".
   const explicitUnsupportedOrderLike =
-    /รูด[^\n=]*=/u.test(normalized);
+    orderLikeWarningDetails.some((detail) =>
+      /^รูด(?=\s|[-=0-9]|$)/u.test(detail)
+    );
 
   if (
     explicitUnsupportedOrderLike ||
