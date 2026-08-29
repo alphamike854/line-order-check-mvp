@@ -3,6 +3,35 @@ import { reducedQuantity, reconciliationTotal } from "../../src/lib/settlement-c
 import { effectiveMultiplier, round2 } from "../../src/lib/risk-engine.mjs";
 import { firstLedgerCode } from "../../src/lib/report-ledger.mjs";
 
+const REPORT_PAGE_SIZE = 500;
+
+async function fetchAllPages(makeQuery) {
+  const rows = [];
+
+  for (
+    let from = 0;
+    ;
+    from += REPORT_PAGE_SIZE
+  ) {
+    const { data, error } =
+      await makeQuery().range(
+        from,
+        from + REPORT_PAGE_SIZE - 1,
+      );
+
+    if (error) throw error;
+
+    const page = data ?? [];
+    rows.push(...page);
+
+    if (page.length < REPORT_PAGE_SIZE) {
+      break;
+    }
+  }
+
+  return rows;
+}
+
 async function resolveSession(url) {
   const explicit = url.searchParams.get("session_id");
   if (explicit) {
@@ -49,13 +78,50 @@ export default async (req) => {
     const lineIds=configs.map(g=>g.line_group_id);
     if(!lineIds.length) return json({ok:true,session,actual_point_status:statusResult.data??null,actual_special_codes:actualCodes,groups:[]});
 
-    const [{data:messages,error:msgError},{data:items,error:itemError}] = await Promise.all([
-      supabase.from("messages").select("id,line_group_id,event_timestamp,parse_status,message_type,raw_text,normalized_text,ocr_text,first_order_code")
-        .eq("settlement_session_id",session.id).in("line_group_id",lineIds).order("event_timestamp",{ascending:true}),
-      supabase.from("order_items").select("id,message_record_id,line_group_id,category,code,quantity")
-        .eq("settlement_session_id",session.id).in("line_group_id",lineIds).order("id",{ascending:true}),
+    const [messages,items] = await Promise.all([
+      fetchAllPages(() =>
+        supabase
+          .from("messages")
+          .select(
+            "id,line_group_id,event_timestamp,parse_status,message_type,raw_text,normalized_text,ocr_text,first_order_code"
+          )
+          .eq(
+            "settlement_session_id",
+            session.id,
+          )
+          .in(
+            "line_group_id",
+            lineIds,
+          )
+          .order(
+            "event_timestamp",
+            { ascending:true },
+          )
+          .order(
+            "id",
+            { ascending:true },
+          )
+      ),
+      fetchAllPages(() =>
+        supabase
+          .from("order_items")
+          .select(
+            "id,message_record_id,line_group_id,category,code,quantity"
+          )
+          .eq(
+            "settlement_session_id",
+            session.id,
+          )
+          .in(
+            "line_group_id",
+            lineIds,
+          )
+          .order(
+            "id",
+            { ascending:true },
+          )
+      ),
     ]);
-    if(msgError) throw msgError;if(itemError) throw itemError;
 
     const itemsByMessage=new Map();
     for(const item of items??[]){if(!itemsByMessage.has(item.message_record_id))itemsByMessage.set(item.message_record_id,[]);itemsByMessage.get(item.message_record_id).push(item);}
