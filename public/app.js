@@ -641,34 +641,182 @@ function transferRoundMap() {
 
 function renderPostCutCategoryColumn(groupId, category, roundsByCode) {
   const allRows = codeRowsFor(groupId, category);
-  const rows = allRows.filter((row) => Number(row.order_total || 0) > 0 || Number(row.confirmed_cut || 0) > 0);
-  const transferredTotal = allRows.reduce((sum, row) => sum + Number(row.confirmed_cut || 0), 0);
-  const receivedTotal = allRows.reduce((sum, row) => sum + Number(row.order_total || 0), 0);
-  const retainedTotal = allRows.reduce((sum, row) => sum + Number(row.retained_quantity ?? row.available_to_cut ?? row.order_total ?? 0), 0);
+  const rows = allRows.filter(
+    (row) =>
+      Number(row.order_total || 0) > 0
+      || Number(row.confirmed_cut || 0) > 0
+  );
+
+  const transferredTotal = allRows.reduce(
+    (sum, row) =>
+      sum + Number(row.confirmed_cut || 0),
+    0
+  );
+
+  const receivedTotal = allRows.reduce(
+    (sum, row) =>
+      sum + Number(row.order_total || 0),
+    0
+  );
+
+  const retainedTotal = allRows.reduce(
+    (sum, row) =>
+      sum + Number(
+        row.retained_quantity
+        ?? row.available_to_cut
+        ?? row.order_total
+        ?? 0
+      ),
+    0
+  );
+
   const categoryRounds = new Set();
+
   for (const row of allRows) {
-    for (const round of roundsByCode.get(`${groupId}|${category}|${row.code}`) || []) categoryRounds.add(round.batch_number);
+    for (
+      const round of
+      roundsByCode.get(
+        `${groupId}|${category}|${row.code}`
+      ) || []
+    ) {
+      categoryRounds.add(
+        round.batch_number
+      );
+    }
   }
+
   const header = `<div class="board-column-head postcut-column-head">
-    <div class="category-title"><strong>${escapeHtml(category)}</strong><span>ตัด ${formatNumber(transferredTotal)} · ${formatNumber(categoryRounds.size)} รอบ</span></div>
-    <div class="category-risk-mini"><span>รับ ${formatNumber(receivedTotal)}</span><span>ตัด ${formatNumber(transferredTotal)}</span><span>คง ${formatNumber(retainedTotal)}</span></div>
+    <div class="category-title">
+      <strong>${escapeHtml(category)}</strong>
+      <span>
+        ตัด ${formatNumber(transferredTotal)}
+        · ${formatNumber(categoryRounds.size)} รอบ
+      </span>
+    </div>
+    <div class="category-risk-mini">
+      <span>รับ ${formatNumber(receivedTotal)}</span>
+      <span>ตัด ${formatNumber(transferredTotal)}</span>
+      <span>คง ${formatNumber(retainedTotal)}</span>
+    </div>
   </div>`;
 
-  const list = rows.length ? rows.map((row) => {
+  const topCodes = new Set(
+    rows
+      .slice(0, 20)
+      .map((row) => String(row.code))
+  );
+
+  const renderedRows = rows.map((row) => {
     const qty = Number(row.order_total || 0);
     const cut = Number(row.confirmed_cut || 0);
-    const retained = Number(row.retained_quantity ?? row.available_to_cut ?? Math.max(0, qty - cut));
-    const rounds = roundsByCode.get(`${groupId}|${category}|${row.code}`) || [];
-    const roundHtml = rounds.length
-      ? `<div class="postcut-rounds">${rounds.map((round) => `<span class="round-chip">#${formatNumber(round.batch_number)} ${escapeHtml(round.destination)} ${formatNumber(round.quantity)}</span>`).join("")}</div>`
-      : (qty > 0 ? `<div class="postcut-rounds"><span class="round-empty">ยังไม่ตัด</span></div>` : "");
-    return `<div class="board-code-row postcut-code-row ${qty === 0 ? "zero" : ""} ${cut > 0 ? "has-cut" : ""}">
-      <div class="board-code-main"><strong>${escapeHtml(row.code)}</strong><span>${formatNumber(retained)}</span></div>
-      <div class="postcut-code-stats"><span>รับ ${formatNumber(qty)}</span><span>ตัด ${formatNumber(cut)}</span><strong>คง ${formatNumber(retained)}</strong></div>
+
+    const retained = Number(
+      row.retained_quantity
+      ?? row.available_to_cut
+      ?? Math.max(0, qty - cut)
+    );
+
+    const rounds =
+      roundsByCode.get(
+        `${groupId}|${category}|${row.code}`
+      ) || [];
+
+    const top =
+      topCodes.has(String(row.code));
+
+    // Transaction safety:
+    // any code actually cut must remain visible
+    // even when it falls outside Top 20.
+    const visible =
+      top || cut > 0;
+
+    const roundHtml =
+      rounds.length
+        ? `<details class="postcut-round-details">
+            <summary>
+              ${formatNumber(rounds.length)} รอบ
+            </summary>
+            <div class="postcut-rounds">
+              ${rounds.map(
+                (round) =>
+                  `<span class="round-chip">
+                    #${formatNumber(round.batch_number)}
+                    ${escapeHtml(round.destination)}
+                    ${formatNumber(round.quantity)}
+                  </span>`
+              ).join("")}
+            </div>
+          </details>`
+        : "";
+
+    const html = `<div class="board-code-row postcut-code-row postcut-summary-row ${qty === 0 ? "zero" : ""} ${cut > 0 ? "has-cut" : ""}">
+      <div class="postcut-summary-main">
+        <strong class="postcut-code">
+          ${escapeHtml(row.code)}
+        </strong>
+
+        <span class="postcut-received">
+          ${formatNumber(qty)}
+        </span>
+
+        <span class="postcut-cut">
+          ${cut > 0 ? formatNumber(cut) : "—"}
+        </span>
+
+        <strong class="postcut-retained">
+          ${formatNumber(retained)}
+        </strong>
+      </div>
+
       ${roundHtml}
     </div>`;
-  }).join("") : `<div class="empty compact">ยังไม่มีรายการ</div>`;
-  return `<section class="board-column postcut-board-column">${header}<div class="board-code-list">${list}</div></section>`;
+
+    return {
+      html,
+      top,
+      visible,
+      cut,
+    };
+  });
+
+  const primaryRows =
+    renderedRows
+      .filter((row) => row.visible)
+      .map((row) => row.html);
+
+  const overflowRows =
+    renderedRows
+      .filter((row) => !row.visible)
+      .map((row) => row.html);
+
+  const tableHead = `
+    <div class="postcut-table-head">
+      <span>รหัส</span>
+      <span>รับ</span>
+      <span>ตัด</span>
+      <span>คง</span>
+    </div>
+  `;
+
+  const list =
+    renderedRows.length
+      ? `
+          ${tableHead}
+          ${primaryRows.join("")}
+          ${renderRankedOverflow(
+            overflowRows
+          )}
+        `
+      : `<div class="empty compact">
+          ยังไม่มีรายการ
+        </div>`;
+
+  return `<section class="board-column postcut-board-column">
+    ${header}
+    <div class="board-code-list">
+      ${list}
+    </div>
+  </section>`;
 }
 
 function renderPostCutGroupBoard(groupId, roundsByCode) {

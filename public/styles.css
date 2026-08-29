@@ -1176,3 +1176,173 @@ body{background:#f3f6fa}
     padding-left:2px;
   }
 }
+
+
+/* =========================================================
+   v9.2.2
+   After-cut ranked Summary-style board
+   code | received | cut | retained
+   ========================================================= */
+
+.postcut-board-column .board-code-list{
+  max-height:none!important;
+  overflow:visible!important;
+}
+
+
+/* Column labels and data rows use exactly the same tracks. */
+.postcut-table-head,
+.postcut-summary-main{
+  display:grid;
+  grid-template-columns:
+    minmax(38px,48px)
+    repeat(3,minmax(50px,1fr));
+  align-items:center;
+  column-gap:7px;
+}
+
+
+.postcut-table-head{
+  padding:5px 10px;
+  border-bottom:1px solid #e8edf3;
+  background:#fafbfd;
+  color:#7a8797;
+  font-size:9px;
+  font-weight:800;
+  font-variant-numeric:tabular-nums;
+}
+
+.postcut-table-head span:first-child{
+  text-align:left;
+}
+
+.postcut-table-head span:not(:first-child){
+  text-align:right;
+}
+
+
+/*
+ * Keep Top 20 approximately the same visual density
+ * as Summary / Allocation.
+ */
+.postcut-code-row.postcut-summary-row{
+  min-height:27px;
+  padding:3px 10px;
+  box-sizing:border-box;
+}
+
+.postcut-summary-main{
+  width:100%;
+  min-width:0;
+}
+
+
+/* Code */
+.postcut-code{
+  display:block;
+  min-width:0;
+  padding-left:2px;
+  text-align:left;
+  font-size:12px;
+  line-height:1.15;
+  font-weight:800;
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap;
+}
+
+
+/* Numeric columns */
+.postcut-received,
+.postcut-cut,
+.postcut-retained{
+  display:block;
+  min-width:0;
+  text-align:right;
+  font-size:12px;
+  line-height:1.15;
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap;
+}
+
+.postcut-received{
+  font-weight:750;
+  color:#26364a;
+}
+
+.postcut-cut{
+  color:#607086;
+}
+
+.postcut-retained{
+  font-weight:900;
+  color:#173a5e;
+}
+
+
+/* Rows with actual transfer remain visually identifiable. */
+.postcut-code-row.has-cut{
+  background:#f7fbff;
+}
+
+
+/*
+ * Transfer-round detail remains available without consuming
+ * vertical space until the operator asks for it.
+ */
+.postcut-round-details{
+  margin-top:2px;
+}
+
+.postcut-round-details>summary{
+  cursor:pointer;
+  list-style:none;
+  width:max-content;
+  margin-left:auto;
+  color:#728196;
+  font-size:9px;
+  font-weight:750;
+}
+
+.postcut-round-details>summary::-webkit-details-marker{
+  display:none;
+}
+
+.postcut-round-details>summary::after{
+  content:" ▾";
+}
+
+.postcut-round-details[open]>summary::after{
+  content:" ▴";
+}
+
+.postcut-round-details .postcut-rounds{
+  justify-content:flex-end;
+  margin-top:4px;
+}
+
+
+/* Overflow remains full width below the ranked rows. */
+.postcut-board-column .ranked-overflow{
+  grid-column:1/-1;
+}
+
+
+@media(max-width:700px){
+  .postcut-table-head,
+  .postcut-summary-main{
+    grid-template-columns:
+      minmax(34px,42px)
+      repeat(3,minmax(46px,1fr));
+    column-gap:5px;
+  }
+
+  .postcut-table-head{
+    padding-left:8px;
+    padding-right:8px;
+  }
+
+  .postcut-code-row.postcut-summary-row{
+    padding-left:8px;
+    padding-right:8px;
+  }
+}
