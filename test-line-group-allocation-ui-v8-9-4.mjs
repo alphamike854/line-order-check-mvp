@@ -366,9 +366,22 @@ assert.match(
   /Number\(row\.order_total \|\| 0\) > 0/
 );
 
+// v9.2: rows outside Top 20 remain accessible through
+// expandable overflow instead of permanent display:none.
 assert.match(
   app,
-  /allocation-ranked-hidden/
+  /function renderRankedOverflow/
+);
+
+assert.match(
+  app,
+  /class="ranked-overflow"/
+);
+
+// Operational rows outside Top 20 must remain visible.
+assert.match(
+  app,
+  /top \|\| recommended > 0/
 );
 
 assert.match(
@@ -379,13 +392,6 @@ assert.match(
 assert.match(
   app,
   /allocation-compact-qty/
-);
-
-// Hidden rows remain rendered so recommended selections
-// are not silently dropped from the existing bulk flow.
-assert.match(
-  app,
-  /allocation-ranked-hidden[\s\S]*allocation-code-select/
 );
 
 console.log(

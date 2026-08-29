@@ -740,8 +740,48 @@ body{background:#f3f6fa}
 
 /* v8.9.4 Phase 2I-B compact top 20 allocation */
 
-.allocation-ranked-hidden{
-  display:none!important;
+/* v9.2: ranked Top 20 + expandable overflow */
+
+.ranked-overflow{
+  grid-column:1/-1;
+  width:100%;
+  border-top:1px solid #e8edf3;
+}
+
+.ranked-overflow>summary{
+  cursor:pointer;
+  list-style:none;
+  padding:8px 10px;
+  text-align:center;
+  color:#607086;
+  font-size:11px;
+  font-weight:800;
+  user-select:none;
+}
+
+.ranked-overflow>summary::-webkit-details-marker{
+  display:none;
+}
+
+.ranked-overflow>summary::after{
+  content:" ▾";
+}
+
+.ranked-overflow[open]>summary::after{
+  content:" ▴";
+}
+
+.ranked-overflow[open]>summary{
+  margin-bottom:2px;
+}
+
+.ranked-overflow-list{
+  display:grid;
+  width:100%;
+}
+
+.one-digit-code-grid>.ranked-overflow{
+  grid-column:1/-1;
 }
 
 .allocation-board-column .board-code-list{
@@ -841,5 +881,132 @@ body{background:#f3f6fa}
 
   .allocation-compact-qty{
     font-size:15px;
+  }
+}
+
+
+/* =========================================================
+   v9.2 Phase 2:
+   compact 20-row Summary + inline Allocation selector
+   ========================================================= */
+
+/*
+ * Summary Top 20 must be glanceable without an internal
+ * scrollbar. The page itself may continue naturally below,
+ * but each category column shows its first 20 rows directly.
+ */
+.summary-ranked-column .board-code-list{
+  max-height:none!important;
+  overflow:visible!important;
+}
+
+.summary-ranked-column .board-code-row{
+  min-height:25px;
+  padding:3px 7px;
+  row-gap:2px;
+}
+
+.summary-ranked-column .board-code-main{
+  min-height:18px;
+  align-items:center;
+}
+
+.summary-ranked-column .board-code-main strong,
+.summary-ranked-column .board-code-main span{
+  font-size:12px;
+  line-height:1.1;
+  font-variant-numeric:tabular-nums;
+}
+
+.summary-ranked-column .board-code-badges{
+  gap:3px;
+  line-height:1;
+}
+
+.summary-ranked-column .board-code-badges:empty{
+  display:none;
+}
+
+.summary-ranked-column .qty-track{
+  height:2px;
+  margin-top:0;
+}
+
+.summary-ranked-column .ranked-overflow>summary{
+  padding:6px 8px;
+}
+
+
+/*
+ * Allocation:
+ * checkbox + code + quantity + cut recommendation are one
+ * compact horizontal operational row.
+ */
+.allocation-code-row.allocation-compact-row,
+.allocation-one-digit-code.allocation-compact-row{
+  grid-template-columns:18px minmax(0,1fr);
+  align-items:center;
+  min-height:32px;
+  padding:4px 7px;
+}
+
+.allocation-compact-row .allocation-code-check{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  align-self:stretch;
+  padding:0;
+}
+
+.allocation-compact-row .allocation-code-check input{
+  width:16px;
+  height:16px;
+  margin:0;
+}
+
+.allocation-compact-row .allocation-code-spacer{
+  width:16px;
+  height:16px;
+}
+
+.allocation-compact-row .allocation-compact-main{
+  grid-template-columns:
+    minmax(34px,max-content)
+    minmax(54px,1fr)
+    minmax(56px,max-content);
+  align-items:center;
+  gap:6px;
+}
+
+.allocation-compact-row .allocation-compact-code{
+  font-size:14px;
+  line-height:1;
+}
+
+.allocation-compact-row .allocation-compact-qty{
+  font-size:14px;
+  line-height:1;
+}
+
+.allocation-compact-row .allocation-compact-cut{
+  line-height:1.15;
+}
+
+
+@media(max-width:700px){
+  /*
+   * Summary remains scroll-free inside its own column even
+   * though the four category columns stack vertically.
+   */
+  .summary-ranked-column .board-code-list{
+    max-height:none!important;
+  }
+
+  .allocation-compact-row .allocation-compact-main{
+    grid-template-columns:
+      minmax(32px,max-content)
+      minmax(48px,1fr)
+      minmax(52px,max-content);
+    gap:5px;
   }
 }

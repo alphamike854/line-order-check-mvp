@@ -509,6 +509,15 @@ function codeRowsFor(groupId, category) {
     .sort((a, b) => Number(b.order_total) - Number(a.order_total) || String(a.code).localeCompare(String(b.code)));
 }
 
+function renderRankedOverflow(rowHtml) {
+  if (!rowHtml.length) return "";
+
+  return `<details class="ranked-overflow">
+    <summary>ดูอีก ${formatNumber(rowHtml.length)} รหัส</summary>
+    <div class="ranked-overflow-list">${rowHtml.join("")}</div>
+  </details>`;
+}
+
 function renderCategoryColumn(groupId, category) {
   const risk = categoryRiskFor(groupId, category);
   const profile = profileFor(category);
@@ -524,7 +533,7 @@ function renderCategoryColumn(groupId, category) {
     <div class="category-title"><strong>${escapeHtml(category)}</strong><span>×${formatNumber(profile?.special_multiplier || risk?.special_multiplier || 0)} · ${useActual ? `Point ${formatNumber(risk?.actual_selected_count || 0)} รหัส` : `สำรอง ${formatNumber(profile?.max_special_codes || risk?.max_special_codes || 0)} รหัส`}</span></div>
     <div class="category-risk-mini"><span>รับ ${formatNumber(risk?.order_total || 0)}</span><span>หลังหัก ${formatNumber(risk?.adjusted_total || 0)}</span><span>Point ${formatNumber(pointValue)}</span><strong>เสี่ยง ${formatNumber(categoryRiskPct)}%</strong></div>
   </div>`;
-  const list = rows.length ? rows.map((row) => {
+  const renderedRows = rows.map((row) => {
     const qty = Number(row.order_total || 0);
     const width = qty > 0 ? Math.max(3, qty / maxQty * 100) : 0;
     const promo = Number(row.promotion_factor_pct ?? 100) < 100 ? `<span class="promo-badge">PROMO ${formatNumber(row.promotion_factor_pct)}%</span>` : "";
@@ -535,8 +544,13 @@ function renderCategoryColumn(groupId, category) {
       <div class="board-code-badges">${actual}${reserve}${promo}${Number(row.confirmed_cut||0)>0?`<span class="promo-badge">คงคลัง ${formatNumber(row.retained_quantity ?? row.available_to_cut ?? 0)}</span>`:""}</div>
       <div class="qty-track"><div class="qty-fill" style="width:${width}%"></div></div>
     </div>`;
-  }).join("") : `<div class="empty compact">ยังไม่มีออเดอร์</div>`;
-  return `<section class="board-column">${header}<div class="board-code-list">${list}</div></section>`;
+  });
+  const primaryRows = renderedRows.slice(0, 20);
+  const overflowRows = renderedRows.slice(20);
+  const list = renderedRows.length
+    ? `${primaryRows.join("")}${renderRankedOverflow(overflowRows)}`
+    : `<div class="empty compact">ยังไม่มีออเดอร์</div>`;
+  return `<section class="board-column summary-ranked-column">${header}<div class="board-code-list">${list}</div></section>`;
 }
 
 function renderOneDigitSummaryCategory(groupId, category) {
@@ -1637,7 +1651,7 @@ function renderLineGroupAllocationCategoryColumn(
       20
     );
 
-  const list =
+  const renderedRows =
     rows.map((row) => {
       const qty =
         Number(
@@ -1670,17 +1684,19 @@ function renderLineGroupAllocationCategoryColumn(
           )
         );
 
-      const visible =
+      const top =
         visibleCodes.has(
           String(row.code)
         );
 
-      return `
+      const visible =
+        top || recommended > 0;
+
+      const html = `
         <label class="
           board-code-row
           allocation-code-row
           allocation-compact-row
-          ${visible ? "" : "allocation-ranked-hidden"}
           ${recommended > 0 ? "recommended" : ""}
         ">
 
@@ -1704,7 +1720,7 @@ function renderLineGroupAllocationCategoryColumn(
           <div class="allocation-compact-main">
 
             <strong class="allocation-compact-code">
-              ${escapeHtml(category)}${escapeHtml(row.code)}
+              ${escapeHtml(row.code)}
             </strong>
 
             <span class="allocation-compact-qty">
@@ -1723,7 +1739,31 @@ function renderLineGroupAllocationCategoryColumn(
 
         </label>
       `;
-    }).join("");
+
+      return {
+        html,
+        top,
+        visible,
+        recommended,
+      };
+    });
+
+  const primaryRows =
+    renderedRows
+      .filter((row) => row.visible)
+      .map((row) => row.html);
+
+  const overflowRows =
+    renderedRows
+      .filter((row) => !row.visible)
+      .map((row) => row.html);
+
+  const actionableOutsideTop =
+    renderedRows.filter(
+      (row) =>
+        !row.top
+        && row.recommended > 0
+    ).length;
 
   return `
     <section class="board-column allocation-board-column">
@@ -1731,12 +1771,13 @@ function renderLineGroupAllocationCategoryColumn(
       <div class="board-column-head allocation-compact-head">
         <strong>${escapeHtml(category)}</strong>
         <span>
-          ${formatNumber(visibleCodes.size)} รายการ
+          ${formatNumber(visibleCodes.size)} อันดับแรก${actionableOutsideTop > 0 ? ` + ต้องตัด ${formatNumber(actionableOutsideTop)}` : ""}
         </span>
       </div>
 
       <div class="board-code-list">
-        ${list}
+        ${primaryRows.join("")}
+        ${renderRankedOverflow(overflowRows)}
       </div>
 
     </section>
@@ -1765,7 +1806,7 @@ function renderLineGroupOneDigitCategory(
       20
     );
 
-  const list =
+  const renderedRows =
     rows.map((row) => {
       const qty =
         Number(
@@ -1798,17 +1839,19 @@ function renderLineGroupOneDigitCategory(
           )
         );
 
-      const visible =
+      const top =
         visibleCodes.has(
           String(row.code)
         );
 
-      return `
+      const visible =
+        top || recommended > 0;
+
+      const html = `
         <label class="
           one-digit-code
           allocation-one-digit-code
           allocation-compact-row
-          ${visible ? "" : "allocation-ranked-hidden"}
           ${recommended > 0 ? "recommended" : ""}
         ">
 
@@ -1832,7 +1875,7 @@ function renderLineGroupOneDigitCategory(
           <div class="allocation-compact-main">
 
             <strong class="allocation-compact-code">
-              ${escapeHtml(category)}${escapeHtml(row.code)}
+              ${escapeHtml(row.code)}
             </strong>
 
             <span class="allocation-compact-qty">
@@ -1851,7 +1894,31 @@ function renderLineGroupOneDigitCategory(
 
         </label>
       `;
-    }).join("");
+
+      return {
+        html,
+        top,
+        visible,
+        recommended,
+      };
+    });
+
+  const primaryRows =
+    renderedRows
+      .filter((row) => row.visible)
+      .map((row) => row.html);
+
+  const overflowRows =
+    renderedRows
+      .filter((row) => !row.visible)
+      .map((row) => row.html);
+
+  const actionableOutsideTop =
+    renderedRows.filter(
+      (row) =>
+        !row.top
+        && row.recommended > 0
+    ).length;
 
   return `
     <section class="one-digit-category allocation-one-digit-category">
@@ -1860,12 +1927,13 @@ function renderLineGroupOneDigitCategory(
         <strong>${escapeHtml(category)}</strong>
 
         <span>
-          ${formatNumber(visibleCodes.size)} รายการ
+          ${formatNumber(visibleCodes.size)} อันดับแรก${actionableOutsideTop > 0 ? ` + ต้องตัด ${formatNumber(actionableOutsideTop)}` : ""}
         </span>
       </div>
 
       <div class="one-digit-code-grid">
-        ${list}
+        ${primaryRows.join("")}
+        ${renderRankedOverflow(overflowRows)}
       </div>
 
     </section>
