@@ -3651,7 +3651,37 @@ async function openSettlement() {
   const date=businessDateInput.value||todayBangkok();
   if(!window.confirm(`เปิดยอดใหม่วันที่ ${date}?\nยอดทั้งหมดจะเริ่มนับใหม่จาก 0`))return;
   $("#openSettlementButton").disabled=true;
-  try{await api("/api/settlement",{method:"POST",body:JSON.stringify({action:"OPEN",business_date:date,promotions:state.promotionDrafts})});state.promotionDrafts=[];renderPromotionDrafts();toast("เปิดยอดแล้ว");await loadSettlement();await loadDashboard();}
+  try{
+    await api("/api/settlement",{
+      method:"POST",
+      body:JSON.stringify({
+        action:"OPEN",
+        business_date:date,
+        promotions:state.promotionDrafts
+      })
+    });
+
+    state.promotionDrafts=[];
+    renderPromotionDrafts();
+    toast("เปิดยอดแล้ว");
+
+    await loadSettlement();
+
+    // A newly opened settlement becomes the current operational context.
+    // Keep Dashboard and Report on the same session immediately after OPEN.
+    const openSession=state.settlement?.open_session;
+    const reportSelect=$("#reportSessionSelect");
+
+    if(openSession && reportSelect){
+      reportSelect.value=openSession.id;
+    }
+
+    await loadDashboard();
+
+    if(openSession){
+      await loadReport({silent:true});
+    }
+  }
   catch(error){if(error.message==="SETTLEMENT_ALREADY_OPEN")await recoverAlreadyOpenSettlement(error);else toast(`เปิดยอดไม่สำเร็จ: ${error.payload?.user_message||error.message}`,true);}finally{$("#openSettlementButton").disabled=false;}
 }
 
