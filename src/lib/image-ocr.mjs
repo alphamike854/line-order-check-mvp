@@ -17,6 +17,17 @@ function isRetryableGeminiStatus(status) {
   return RETRYABLE_GEMINI_HTTP_STATUS.has(Number(status));
 }
 
+export function isRetryableGeminiOcrError(error) {
+  const detail = error?.message ?? String(error ?? "");
+  const match = detail.match(/GEMINI_OCR_FAILED_(\d{3})\b/);
+
+  if (!match) return false;
+
+  return isRetryableGeminiStatus(
+    Number(match[1]),
+  );
+}
+
 export function cleanOcrText(text) {
   let value = String(text ?? "").trim();
   value = value.replace(/^```(?:text)?\s*/i, "").replace(/\s*```$/i, "").trim();

@@ -2,7 +2,11 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { parseOrder } from "../../src/lib/order-parser.mjs";
 import { firstLedgerCode } from "../../src/lib/report-ledger.mjs";
-import { downloadLineImage, transcribeOrderImage } from "../../src/lib/image-ocr.mjs";
+import {
+  downloadLineImage,
+  isRetryableGeminiOcrError,
+  transcribeOrderImage,
+} from "../../src/lib/image-ocr.mjs";
 
 const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
 const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
@@ -359,7 +363,14 @@ async function handleTextMessage(destination, event, group, session, existingMes
   return persistParsedResult(message, effectiveGroup, result, { first_order_code: firstLedgerCode(result.items, text) || null });
 }
 
-async function handleImageMessage(destination, event, group, session, existingMessage = null) {
+async function handleImageMessage(
+  destination,
+  event,
+  group,
+  session,
+  existingMessage = null,
+  processingAttempt = 1,
+) {
   const message = existingMessage ?? await createMessage({
     destination,
     event,
@@ -440,6 +451,41 @@ async function handleImageMessage(destination, event, group, session, existingMe
     });
   } catch (error) {
     const detail = error?.message ?? String(error);
+
+    const retryableProviderFailure =
+      isRetryableGeminiOcrError(error);
+
+    /*
+     * One webhook/background attempt already contains the bounded
+     * Gemini retry sequence in transcribeOrderImage().
+     *
+     * For provider-capacity failures, keep the message incomplete
+     * for the first two webhook attempts so processEvent can release
+     * the claim and the Netlify background function can retry later.
+     *
+     * On the third webhook attempt, convert the failure to REVIEW so
+     * an unavailable provider cannot leave the message PENDING forever.
+     */
+    if (
+      retryableProviderFailure
+      && Number(processingAttempt || 1) < 3
+    ) {
+      const { error: retryStateError } =
+        await supabase
+          .from("messages")
+          .update({
+            parse_status: "PENDING",
+            ocr_status: "ERROR",
+            ocr_error: detail.slice(0, 1000),
+          })
+          .eq("id", message.id);
+
+      if (retryStateError) {
+        throw retryStateError;
+      }
+
+      throw error;
+    }
 
     await supabase
       .from("messages")
@@ -661,6 +707,7 @@ export async function processEvent(destination, event) {
         group,
         session,
         existingMessage,
+        Number(claim?.attempt_count ?? 1),
       );
     } else if (event.type === "unsend") {
       result = await handleUnsend(destination, event);

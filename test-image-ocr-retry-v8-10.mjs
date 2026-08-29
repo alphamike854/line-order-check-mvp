@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import {
+  isRetryableGeminiOcrError,
   transcribeOrderImage,
 } from "./src/lib/image-ocr.mjs";
 
@@ -192,6 +193,45 @@ function geminiError(status, message = "temporary") {
   assert.equal(result.attempts, 2);
 }
 
+
+// ============================================================
+// 5. Provider error classification for background recovery.
+// ============================================================
+{
+  assert.equal(
+    isRetryableGeminiOcrError(
+      new Error(
+        "GEMINI_OCR_FAILED_503: unavailable [attempts=3]"
+      )
+    ),
+    true,
+  );
+
+  assert.equal(
+    isRetryableGeminiOcrError(
+      new Error(
+        "GEMINI_OCR_FAILED_429: rate limited [attempts=3]"
+      )
+    ),
+    true,
+  );
+
+  assert.equal(
+    isRetryableGeminiOcrError(
+      new Error(
+        "GEMINI_OCR_FAILED_400: bad request [attempts=1]"
+      )
+    ),
+    false,
+  );
+
+  assert.equal(
+    isRetryableGeminiOcrError(
+      new Error("LINE_IMAGE_DOWNLOAD_FAILED_404")
+    ),
+    false,
+  );
+}
 
 console.log(
   "PASS: Gemini OCR bounded transient retry v8.10",

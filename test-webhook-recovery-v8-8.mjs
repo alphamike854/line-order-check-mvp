@@ -11,6 +11,11 @@ const claimMigration = fs.readFileSync(
   "utf8",
 );
 
+const background = fs.readFileSync(
+  "netlify/functions/line-webhook-background.mjs",
+  "utf8",
+);
+
 // ------------------------------------------------------------
 // Reservation is now resumable claim-based.
 // ------------------------------------------------------------
@@ -48,12 +53,54 @@ assert.match(webhook, /async function markWebhookFailed/);
 assert.match(webhook, /processing_started_at: null/);
 assert.match(webhook, /last_error: detail/);
 
-assert.match(webhook, /let processingFailed = false/);
-assert.match(webhook, /processingFailed = true/);
+const processStart = webhook.indexOf(
+  "export async function processEvent"
+);
+
+const processEnd = webhook.indexOf(
+  "export default async",
+  processStart,
+);
+
+assert.ok(processStart >= 0);
+assert.ok(processEnd > processStart);
+
+const processBody = webhook.slice(
+  processStart,
+  processEnd,
+);
+
+// processEvent releases the claim and propagates the failure.
+assert.match(
+  processBody,
+  /await markWebhookFailed\(event\.webhookEventId, error\)/,
+);
 
 assert.match(
-  webhook,
-  /if \(processingFailed\)[\s\S]*PROCESSING_FAILED[\s\S]*500/,
+  processBody,
+  /throw error;/,
+);
+
+// The asynchronous background worker owns invocation-level
+// failure propagation and therefore triggers platform retry.
+assert.match(
+  background,
+  /const failures = \[\]/,
+);
+
+assert.match(
+  background,
+  /failures\.push\(/,
+);
+
+assert.match(
+  background,
+  /if \(failures\.length\)/,
+);
+
+assert.match(
+  background,
+  /BACKGROUND_PROCESSING_FAILED/,
 );
 
 // ------------------------------------------------------------
