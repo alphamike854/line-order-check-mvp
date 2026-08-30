@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * LINE Order Parser v1.7.11
+ * LINE Order Parser v1.7.12
  * Pure JavaScript, no external dependencies.
  *
  * Design goals:
@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.7.11";
+const PARSER_VERSION = "1.7.12";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -1399,9 +1399,10 @@ function parseThreeDigitRhs(right, cfg) {
   //          093=100x100x100x100x100x100 => 6 unique permutations at 100 each.
   // This is intentionally different from the existing TWO-value E/F pair
   // grammar such as 920=500x500.
-  m = raw.match(/^\d+(?:\s*[xX]\s*\d+){2,5}$/u);
+  m = raw.match(/^\d+(?:\s*[xX*]\s*\d+){2,5}$/u);
   if (m) {
-    const values = raw.split(/\s*[xX]\s*/u).map(Number);
+    const values =
+      raw.split(/\s*[xX*]\s*/u).map(Number);
     const first = values[0];
     if (values.every((value) => value === first)) {
       return { kind: "REPEATED_PERMUTE", quantity: first, statedCount: values.length };
@@ -1413,6 +1414,28 @@ function parseThreeDigitRhs(right, cfg) {
   // based on incorrect business input and is deliberately rejected now.
   if (/^\d+\s*[xX]\s*\d+\s*[xX]\s*\*\s*\d+$/u.test(raw)) {
     return { kind: "INVALID_XSTAR_PERMUTATION" };
+  }
+
+  // P2J: natural counted-permutation spelling.
+  //
+  //   229=50 3กลับ
+  //   229=50 3 กลับ
+  //
+  // is semantically the same as:
+  //
+  //   229=50*3ก
+  //
+  // Keep the stated count explicit so the existing
+  // COUNTED_PERMUTE validation still verifies that
+  // the source code really has exactly 3 unique
+  // permutations.
+  m = raw.match(/^(\d+)\s+3\s*กลับ$/u);
+  if (m) {
+    return {
+      kind: "COUNTED_PERMUTE",
+      quantity: Number(m[1]),
+      statedCount: 3,
+    };
   }
 
   // Natural language / compact command, e.g.
@@ -3624,7 +3647,7 @@ function parseOrder(inputText, config = {}) {
   // must therefore go to Review instead of disappearing as IGNORE.
   for (const line of normalizedLines) {
     if (
-      /^\d{3}(?:[\s,/:.]+\d{3})*\s*=\s*\d+(?:\s*\*\s*\d+){2,}$/u.test(
+      /^\d{3}(?:[\s,/:.]+\d{3})*\s*=\s*\d+(?:\s*\*\s*\d+){6,}$/u.test(
         line
       )
     ) {

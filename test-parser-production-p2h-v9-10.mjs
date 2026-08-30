@@ -186,11 +186,15 @@ const expectedLower = [
 
 // ------------------------------------------------------------
 // P2H-SAFETY-04
-// P2G triple quantity must remain unsupported.
+// Repeated-permutation shorthand must still validate that the
+// stated number of quantities matches the unique permutations.
+//
+// 123 has 6 unique permutations, so three repeated quantities
+// must remain REVIEW.
 // ------------------------------------------------------------
 {
   const result = parseOrder(
-    "229=50*50*50"
+    "123=50*50*50"
   );
 
   assert.equal(result.status, "REVIEW");
@@ -200,13 +204,20 @@ const expectedLower = [
     result.errors.some(
       x =>
         x.code ===
-        "UNSUPPORTED_QUANTITY_EXPRESSION"
+        "PERMUTATION_COUNT_MISMATCH"
+    ),
+    true
+  );
+
+  assert.equal(
+    result.rule_ids.includes(
+      "R_3DIGIT_REPEATED_PERMUTATION"
     ),
     true
   );
 
   console.log(
-    "PASS P2H-SAFETY-04 triple quantity remains unsupported"
+    "PASS P2H-SAFETY-04 repeated permutation count remains validated"
   );
 }
 

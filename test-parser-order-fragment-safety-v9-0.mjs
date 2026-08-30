@@ -64,33 +64,39 @@ console.log(
 
   assert.equal(
     result.status,
-    "PARTIAL",
-    "mixed valid block with unsupported triple quantity must remain PARTIAL"
-  );
-
-  assert.ok(
-    result.errors.some(
-      error =>
-        error.code ===
-        "UNSUPPORTED_QUANTITY_EXPRESSION"
-    ),
-    "triple quantity must be surfaced explicitly"
+    "PARSED",
+    "mixed valid block with repeated permutation must fully parse"
   );
 
   assert.equal(
-    result.items.some(
-      item => item.code === "522"
-    ),
-    false,
-    "unsupported 522 triple quantity must not create a canonical item"
+    result.errors.length,
+    0,
+    "valid repeated permutation must not produce parser errors"
   );
 
+  for (const code of [
+    "225",
+    "252",
+    "522",
+  ]) {
+    assert.equal(
+      result.items.some(
+        item =>
+          item.category === "E" &&
+          item.code === code &&
+          Number(item.quantity) === 50
+      ),
+      true,
+      `expected E${code}=50 from 522 repeated permutation`
+    );
+  }
+
   assert.ok(
-    result.items.length > 0,
-    "high-confidence items surrounding the malformed line must be preserved"
+    result.items.length > 3,
+    "surrounding high-confidence items must remain preserved"
   );
 
   console.log(
-    "PASS FRAGMENT-04 mixed valid block preserves items but rejects triple quantity"
+    "PASS FRAGMENT-04 mixed valid block accepts repeated permutation"
   );
 }

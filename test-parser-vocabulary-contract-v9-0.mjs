@@ -400,11 +400,34 @@ check("SAFETY-02 ambiguous natural 3-digit pair remains Review-safe", () => {
   assert.equal(r.items.length, 0);
 });
 
-check("SAFETY-03 triple quantity must not silently disappear", () => {
-  const r = parseOrder("522=20*20*20");
+check("THREE-PERM-05 repeated star quantities mean repeated permutations", () => {
+  const r = parseOrder(
+    "522=20*20*20"
+  );
 
-  assert.notEqual(r.status, "IGNORE");
-  assert.equal(r.items.length, 0);
+  assert.equal(r.status, "PARSED");
+  assert.equal(r.items.length, 3);
+
+  assert.deepEqual(
+    r.items
+      .map(
+        item =>
+          `${item.category}${item.code}=${item.quantity}`
+      )
+      .sort(),
+    [
+      "E225=20",
+      "E252=20",
+      "E522=20",
+    ].sort()
+  );
+
+  assert.equal(
+    r.rule_ids.includes(
+      "R_3DIGIT_REPEATED_PERMUTATION"
+    ),
+    true
+  );
 });
 
 check("SAFETY-04 bare 2-digit codes remain Review-safe", () => {
