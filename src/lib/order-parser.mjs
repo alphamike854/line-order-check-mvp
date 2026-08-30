@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * LINE Order Parser v1.7.5
+ * LINE Order Parser v1.7.6
  * Pure JavaScript, no external dependencies.
  *
  * Design goals:
@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.7.5";
+const PARSER_VERSION = "1.7.6";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -2052,6 +2052,33 @@ function parseTwoDigitSegment(segment, cfg, acc, rules, warnings, errors) {
     if (/^รวม\s+[A-Zก-๙]+\s+\d+$/iu.test(line)) continue;
 
     // --------------------------------------------------------
+    // P2C boundary safety:
+    //
+    //   886
+    //   887
+    //   889
+    //   -50*3ก
+    //
+    // The terminal counted-permutation quantity belongs to the
+    // preceding 3-digit block. Until multiline 3ก semantics are
+    // explicitly implemented, never allow "50" to leak into the
+    // 2-digit pending-code state.
+    //
+    // This does NOT parse or emit the 3-digit order.
+    // --------------------------------------------------------
+    if (
+      /^-\s*[\d,]+\s*[xX*×]\s*3ก$/u.test(line)
+    ) {
+      warnings.push({
+        code: "UNRECOGNIZED_ORDER_LIKE_TEXT",
+        detail: line,
+      });
+
+      pendingCodes = [];
+      continue;
+    }
+
+    // --------------------------------------------------------
     // P1 boundary safety:
     //
     //   572-50*50
@@ -3098,6 +3125,16 @@ function isOrderSkeletonLikeText(text) {
     /^(?:[HL]|วิ่งบน|วิ่งล่าง|วิ่ง\s*[บล])\s*\d(?:[\s,./:]+\d)*\s*=\s*\d+/iu.test(
       raw
     )
+  ) {
+    return true;
+  }
+
+  // Unsupported multiline counted-permutation terminal.
+  //
+  // Do not assign semantics here. This exists only so a boundary
+  // warning such as "-50*3ก" remains Review-safe.
+  if (
+    /^-\s*[\d,]+\s*[xX*×]\s*3ก$/u.test(raw)
   ) {
     return true;
   }
