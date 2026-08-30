@@ -4,9 +4,10 @@ import {
 } from "./src/lib/order-parser.mjs";
 
 // ------------------------------------------------------------
-// P2B-01
-// Known generator hidden behind operational prefix "เพิ่ม"
-// must never silently become IGNORE.
+// P2B-01 / semantics confirmed by P2I.
+//
+// Operational prefix "เพิ่ม" before รูดเบิ้ล is ignored and
+// must resolve through the existing DOUBLE generator grammar.
 // ------------------------------------------------------------
 for (const text of [
   "เพิ่มรูดเบิ้ล 1000 บล",
@@ -16,39 +17,49 @@ for (const text of [
 
   assert.equal(
     result.status,
-    "REVIEW",
+    "PARSED",
     text
   );
 
   assert.equal(
     result.items.length,
+    20,
+    text
+  );
+
+  assert.equal(
+    result.items.reduce(
+      (sum, item) =>
+        sum + Number(item.quantity || 0),
+      0
+    ),
+    20000,
+    text
+  );
+
+  assert.equal(
+    result.rule_ids.includes(
+      "R_SWEEP_DOUBLE_SET"
+    ),
+    true,
+    text
+  );
+
+  assert.equal(
+    result.errors.length,
     0,
     text
   );
 
   assert.equal(
-    result.errors.some(
-      (error) =>
-        error.code ===
-        "UNRECOGNIZED_ORDER_SYNTAX"
-    ),
-    true,
-    text
-  );
-
-  assert.equal(
-    result.warnings.some(
-      (warning) =>
-        warning.code ===
-        "UNRECOGNIZED_ORDER_LIKE_TEXT"
-    ),
-    true,
+    result.warnings.length,
+    0,
     text
   );
 }
 
 console.log(
-  "PASS P2B-01 prefixed double generator fails closed"
+  "PASS P2B-01 prefixed double generator safely recovered"
 );
 
 // ------------------------------------------------------------

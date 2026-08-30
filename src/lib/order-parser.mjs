@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * LINE Order Parser v1.7.10
+ * LINE Order Parser v1.7.11
  * Pure JavaScript, no external dependencies.
  *
  * Design goals:
@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.7.10";
+const PARSER_VERSION = "1.7.11";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -1943,7 +1943,34 @@ function isKnownGeneratorOrderLikeLine(text) {
 
 function parseSweepTwoDigitLine(line, cfg, acc, rules) {
   const t = stripPoliteWords(normalizeLatin(line.trim()));
-  const excluded = stripExcludeDoublePhrase(t);
+
+  // ----------------------------------------------------------
+  // P2I: operational "เพิ่ม" prefix before a confirmed
+  // DOUBLE generator.
+  //
+  //   เพิ่มรูดเบิ้ล 1000 บล
+  //   เพิ่ม รูดเบิ้ล 1000 บล
+  //
+  // are semantically identical to:
+  //
+  //   รูดเบิ้ล 1000 บล
+  //
+  // Safety:
+  // - strip only before the exact known "รูดเบิ้ล" generator
+  // - ordinary prose beginning with "เพิ่ม" remains untouched
+  // - do not broaden this to "เพิ่มรูด" or "เพิ่มเบิ้ล"
+  // ----------------------------------------------------------
+  const operationalPrefixStripped =
+    t.replace(
+      /^เพิ่ม\s*(?=รูดเบิ้ล(?=$|\s|[-=0-9]))/u,
+      ""
+    );
+
+  const excluded =
+    stripExcludeDoublePhrase(
+      operationalPrefixStripped
+    );
+
   const clean = excluded.text;
 
   // Longest/specific generator first: "รูดเบิ้ล" must never be consumed as "รูด".
