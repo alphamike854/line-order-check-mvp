@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * LINE Order Parser v1.7.3
+ * LINE Order Parser v1.7.4
  * Pure JavaScript, no external dependencies.
  *
  * Design goals:
@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.7.3";
+const PARSER_VERSION = "1.7.4";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -2487,6 +2487,58 @@ function isThaiTextualDateMetadataLine(line) {
   ).test(raw);
 }
 
+function normalizeTrailingNaturalMetadataAfterCompletedBlg(text) {
+  const lines = String(text || "").split("\n");
+
+  return lines
+    .map((raw) => {
+      const line = String(raw || "").trim();
+
+      if (!line) return raw;
+
+      // P2A-01
+      //
+      //   19 75 56 -300 บลก ลาวค่ะ
+      //
+      // becomes:
+      //
+      //   19 75 56 -300 บลก
+      //
+      // This runs before the review normalizers so they cannot
+      // reinterpret the completed order before the natural suffix
+      // has been removed.
+      //
+      // Safety:
+      // - at least two explicit 2-digit codes
+      // - explicit dash quantity
+      // - explicit บลก
+      // - suffix must not contain any numeric/operator/order signal
+      const match = line.match(
+        /^((?:\d{2}\s+){1,}\d{2})\s*-\s*([\d,]+)\s+(บลก)\s+(.+)$/u
+      );
+
+      if (!match) return raw;
+
+      const suffix = String(match[4] || "").trim();
+
+      if (!suffix) return raw;
+
+      const suffixHasOrderSignal =
+        /[0-9=/*:xX×]/u.test(suffix) ||
+        /(?:บน|ล่าง|บลก|บล|โต๊ด|โต้ด|รูด|เบิ้ล|ตรง|ตัวละ|3ก)/u.test(
+          suffix
+        );
+
+      if (suffixHasOrderSignal) {
+        return raw;
+      }
+
+      return `${match[1]}-${match[2]} ${match[3]}`;
+    })
+    .join("\n");
+}
+
+
 function normalizeReviewA5Grammar(text) {
   const lines = String(text || "").split("\n");
   const out = [];
@@ -3122,6 +3174,41 @@ function hasUnsupportedThreeDigitBlockSkeleton(text) {
 }
 
 
+function findAmbiguousSameLineOrderSyntax(text) {
+  const lines = String(text || "").split("\n");
+
+  for (const raw of lines) {
+    const line = String(raw || "").trim();
+
+    if (!line) continue;
+
+    // Safety guard:
+    //
+    //   19 75 56 -300 บลก 01=20
+    //
+    // contains two independently order-like expressions on one line.
+    // Existing parser precedence can incorrectly apply the later
+    // quantity to the earlier codes. Never classify this as PARSED.
+    //
+    // Keep deliberately narrow to the confirmed production family.
+    const match = line.match(
+      /^(?:\d{2}\s+){1,}\d{2}\s*-\s*[\d,]+\s+บลก\s+(.+)$/u
+    );
+
+    if (
+      match &&
+      /\d{1,3}\s*=\s*[\d,]+(?:\s*[xX*×/]\s*[\d,]+)?/u.test(
+        String(match[1] || "")
+      )
+    ) {
+      return line;
+    }
+  }
+
+  return null;
+}
+
+
 function parseOrder(inputText, config = {}) {
   const cfg = mergeConfig(config);
   const normalized = normalizeText(inputText);
@@ -3130,8 +3217,10 @@ function parseOrder(inputText, config = {}) {
       normalizeCollectiveReviewGrammar(
         normalizeSafeReviewGrammar(
           normalizeMixedWidthInlineAssignments(
-            normalizeContextualShortDateMetadata(
-              normalized
+            normalizeTrailingNaturalMetadataAfterCompletedBlg(
+              normalizeContextualShortDateMetadata(
+                normalized
+              )
             )
           )
         )
@@ -3143,6 +3232,16 @@ function parseOrder(inputText, config = {}) {
   const warnings = [];
   const errors = [];
   const checksums = [];
+
+  const ambiguousSameLineOrder =
+    findAmbiguousSameLineOrderSyntax(normalized);
+
+  if (ambiguousSameLineOrder) {
+    errors.push({
+      code: "AMBIGUOUS_SAME_LINE_ORDER_SYNTAX",
+      detail: ambiguousSameLineOrder
+    });
+  }
 
   if (!normalized) {
     return {
