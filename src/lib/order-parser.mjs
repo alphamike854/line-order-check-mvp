@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * LINE Order Parser v1.7.7
+ * LINE Order Parser v1.7.8
  * Pure JavaScript, no external dependencies.
  *
  * Design goals:
@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.7.7";
+const PARSER_VERSION = "1.7.8";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -2744,6 +2744,8 @@ function normalizeReviewA5Grammar(text) {
     // - the 3-digit dash line alone remains unsupported
     // - require at least TWO following pure 2-digit codes
     // - require a terminal NN-qty with explicit supported modifier
+    // - terminal may already be canonicalized from "-" to "=" by an
+    //   earlier review normalizer in the parse pipeline
     // --------------------------------------------------------
     const contextualThreeDigitDashPair =
       line.match(
@@ -2780,7 +2782,7 @@ function normalizeReviewA5Grammar(text) {
 
         const terminalAssignment =
           terminal.match(
-            /^(\d{2})\s*-\s*(\d+)\s+(บลก|บล|ล-บ|บ-ล|บน-ล่าง|ล่าง-บน|บนล่าง)$/u
+            /^(\d{2})\s*[-=]\s*(\d+)\s+(บลก|บล|ล-บ|บ-ล|บน-ล่าง|ล่าง-บน|บนล่าง)$/u
           );
 
         if (terminalAssignment) {
