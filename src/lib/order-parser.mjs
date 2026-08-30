@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * LINE Order Parser v1.7.6
+ * LINE Order Parser v1.7.7
  * Pure JavaScript, no external dependencies.
  *
  * Design goals:
@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.7.6";
+const PARSER_VERSION = "1.7.7";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -2788,6 +2788,85 @@ function normalizeReviewA5Grammar(text) {
             `${contextualThreeDigitDashPair[1]}=${contextualThreeDigitDashPair[2]}`
           );
 
+          continue;
+        }
+      }
+    }
+
+
+    // --------------------------------------------------------
+    // P2D: production multiline 2-digit block with terminal
+    // A/B pair quantity + explicit A/B modifier.
+    //
+    //   15
+    //   51
+    //   18
+    //   81
+    //   58
+    //   85-20*20 บล
+    //
+    // becomes:
+    //
+    //   15 51 18 81 58 85=20*20 บล
+    //
+    // Safety:
+    // - require at least TWO preceding pure 2-digit codes
+    // - require an explicit A/B modifier
+    // - require an explicit TWO-value quantity pair
+    // - do not generalize standalone "85-20*20 บล"
+    // - do not infer reverse semantics (บลก) here
+    // --------------------------------------------------------
+    const firstProductionTwoDigitPairCodes =
+      isA5TwoDigitCodeListLine(line);
+
+    if (firstProductionTwoDigitPairCodes) {
+      const codes = [
+        ...firstProductionTwoDigitPairCodes,
+      ];
+
+      let j = i + 1;
+
+      while (j < lines.length) {
+        const candidate =
+          String(lines[j] || "").trim();
+
+        if (!candidate) {
+          j++;
+          continue;
+        }
+
+        const moreCodes =
+          isA5TwoDigitCodeListLine(candidate);
+
+        if (!moreCodes) break;
+
+        codes.push(...moreCodes);
+        j++;
+      }
+
+      const terminalIndex =
+        nextNonBlankIndex(j);
+
+      if (
+        codes.length >= 2 &&
+        terminalIndex < lines.length
+      ) {
+        const terminal =
+          String(lines[terminalIndex] || "").trim();
+
+        const terminalPairAssignment =
+          terminal.match(
+            /^(\d{2})\s*-\s*(\d+\s*[xX*\/×]\s*\d+)\s+(บล|ล-บ|บ-ล|บน-ล่าง|ล่าง-บน|บนล่าง)$/u
+          );
+
+        if (terminalPairAssignment) {
+          out.push(
+            `${codes
+              .concat(terminalPairAssignment[1])
+              .join(" ")}=${terminalPairAssignment[2]} ${terminalPairAssignment[3]}`
+          );
+
+          i = terminalIndex;
           continue;
         }
       }
