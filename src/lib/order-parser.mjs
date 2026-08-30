@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * LINE Order Parser v1.7.9
+ * LINE Order Parser v1.7.10
  * Pure JavaScript, no external dependencies.
  *
  * Design goals:
@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.7.9";
+const PARSER_VERSION = "1.7.10";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -2763,6 +2763,39 @@ function normalizeReviewA5Grammar(text) {
       ) {
         const quantityLine =
           String(lines[quantityIndex] || "").trim();
+
+        // ----------------------------------------------------
+        // P2H: multiline counted-permutation terminal.
+        //
+        //   886
+        //   887
+        //   889
+        //   -50*3ก
+        //
+        // becomes:
+        //
+        //   886 887 889=50*3ก
+        //
+        // Safety:
+        // - the surrounding A5 guard already requires at least
+        //   TWO accumulated pure 3-digit codes
+        // - keep this exact to the confirmed "*3ก" vocabulary
+        // - semantic validation remains in the existing
+        //   R_3DIGIT_COUNTED_PERMUTE parser
+        // ----------------------------------------------------
+        const trailingCountedPermute =
+          quantityLine.match(
+            /^-\s*(\d+)\s*\*\s*3ก$/u
+          );
+
+        if (trailingCountedPermute) {
+          out.push(
+            `${codes.join(" ")}=${trailingCountedPermute[1]}*3ก`
+          );
+
+          i = quantityIndex;
+          continue;
+        }
 
         const trailingPair = quantityLine.match(
           /^-\s*(\d+\s*[xX*\/]\s*\d+)(?:\s+(.+))?$/u

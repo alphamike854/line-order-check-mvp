@@ -20,62 +20,18 @@ function total(result) {
   );
 }
 
-// ------------------------------------------------------------
-// P2C-01
-// Unsupported multiline 3ก must remain Review-safe and emit no
-// accidental 2-digit items.
-// ------------------------------------------------------------
-{
-  const result = parseOrder(
-    `886
-887
-889
--50*3ก`
-  );
+const expectedUpper = [
+  "E688=50",
+  "E788=50",
+  "E868=50",
+  "E878=50",
+  "E886=50",
+  "E887=50",
+  "E889=50",
+  "E898=50",
+  "E988=50",
+].sort();
 
-  assert.equal(
-    result.status,
-    "REVIEW"
-  );
-
-  assert.equal(
-    result.items.length,
-    0
-  );
-
-  assert.equal(
-    total(result),
-    0
-  );
-
-  assert.equal(
-    result.errors.some(
-      (x) =>
-        x.code ===
-        "UNRECOGNIZED_ORDER_SYNTAX"
-    ),
-    true
-  );
-
-  assert.equal(
-    result.warnings.some(
-      (x) =>
-        x.code ===
-        "UNRECOGNIZED_ORDER_LIKE_TEXT" &&
-        x.detail === "-50*3ก"
-    ),
-    true
-  );
-
-  console.log(
-    "PASS P2C-01 multiline 3ก remains Review-safe"
-  );
-}
-
-// ------------------------------------------------------------
-// P2C-SAFETY-01
-// Valid lower 2-digit block establishes the canonical baseline.
-// ------------------------------------------------------------
 const lowerBlock = `86
 87
 67-50 บลก
@@ -96,6 +52,57 @@ const expectedLower = [
   "B99=50",
 ].sort();
 
+// ------------------------------------------------------------
+// P2C-01 / updated by P2H semantic evidence.
+// Multiline 3ก is now safely recoverable.
+// ------------------------------------------------------------
+{
+  const result = parseOrder(
+    `886
+887
+889
+-50*3ก`
+  );
+
+  assert.equal(
+    result.status,
+    "PARSED"
+  );
+
+  assert.equal(
+    result.items.length,
+    9
+  );
+
+  assert.equal(
+    total(result),
+    450
+  );
+
+  assert.deepEqual(
+    canonical(result),
+    expectedUpper
+  );
+
+  assert.equal(
+    result.rule_ids.includes(
+      "R_3DIGIT_COUNTED_PERMUTE"
+    ),
+    true
+  );
+
+  assert.equal(result.errors.length, 0);
+  assert.equal(result.warnings.length, 0);
+
+  console.log(
+    "PASS P2C-01 multiline 3ก safely recovered"
+  );
+}
+
+// ------------------------------------------------------------
+// P2C-SAFETY-01
+// Lower 2-digit block remains unchanged.
+// ------------------------------------------------------------
 {
   const result = parseOrder(lowerBlock);
 
@@ -126,9 +133,7 @@ const expectedLower = [
 
 // ------------------------------------------------------------
 // P2C-02
-// Unsupported 3ก block must not contaminate the valid lower block.
-// Tentative items may exist because the message remains PARTIAL,
-// but they must equal the valid lower block exactly.
+// Recovered 3ก quantity must remain isolated from lower block.
 // ------------------------------------------------------------
 {
   const result = parseOrder(
@@ -142,22 +147,25 @@ ${lowerBlock}`
 
   assert.equal(
     result.status,
-    "PARTIAL"
+    "PARSED"
   );
 
   assert.equal(
     result.items.length,
-    20
+    29
   );
 
   assert.equal(
     total(result),
-    1000
+    1450
   );
 
   assert.deepEqual(
     canonical(result),
-    expectedLower
+    [
+      ...expectedUpper,
+      ...expectedLower,
+    ].sort()
   );
 
   for (const leaked of [
@@ -173,14 +181,8 @@ ${lowerBlock}`
     );
   }
 
-  assert.equal(
-    result.errors.some(
-      (x) =>
-        x.code ===
-        "UNRECOGNIZED_ORDER_SYNTAX"
-    ),
-    true
-  );
+  assert.equal(result.errors.length, 0);
+  assert.equal(result.warnings.length, 0);
 
   console.log(
     "PASS P2C-02 multiline 3ก cannot contaminate 2-digit block"
@@ -189,7 +191,7 @@ ${lowerBlock}`
 
 // ------------------------------------------------------------
 // P2C-SAFETY-02
-// Existing inline counted-permutation grammar is untouched.
+// Existing inline counted-permutation grammar is unchanged.
 // ------------------------------------------------------------
 for (const [
   text,
