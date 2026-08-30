@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * LINE Order Parser v1.7.2
+ * LINE Order Parser v1.7.3
  * Pure JavaScript, no external dependencies.
  *
  * Design goals:
@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.7.2";
+const PARSER_VERSION = "1.7.3";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -2029,12 +2029,65 @@ function parseTwoDigitSegment(segment, cfg, acc, rules, warnings, errors) {
     // Skip checksum line here; checksum handled at higher level.
     if (/^รวม\s+[A-Zก-๙]+\s+\d+$/iu.test(line)) continue;
 
+    // --------------------------------------------------------
+    // P1 boundary safety:
+    //
+    //   572-50*50
+    //
+    // is a recognizable but unsupported 3-digit dash assignment.
+    // It must never leak the quantity tokens (50,50) into the
+    // 2-digit pending-code state.
+    //
+    // A contextual production form may be normalized to '='
+    // earlier by P1B. A remaining raw form stays Review-safe.
+    // --------------------------------------------------------
+    if (
+      /^\d{3}\s*-\s*\d+\s*[xX*\/×]\s*\d+$/u.test(
+        line
+      )
+    ) {
+      warnings.push({
+        code: "UNRECOGNIZED_ORDER_LIKE_TEXT",
+        detail: line,
+      });
+
+      continue;
+    }
+
     // Natural sweep shorthand and complete special expressions.
     if (parseSweepTwoDigitLine(line, cfg, acc, rules)) {
       pendingCodes = [];
       continue;
     }
     if (parseSpecialTwoDigitLine(line, cfg, acc, rules, errors)) {
+      pendingCodes = [];
+      continue;
+    }
+
+    // --------------------------------------------------------
+    // Fail-closed generator safety.
+    //
+    // A known generator such as รูด/เบิ้ล that was not consumed
+    // by parseSweepTwoDigitLine() or parseSpecialTwoDigitLine()
+    // is still order-like. Do not let a partially recognizable
+    // quantity make it silently disappear as IGNORE.
+    //
+    // Examples:
+    //
+    //   รูด 7 = 500 บ/ล
+    //   รูด7=500 บ/ล
+    //
+    // Until that exact shorthand is explicitly supported,
+    // keep it Review-safe rather than guessing semantics.
+    // --------------------------------------------------------
+    if (
+      /^(?:รูด|เบิ้ล)(?=\s|[-=0-9]|$)/u.test(line)
+    ) {
+      warnings.push({
+        code: "UNRECOGNIZED_ORDER_LIKE_TEXT",
+        detail: line,
+      });
+
       pendingCodes = [];
       continue;
     }
@@ -2564,6 +2617,153 @@ function normalizeReviewA5Grammar(text) {
           );
 
           i = quantityIndex;
+          continue;
+        }
+      }
+    }
+
+
+    // --------------------------------------------------------
+    // P1B: contextual single 3-digit dash pair before a confirmed
+    // production P1A 2-digit block.
+    //
+    //   572-50*50
+    //
+    //   57
+    //   52
+    //   72-50 บลก
+    //
+    // becomes internally:
+    //
+    //   572=50*50
+    //
+    // followed by the unchanged P1A block.
+    //
+    // Safety:
+    // - the 3-digit dash line alone remains unsupported
+    // - require at least TWO following pure 2-digit codes
+    // - require a terminal NN-qty with explicit supported modifier
+    // --------------------------------------------------------
+    const contextualThreeDigitDashPair =
+      line.match(
+        /^(\d{3})\s*-\s*(\d+\s*[xX*\/×]\s*\d+)$/u
+      );
+
+    if (contextualThreeDigitDashPair) {
+      const followingCodes = [];
+
+      let j =
+        nextNonBlankIndex(i + 1);
+
+      while (j < lines.length) {
+        const candidate =
+          String(lines[j] || "").trim();
+
+        const codeList =
+          isA5TwoDigitCodeListLine(candidate);
+
+        if (!codeList) break;
+
+        followingCodes.push(...codeList);
+
+        j =
+          nextNonBlankIndex(j + 1);
+      }
+
+      if (
+        followingCodes.length >= 2
+        && j < lines.length
+      ) {
+        const terminal =
+          String(lines[j] || "").trim();
+
+        const terminalAssignment =
+          terminal.match(
+            /^(\d{2})\s*-\s*(\d+)\s+(บลก|บล|ล-บ|บ-ล|บน-ล่าง|ล่าง-บน|บนล่าง)$/u
+          );
+
+        if (terminalAssignment) {
+          out.push(
+            `${contextualThreeDigitDashPair[1]}=${contextualThreeDigitDashPair[2]}`
+          );
+
+          continue;
+        }
+      }
+    }
+
+
+    // --------------------------------------------------------
+    // P1A: production multiline 2-digit block with terminal
+    // single quantity + explicit modifier.
+    //
+    //   64
+    //   63
+    //   61
+    //   71-25 บลก
+    //
+    // becomes:
+    //
+    //   64 63 61 71=25 บลก
+    //
+    // Keep this deliberately contextual:
+    // - require at least TWO preceding pure 2-digit codes
+    // - require an explicit supported modifier on the terminal line
+    // - do not generalize a standalone "71-25 บลก"
+    // --------------------------------------------------------
+    const firstProductionTwoDigitCodes =
+      isA5TwoDigitCodeListLine(line);
+
+    if (firstProductionTwoDigitCodes) {
+      const codes = [
+        ...firstProductionTwoDigitCodes,
+      ];
+
+      let j = i + 1;
+
+      while (j < lines.length) {
+        const candidate =
+          String(lines[j] || "").trim();
+
+        if (!candidate) {
+          j++;
+          continue;
+        }
+
+        const moreCodes =
+          isA5TwoDigitCodeListLine(candidate);
+
+        if (!moreCodes) break;
+
+        codes.push(...moreCodes);
+        j++;
+      }
+
+      const terminalIndex =
+        nextNonBlankIndex(j);
+
+      if (
+        codes.length >= 2
+        && terminalIndex < lines.length
+      ) {
+        const terminal =
+          String(
+            lines[terminalIndex] || ""
+          ).trim();
+
+        const terminalAssignment =
+          terminal.match(
+            /^(\d{2})\s*-\s*(\d+)\s+(บลก|บล|ล-บ|บ-ล|บน-ล่าง|ล่าง-บน|บนล่าง)$/u
+          );
+
+        if (terminalAssignment) {
+          out.push(
+            `${codes.concat(
+              terminalAssignment[1]
+            ).join(" ")}=${terminalAssignment[2]} ${terminalAssignment[3]}`
+          );
+
+          i = terminalIndex;
           continue;
         }
       }
