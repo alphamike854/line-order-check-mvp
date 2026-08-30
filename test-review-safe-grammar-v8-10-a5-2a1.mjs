@@ -5,7 +5,7 @@ import {
 } from "./src/lib/order-parser.mjs";
 
 assert.ok(
-  ["1.7.0", "1.7.1", "1.7.2", "1.7.3", "1.7.4"].includes(PARSER_VERSION),
+  ["1.7.0", "1.7.1", "1.7.2", "1.7.3", "1.7.4", "1.7.5"].includes(PARSER_VERSION),
 );
 
 function byKey(result) {

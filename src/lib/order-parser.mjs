@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * LINE Order Parser v1.7.4
+ * LINE Order Parser v1.7.5
  * Pure JavaScript, no external dependencies.
  *
  * Design goals:
@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.7.4";
+const PARSER_VERSION = "1.7.5";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -1860,6 +1860,28 @@ function matchLeadingAlias(text, cfg, target, { includeCanonical = true } = {}) 
   return null;
 }
 
+function isKnownGeneratorOrderLikeLine(text) {
+  const raw = String(text || "").trim();
+
+  // P2B safety only.
+  //
+  // Supported generator commands are parsed elsewhere. This helper
+  // identifies a known generator that remains unconsumed so it cannot
+  // silently become IGNORE.
+  //
+  // Production examples:
+  //
+  //   เพิ่มรูดเบิ้ล 1000 บล
+  //   เพิ่ม รูดเบิ้ล 1000 บล
+  //
+  // "เพิ่ม" is treated only as a narrow leading operational prefix.
+  // Do NOT remove it or infer the underlying generator semantics here.
+  return /^(?:เพิ่ม\s*)?(?:รูดเบิ้ล|รูด|เบิ้ล)(?=\s|[-=0-9]|$)/u.test(
+    raw
+  );
+}
+
+
 function parseSweepTwoDigitLine(line, cfg, acc, rules) {
   const t = stripPoliteWords(normalizeLatin(line.trim()));
   const excluded = stripExcludeDoublePhrase(t);
@@ -2081,7 +2103,7 @@ function parseTwoDigitSegment(segment, cfg, acc, rules, warnings, errors) {
     // keep it Review-safe rather than guessing semantics.
     // --------------------------------------------------------
     if (
-      /^(?:รูด|เบิ้ล)(?=\s|[-=0-9]|$)/u.test(line)
+      isKnownGeneratorOrderLikeLine(line)
     ) {
       warnings.push({
         code: "UNRECOGNIZED_ORDER_LIKE_TEXT",
@@ -3082,7 +3104,7 @@ function isOrderSkeletonLikeText(text) {
 
   // Known order generators. Malformed variants must not disappear.
   if (
-    /^(?:รูด|เบิ้ล)(?=\s|[-=0-9]|$)/u.test(raw)
+    isKnownGeneratorOrderLikeLine(raw)
   ) {
     return true;
   }
