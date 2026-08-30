@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * LINE Order Parser v1.7.8
+ * LINE Order Parser v1.7.9
  * Pure JavaScript, no external dependencies.
  *
  * Design goals:
@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.7.8";
+const PARSER_VERSION = "1.7.9";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -526,6 +526,65 @@ function normalizeCollectiveReviewGrammar(text) {
       out.push("บนล่าง");
       continue;
     }
+
+    // --------------------------------------------------------
+    // P2F: 3-digit TOD collective prefix.
+    //
+    //   โต้ดตัวละ60
+    //   364
+    //   246
+    //   672
+    //   249
+    //
+    // becomes:
+    //
+    //   364 246 672 249=60 โต้ด
+    //
+    // Safety:
+    // - require explicit โต๊ด/โต้ด vocabulary
+    // - require explicit "ตัวละ"
+    // - require a single positive integer quantity
+    // - consume only pure 3-digit code-list lines
+    // - one 3-digit code is sufficient because the explicit
+    //   canonical form "364=60 โต้ด" is already supported
+    // - stop at the first non-3-digit-code line
+    // --------------------------------------------------------
+    const threeDigitTodCollective = line.match(
+      /^(โต๊ด|โต้ด)\s*ตัวละ\s*(\d+)$/u
+    );
+
+    if (threeDigitTodCollective) {
+      const codes = [];
+      let j = i + 1;
+
+      while (j < lines.length) {
+        const candidate =
+          String(lines[j] || "").trim();
+
+        if (!candidate) {
+          j++;
+          continue;
+        }
+
+        const found =
+          isA5ThreeDigitCodeListLine(candidate);
+
+        if (!found) break;
+
+        codes.push(...found);
+        j++;
+      }
+
+      if (codes.length) {
+        out.push(
+          `${codes.join(" ")}=${threeDigitTodCollective[2]} ${threeDigitTodCollective[1]}`
+        );
+
+        i = j - 1;
+        continue;
+      }
+    }
+
 
     // --------------------------------------------------------
     // Prefix collective form:
