@@ -11,7 +11,10 @@ assert.match(app, /const FRESHNESS_POLL_MS = 60_000;/);
 assert.match(app, /document\.hidden \|\| !state\.accessKey/);
 assert.match(app, /await loadDashboard\(\{ silent: true \}\)/);
 assert.match(app, /await loadReport\(\{ silent: true \}\)/);
-assert.match(app, /async function loadDashboard\(\{ silent = false \} = \{\}\)/);
+assert.match(
+  app,
+  /async function loadDashboard\(\{\s*silent = false,\s*preserveReviewWorkbench = false,\s*\} = \{\}\)/
+);
 assert.match(app, /if \(silent\) console\.warn\("silent dashboard refresh failed"/);
 assert.match(app, /ล่าสุด \$\{formatBangkokClock\(metrics\.last_event_at\)\}/);
 
