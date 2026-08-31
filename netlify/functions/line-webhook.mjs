@@ -14,6 +14,7 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.7-flash";
+const REVIEW_IMAGE_BUCKET = "review-images";
 
 if (!LINE_CHANNEL_SECRET || !SUPABASE_URL || !SUPABASE_SECRET_KEY) {
   console.warn("Missing one or more required core environment variables");
@@ -363,6 +364,65 @@ async function handleTextMessage(destination, event, group, session, existingMes
   return persistParsedResult(message, effectiveGroup, result, { first_order_code: firstLedgerCode(result.items, text) || null });
 }
 
+async function storeImageReviewEvidence(message, image) {
+  if (!image?.bytes?.length) {
+    throw new Error(
+      "IMAGE_REVIEW_EVIDENCE_BYTES_MISSING",
+    );
+  }
+
+  const storagePath = String(message.id);
+  const storedAt = new Date().toISOString();
+
+  const { error: uploadError } =
+    await supabase.storage
+      .from(REVIEW_IMAGE_BUCKET)
+      .upload(
+        storagePath,
+        image.bytes,
+        {
+          contentType: image.mimeType,
+          upsert: true,
+        },
+      );
+
+  if (uploadError) {
+    throw new Error(
+      `IMAGE_REVIEW_EVIDENCE_STORE_FAILED: ${
+        uploadError.message ?? String(uploadError)
+      }`,
+    );
+  }
+
+  const { error: metadataError } =
+    await supabase
+      .from("messages")
+      .update({
+        image_storage_path: storagePath,
+        image_stored_at: storedAt,
+        image_deleted_at: null,
+        image_content_type: image.mimeType,
+        image_size_bytes: image.sizeBytes,
+      })
+      .eq("id", message.id);
+
+  if (metadataError) {
+    // Best-effort orphan cleanup.
+    await supabase.storage
+      .from(REVIEW_IMAGE_BUCKET)
+      .remove([storagePath])
+      .catch(() => null);
+
+    throw new Error(
+      `IMAGE_REVIEW_EVIDENCE_METADATA_FAILED: ${
+        metadataError.message ?? String(metadataError)
+      }`,
+    );
+  }
+
+  return storagePath;
+}
+
 async function handleImageMessage(
   destination,
   event,
@@ -487,6 +547,16 @@ async function handleImageMessage(
       throw error;
     }
 
+    // At this point provider retry is exhausted or the OCR failure
+    // is non-retryable. Preserve the downloaded image only when it
+    // is about to become a Human Review item.
+    if (image) {
+      await storeImageReviewEvidence(
+        message,
+        image,
+      );
+    }
+
     await supabase
       .from("messages")
       .update({
@@ -524,6 +594,11 @@ async function handleImageMessage(
   };
 
   if (ocr.uncertain) {
+    await storeImageReviewEvidence(
+      message,
+      image,
+    );
+
     await supabase
       .from("messages")
       .update({
@@ -554,6 +629,20 @@ async function handleImageMessage(
   const config = await loadParserConfig();
   const result = parseOrder(ocr.text, config);
 
+  const parserNeedsHumanReview =
+    ["REVIEW", "PARTIAL"].includes(result.status)
+    || (
+      result.status === "PARSED"
+      && !(result.items ?? []).length
+    );
+
+  if (parserNeedsHumanReview) {
+    await storeImageReviewEvidence(
+      message,
+      image,
+    );
+  }
+
   // Intentionally outside the OCR try/catch:
   // persistence failures must propagate to processEvent -> markWebhookFailed
   // -> HTTP 500 -> safe redelivery/resume.
@@ -576,7 +665,7 @@ async function handleUnsend(destination, event) {
 
   const { data: message, error: findError } = await supabase
     .from("messages")
-    .select("id,line_group_id")
+    .select("id,line_group_id,image_storage_path,image_deleted_at")
     .eq("destination", destination)
     .eq("message_id", originalMessageId)
     .maybeSingle();
@@ -592,6 +681,19 @@ async function handleUnsend(destination, event) {
     if (itemFindError) throw itemFindError;
     derivedQtyTotal = (items ?? []).reduce((sum, x) => sum + Number(x.quantity || 0), 0);
 
+    if (message.image_storage_path) {
+      const { error: imageDeleteError } =
+        await supabase.storage
+          .from(REVIEW_IMAGE_BUCKET)
+          .remove([
+            message.image_storage_path,
+          ]);
+
+      if (imageDeleteError) {
+        throw imageDeleteError;
+      }
+    }
+
     const { error: messageUpdateError } = await supabase
       .from("messages")
       .update({
@@ -601,6 +703,11 @@ async function handleUnsend(destination, event) {
         normalized_text: null,
         ocr_text: null,
         ocr_error: null,
+        image_storage_path: null,
+        image_deleted_at:
+          message.image_storage_path
+            ? unsentAt
+            : message.image_deleted_at ?? null,
       })
       .eq("id", message.id);
     if (messageUpdateError) throw messageUpdateError;
