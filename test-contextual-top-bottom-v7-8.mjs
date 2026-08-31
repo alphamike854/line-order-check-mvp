@@ -12,7 +12,7 @@ function byKey(result) {
 }
 
 assert.ok(
-  ['1.7.0', '1.7.1', '1.7.2', '1.7.3', '1.7.4', '1.7.5', '1.7.6', '1.7.7', '1.7.8', '1.7.9', '1.7.10', '1.7.11', '1.7.12'].includes(PARSER_VERSION),
+  ['1.7.0', '1.7.1', '1.7.2', '1.7.3', '1.7.4', '1.7.5', '1.7.6', '1.7.7', '1.7.8', '1.7.9', '1.7.10', '1.7.11', '1.7.12', '1.7.13'].includes(PARSER_VERSION),
 );
 
 // TOP/BOTTOM are contextual synonyms, not global aliases.

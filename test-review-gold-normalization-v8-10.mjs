@@ -168,14 +168,29 @@ if (failures.length) {
   );
 }
 
-// 3-digit dash syntax remains untouched in A1.
-// Its business semantics will be handled separately in v1.6B.
+// P2K business contract:
+// standalone 3-digit dash pair is equivalent to
+// an ordinary E/F pair assignment.
 {
-  const result = parseOrder("593-50*50");
+  const result =
+    parseOrder("593-50*50");
 
-  assert.ok(
-    !result.items.some((item) => item.code === "593"),
-    "A1 must not invent 3-digit dash-assignment semantics"
+  assert.equal(
+    result.status,
+    "PARSED"
+  );
+
+  assert.deepEqual(
+    result.items
+      .map(
+        (item) =>
+          `${item.category}${item.code}=${item.quantity}`
+      )
+      .sort(),
+    [
+      "E593=50",
+      "F593=50",
+    ]
   );
 }
 

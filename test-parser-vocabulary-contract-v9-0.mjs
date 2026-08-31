@@ -386,11 +386,14 @@ check("NOISE-03 arbitrary Thai text remains harmless", () => {
 // J. ORDER-LIKE UNKNOWN MUST NEVER DISAPPEAR
 // ============================================================
 
-check("SAFETY-01 unsupported 3-digit dash pair remains Review-safe", () => {
-  const r = parseOrder("593-50*50");
-
-  assert.notEqual(r.status, "IGNORE");
-  assert.equal(r.items.length, 0);
+check("THREE-DASH-01 standalone 3-digit dash pair means E/F", () => {
+  expectItems(
+    "593-50*50",
+    [
+      "E593=50",
+      "F593=50",
+    ]
+  );
 });
 
 check("SAFETY-02 ambiguous natural 3-digit pair remains Review-safe", () => {

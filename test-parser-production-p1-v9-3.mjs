@@ -125,35 +125,46 @@ function blg(codes, qty) {
 }
 
 // ------------------------------------------------------------
-// Boundary safety:
-// unsupported single 3-digit dash pair remains fail-closed.
+// P2K contract:
+// standalone 3-digit dash pair is an E/F assignment.
 // ------------------------------------------------------------
 {
   const result =
     parseOrder("572-50*50");
 
-  assert.equal(result.status, "REVIEW");
-  assert.equal(result.items.length, 0);
+  assert.equal(result.status, "PARSED");
+
+  assert.deepEqual(
+    canonical(result),
+    [
+      "E572=50",
+      "F572=50",
+    ]
+  );
 
   console.log(
-    "PASS P1-SAFETY-01 standalone 3-digit dash remains REVIEW"
+    "PASS P1-SAFETY-01 standalone 3-digit dash uses E/F"
   );
 }
 
 // ------------------------------------------------------------
-// A quantity token inside unsupported 3-digit syntax must never
-// become a pending 2-digit code for the following order.
+// A valid 3-digit dash assignment must remain isolated from
+// the following 2-digit order and must never leak quantity tokens.
 // ------------------------------------------------------------
 {
   const result =
     parseOrder(`572-50*50
 01=20`);
 
-  assert.equal(result.status, "PARTIAL");
+  assert.equal(result.status, "PARSED");
 
   assert.deepEqual(
     canonical(result),
-    ["A01=20"]
+    [
+      "A01=20",
+      "E572=50",
+      "F572=50",
+    ]
   );
 
   assert.equal(
@@ -177,13 +188,15 @@ function blg(codes, qty) {
     parseOrder(`572-50*50
 01=20x20`);
 
-  assert.equal(result.status, "PARTIAL");
+  assert.equal(result.status, "PARSED");
 
   assert.deepEqual(
     canonical(result),
     [
       "A01=20",
       "B01=20",
+      "E572=50",
+      "F572=50",
     ]
   );
 

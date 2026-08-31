@@ -284,23 +284,31 @@ check("A5-07 Thai textual date alone is metadata", () => {
 
 
 // ============================================================
-// SAFETY-01
+// P2K baseline:
 //
-// Existing A3 boundary.
-// Single 3-digit dash pair is intentionally NOT generalized.
+// A standalone 3-digit dash pair is now a canonical
+// E/F assignment.
 // ============================================================
-check("SAFETY-01 single 3-digit dash pair remains Review-safe", () => {
-  const result = parseOrder("593-50*50");
-
-  assert.ok(
-    result.status === "REVIEW" ||
-    result.status === "PARTIAL"
-  );
+check("P2K-01 single 3-digit dash pair means E/F", () => {
+  const result =
+    parseOrder("593-50*50");
 
   assert.equal(
-    result.items.some((item) => item.code === "593"),
-    false,
-    "A5 must not introduce single 3-digit dash assignment"
+    result.status,
+    "PARSED"
+  );
+
+  assert.deepEqual(
+    result.items
+      .map(
+        (item) =>
+          `${item.category}${item.code}=${item.quantity}`
+      )
+      .sort(),
+    [
+      "E593=50",
+      "F593=50",
+    ]
   );
 });
 

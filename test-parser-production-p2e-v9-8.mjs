@@ -90,8 +90,8 @@ ${lowerBlock}`
 }
 
 // ------------------------------------------------------------
-// P2E-SAFETY-01
-// Standalone 3-digit dash pair remains unsupported.
+// P2K contract:
+// standalone 3-digit dash pair is a canonical E/F assignment.
 // ------------------------------------------------------------
 {
   const result = parseOrder(
@@ -100,16 +100,19 @@ ${lowerBlock}`
 
   assert.equal(
     result.status,
-    "REVIEW"
+    "PARSED"
   );
 
-  assert.equal(
-    result.items.length,
-    0
+  assert.deepEqual(
+    canonical(result),
+    [
+      "E587=100",
+      "F587=100",
+    ]
   );
 
   console.log(
-    "PASS P2E-SAFETY-01 standalone remains REVIEW"
+    "PASS P2E-SAFETY-01 standalone uses E/F"
   );
 }
 
@@ -189,7 +192,8 @@ ${lowerBlock}`
 
 // ------------------------------------------------------------
 // P2E-SAFETY-04
-// A single following code is not enough contextual evidence.
+// Standalone E/F assignment remains isolated from a following
+// single-code บลก block. No quantity leakage is allowed.
 // ------------------------------------------------------------
 {
   const result = parseOrder(
@@ -199,26 +203,46 @@ ${lowerBlock}`
 85=100 บลก`
   );
 
-  const items = canonical(result);
-
   assert.equal(
-    items.includes("E587=100"),
-    false
+    result.status,
+    "PARSED"
   );
 
   assert.equal(
-    items.includes("F587=100"),
-    false
+    result.items.length,
+    10
+  );
+
+  assert.equal(
+    total(result),
+    1000
+  );
+
+  assert.deepEqual(
+    canonical(result),
+    [
+      "A58=100",
+      "A78=100",
+      "A85=100",
+      "A87=100",
+      "B58=100",
+      "B78=100",
+      "B85=100",
+      "B87=100",
+      "E587=100",
+      "F587=100",
+    ]
   );
 
   console.log(
-    "PASS P2E-SAFETY-04 requires at least two following codes"
+    "PASS P2E-SAFETY-04 standalone E/F isolated from บลก block"
   );
 }
 
 // ------------------------------------------------------------
 // P2E-SAFETY-05
-// Missing explicit terminal modifier cannot recover first line.
+// Standalone E/F assignment remains isolated from a following
+// ordinary 2-digit block without a reverse modifier.
 // ------------------------------------------------------------
 {
   const result = parseOrder(
@@ -229,20 +253,44 @@ ${lowerBlock}`
 85=100`
   );
 
-  const items = canonical(result);
-
   assert.equal(
-    items.includes("E587=100"),
-    false
+    result.status,
+    "PARSED"
   );
 
   assert.equal(
-    items.includes("F587=100"),
+    result.items.length,
+    5
+  );
+
+  assert.equal(
+    total(result),
+    500
+  );
+
+  assert.deepEqual(
+    canonical(result),
+    [
+      "A75=100",
+      "A78=100",
+      "A85=100",
+      "E587=100",
+      "F587=100",
+    ]
+  );
+
+  assert.equal(
+    canonical(result).some(
+      (item) =>
+        item.startsWith("B75=") ||
+        item.startsWith("B78=") ||
+        item.startsWith("B85=")
+    ),
     false
   );
 
   console.log(
-    "PASS P2E-SAFETY-05 modifier remains required"
+    "PASS P2E-SAFETY-05 ordinary lower block remains isolated"
   );
 }
 

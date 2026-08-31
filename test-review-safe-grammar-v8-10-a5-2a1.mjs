@@ -5,7 +5,7 @@ import {
 } from "./src/lib/order-parser.mjs";
 
 assert.ok(
-  ["1.7.0", "1.7.1", "1.7.2", "1.7.3", "1.7.4", "1.7.5", "1.7.6", "1.7.7", "1.7.8", "1.7.9", "1.7.10", "1.7.11", "1.7.12"].includes(PARSER_VERSION),
+  ["1.7.0", "1.7.1", "1.7.2", "1.7.3", "1.7.4", "1.7.5", "1.7.6", "1.7.7", "1.7.8", "1.7.9", "1.7.10", "1.7.11", "1.7.12", "1.7.13"].includes(PARSER_VERSION),
 );
 
 function byKey(result) {
@@ -135,54 +135,67 @@ check("2A1-03 Unicode multiplication sign", () => {
 // ============================================================
 // 2A1-04
 //
-// Local recovery only.
+// P2K composition contract:
 //
-// 832-100*100 remains unsupported because it is a
-// single 3-digit dash pair.
-//
-// But 32-50*50 / 23-50*50 can safely become A/B items.
+// A standalone 3-digit dash pair is a canonical E/F assignment,
+// while following 2-digit dash pairs remain ordinary A/B items.
 // ============================================================
-check("2A1-04 mixed 3-digit safety + 2-digit recovery", () => {
+check("2A1-04 mixed 3-digit E/F + 2-digit recovery", () => {
   const result = parseOrder(`832-100*100
 32-50*50
 23-50*50`);
 
-  assert.ok(
-    result.status === "REVIEW" ||
-    result.status === "PARTIAL"
+  assert.equal(
+    result.status,
+    "PARSED"
   );
 
   assert.deepEqual(
     byKey(result),
-    expectedAB(["32", "23"], 50, 50)
+    {
+      ...expectedAB(
+        ["32", "23"],
+        50,
+        50
+      ),
+      E832: 100,
+      F832: 100,
+    }
   );
 
-  assert.equal(
-    result.items.some(
-      (item) => item.code === "832"
-    ),
-    false,
-    "must not manufacture canonical 832"
+  assert.deepEqual(
+    result.errors,
+    []
   );
 });
 
 
 // ============================================================
-// SAFETY-01
+// P2K baseline:
 //
-// Existing A3/A5 boundary:
-// lone 3-digit dash pair remains unsupported.
+// A standalone 3-digit dash pair is now a canonical
+// E/F assignment.
 // ============================================================
-check("SAFETY-01 single 3-digit dash pair remains safe", () => {
-  const result = parseOrder("593-50*50");
-
-  assert.notEqual(result.status, "PARSED");
+check("P2K-01 single 3-digit dash pair means E/F", () => {
+  const result =
+    parseOrder("593-50*50");
 
   assert.equal(
-    result.items.some(
-      (item) => item.code === "593"
-    ),
-    false
+    result.status,
+    "PARSED"
+  );
+
+  assert.deepEqual(
+    result.items
+      .map(
+        (item) =>
+          `${item.category}${item.code}=${item.quantity}`
+      )
+      .sort(),
+    [
+      "E593=50",
+      "F593=50",
+    ]
   );
 });
 

@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * LINE Order Parser v1.7.12
+ * LINE Order Parser v1.7.13
  * Pure JavaScript, no external dependencies.
  *
  * Design goals:
@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.7.12";
+const PARSER_VERSION = "1.7.13";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -165,7 +165,7 @@ function normalizeMixedWidthInlineAssignments(text) {
 
   const pairPattern =
     new RegExp(
-      `^(.+?)\\s*=\\s*(${quantityToken}\\s*[xX*×]\\s*${quantityToken})\\s*$`,
+      `^(.+?)\\s*=\\s*(${quantityToken}\\s*[xX*×+]\\s*${quantityToken})\\s*$`,
       "u",
     );
 
@@ -261,6 +261,75 @@ function isSafeTwoDigitCodeListLine(line) {
 
   return !residue;
 }
+
+function normalizeStandaloneThreeDigitDashPairAssignments(text) {
+  const lines = String(text || "").split("\n");
+  const out = [];
+
+  const quantityToken =
+    String.raw`(?:\d{1,3}(?:,\d{3})+|\d+)`;
+
+  const assignmentPattern =
+    new RegExp(
+      `^(\\d{3})\\s*-\\s*(${quantityToken}\\s*[xX*×+/]\\s*${quantityToken})\\s*$`,
+      "u",
+    );
+
+  // A standalone DDD-Q1xQ2 line is an E/F assignment.
+  //
+  // However, do NOT normalize the terminal dash line when it
+  // closes an existing multiline pending 3-digit block:
+  //
+  //   396
+  //   394
+  //   364
+  //   964-10*10
+  //
+  // coalesceThreeDigitLines() owns that grammar and must see
+  // the original dash form so all four codes receive the pair.
+  let hasPendingPureThreeDigit = false;
+
+  for (const raw of lines) {
+    const line =
+      String(raw || "").trim();
+
+    if (/^\d{3}$/u.test(line)) {
+      out.push(raw);
+      hasPendingPureThreeDigit = true;
+      continue;
+    }
+
+    // Blank formatting does not terminate a pending code block.
+    if (!line) {
+      out.push(raw);
+      continue;
+    }
+
+    const match =
+      line.match(assignmentPattern);
+
+    if (match) {
+      if (hasPendingPureThreeDigit) {
+        // Leave intact for coalesceThreeDigitLines().
+        out.push(raw);
+      } else {
+        // True standalone assignment.
+        out.push(
+          `${match[1]}=${match[2]}`
+        );
+      }
+
+      hasPendingPureThreeDigit = false;
+      continue;
+    }
+
+    out.push(raw);
+    hasPendingPureThreeDigit = false;
+  }
+
+  return out.join("\n");
+}
+
 
 function normalizeSafeReviewGrammar(text) {
   const lines = String(text || "").split("\n");
@@ -1212,8 +1281,22 @@ function parseQuantityExpression(expr) {
   const s = String(expr || "")
     .trim()
     .replace(/,/g, "");
-  let m = s.match(/^(\d+)\s*[xX*]\s*(\d+)$/);
-  if (m) return { type: "PAIR", first: Number(m[1]), second: Number(m[2]), delimiter: m[0].includes("*") ? "*" : "x" };
+  let m = s.match(/^(\d+)\s*[xX*+]\s*(\d+)$/);
+  if (m) {
+    const delimiter =
+      m[0].includes("*")
+        ? "*"
+        : m[0].includes("+")
+          ? "+"
+          : "x";
+
+    return {
+      type: "PAIR",
+      first: Number(m[1]),
+      second: Number(m[2]),
+      delimiter,
+    };
+  }
 
   m = s.match(/^(\d+)\s*\/\s*(\d+)$/);
   if (m) return { type: "PAIR", first: Number(m[1]), second: Number(m[2]), delimiter: "/" };
@@ -1336,7 +1419,7 @@ function coalesceThreeDigitLines(lines) {
     // every preceding code.
     if (pendingCodes.length === 1) {
       const standalonePair = line.match(
-        /^((?:\d{1,3}(?:,\d{3})+|\d+)\s*[xX*×]\s*(?:\d{1,3}(?:,\d{3})+|\d+))$/u
+        /^((?:\d{1,3}(?:,\d{3})+|\d+)\s*[xX*×+]\s*(?:\d{1,3}(?:,\d{3})+|\d+))$/u
       );
 
       if (standalonePair) {
@@ -1352,7 +1435,7 @@ function coalesceThreeDigitLines(lines) {
     // 396\n394\n364\n964-10*10
     // means the four 3-digit codes share the final quantity expression.
     if (pendingCodes.length) {
-      const finalWithDashQty = line.match(/^(\d{3})\s*-\s*(\d+(?:\s*[xX*\/]\s*\d+)?(?:\s+.+)?)$/u);
+      const finalWithDashQty = line.match(/^(\d{3})\s*-\s*(\d+(?:\s*[xX*\/+]\s*\d+)?(?:\s+.+)?)$/u);
       if (finalWithDashQty) {
         out.push(`${pendingCodes.concat(finalWithDashQty[1]).join(" ")}=${finalWithDashQty[2].trim()}`);
         pendingCodes = [];
@@ -2200,7 +2283,7 @@ function parseTwoDigitSegment(segment, cfg, acc, rules, warnings, errors) {
     // earlier by P1B. A remaining raw form stays Review-safe.
     // --------------------------------------------------------
     if (
-      /^\d{3}\s*-\s*\d+\s*[xX*\/×]\s*\d+$/u.test(
+      /^\d{3}\s*-\s*\d+\s*[xX*\/×+]\s*\d+$/u.test(
         line
       )
     ) {
@@ -2481,13 +2564,13 @@ function parseTwoDigitSegment(segment, cfg, acc, rules, warnings, errors) {
 
       // Keep only leading quantity expression from RHS; modifier may have been removed already.
       const qm = right.match(
-        /^((?:\d{1,3}(?:,\d{3})+|\d+)(?:\s*[xX*\/]\s*(?:\d{1,3}(?:,\d{3})+|\d+))?)/
+        /^((?:\d{1,3}(?:,\d{3})+|\d+)(?:\s*[xX*\/+]\s*(?:\d{1,3}(?:,\d{3})+|\d+))?)/
       );
       if (qm) quantitySpec = parseQuantityExpression(qm[1]);
     } else {
       // Inline pair at end: "01-05 AB 20x20" / "... 5*5"
       let qm = working.match(
-        /(?:^|\s)((?:\d{1,3}(?:,\d{3})+|\d+)\s*[xX*]\s*(?:\d{1,3}(?:,\d{3})+|\d+))\s*$/
+        /(?:^|\s)((?:\d{1,3}(?:,\d{3})+|\d+)\s*[xX*+]\s*(?:\d{1,3}(?:,\d{3})+|\d+))\s*$/
       );
       if (qm) {
         quantitySpec = parseQuantityExpression(qm[1]);
@@ -2538,7 +2621,7 @@ function parseTwoDigitSegment(segment, cfg, acc, rules, warnings, errors) {
     // If a line contains no recognizable order structure, keep it as warning only
     // when it looks order-like; ordinary Thai chat is ignored.
     if (!codes.length && !quantitySpec && !localModifier) {
-      if (/[0-9=/*:]/.test(line)) {
+      if (/[0-9=/*:+]/.test(line)) {
         warnings.push({ code: "UNRECOGNIZED_ORDER_LIKE_TEXT", detail: line });
       }
     }
@@ -3327,7 +3410,7 @@ function isOrderSkeletonLikeText(text) {
 
   // Unsupported but clearly order-like 3-digit dash pair.
   if (
-    /^\d{3}\s*-\s*\d+\s*[xX*\/]\s*\d+$/u.test(raw)
+    /^\d{3}\s*-\s*\d+\s*[xX*\/+]\s*\d+$/u.test(raw)
   ) {
     return true;
   }
@@ -3498,10 +3581,12 @@ function parseOrder(inputText, config = {}) {
     normalizeReviewA5Grammar(
       normalizeCollectiveReviewGrammar(
         normalizeSafeReviewGrammar(
-          normalizeMixedWidthInlineAssignments(
-            normalizeTrailingNaturalMetadataAfterCompletedBlg(
-              normalizeContextualShortDateMetadata(
-                normalized
+          normalizeStandaloneThreeDigitDashPairAssignments(
+            normalizeMixedWidthInlineAssignments(
+              normalizeTrailingNaturalMetadataAfterCompletedBlg(
+                normalizeContextualShortDateMetadata(
+                  normalized
+                )
               )
             )
           )
@@ -3624,7 +3709,7 @@ function parseOrder(inputText, config = {}) {
 
   for (const line of normalizedLines) {
     if (
-      /^\d(?:[\s,./:]+\d)*\s*=\s*\d+(?:\s*[xX*\/]\s*\d+)?$/u.test(
+      /^\d(?:[\s,./:]+\d)*\s*=\s*\d+(?:\s*[xX*\/+]\s*\d+)?$/u.test(
         line
       )
     ) {
@@ -3657,6 +3742,42 @@ function parseOrder(inputText, config = {}) {
       });
 
       rules.add("R_ORDER_SKELETON_UNSUPPORTED_QUANTITY");
+    }
+  }
+
+  // ----------------------------------------------------------
+  // P2K safety:
+  //
+  // '+' is an explicit TWO-value quantity-pair delimiter:
+  //
+  //   229=50+50
+  //
+  // But a chain of 3+ '+' quantities has no defined business
+  // semantics. It must never silently disappear as IGNORE and
+  // must not inherit repeated-permutation semantics from x/*.
+  //
+  //   229=50+50+50
+  //        => REVIEW / UNSUPPORTED_QUANTITY_EXPRESSION
+  //
+  // Keep this narrow:
+  // - 3-digit code assignment only
+  // - at least THREE numeric quantities
+  // - '+' delimiter only
+  // ----------------------------------------------------------
+  for (const line of normalizedLines) {
+    if (
+      /^\d{3}(?:[\s,/:.]+\d{3})*\s*=\s*\d+(?:\s*\+\s*\d+){2,}$/u.test(
+        line
+      )
+    ) {
+      errors.push({
+        code: "UNSUPPORTED_QUANTITY_EXPRESSION",
+        detail: line,
+      });
+
+      rules.add(
+        "R_3DIGIT_UNSUPPORTED_PLUS_CHAIN"
+      );
     }
   }
 
@@ -3721,7 +3842,7 @@ function parseOrder(inputText, config = {}) {
   // 3-digit dash pair.
   const hasUnsupportedThreeDigitDashPairWarning =
     orderLikeWarningDetails.some((detail) =>
-      /^\d{3}\s*-\s*\d+\s*[xX*\/×]\s*\d+$/u.test(
+      /^\d{3}\s*-\s*\d+\s*[xX*\/×+]\s*\d+$/u.test(
         detail
       )
     );
