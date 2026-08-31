@@ -53,7 +53,7 @@ export default async (req) => {
     const [codeResult,categoryResult,overallResult,poolResult,lineGroupRiskResult,lineGroupCodeResult,messagesResult,profileResult,promoResult,actualResult,warehouseLimitResult,riskBudgetResult,reviews,unsends,batchFreshResult]=await Promise.all([
       codeQuery,categoryQuery,overallQuery,poolQuery,lineGroupRiskQuery,lineGroupCodeQuery,messagesQuery,
       supabase.from("settlement_point_profiles").select("category,special_multiplier,max_special_codes").eq("settlement_session_id",session.id).order("category"),
-      supabase.from("settlement_point_promotions").select("category,code,point_factor_pct").eq("settlement_session_id",session.id).order("category").order("code"),
+      supabase.from("settlement_point_promotions").select("summary_group_id,category,code,point_factor_pct").eq("settlement_session_id",session.id).order("summary_group_id").order("category").order("code"),
       supabase.from("settlement_actual_special_point_codes").select("category,code,created_at").eq("settlement_session_id",session.id).order("category").order("code"),
       supabase.from("warehouse_transfer_limits").select("destination,max_batch_quantity,enabled,updated_at").eq("enabled",true).order("destination"),
       supabase.from("summary_group_risk_pool_settings").select("summary_group_id,risk_pool,point_loss_tolerance,updated_at").order("summary_group_id").order("risk_pool"),
@@ -292,7 +292,7 @@ export default async (req) => {
     });
     const messages=messagesResult.data??[];
     const profiles=profileResult.data??[];
-    const promotions=promoResult.data??[];
+    const promotions=(promoResult.data??[]).filter(r=>!summaryGroupId||r.summary_group_id===summaryGroupId);
     const actual=actualResult.data??[];
     const warehouseLimits=warehouseLimitResult.data??[];
     const riskBudgets=riskBudgetResult.data??[];
@@ -300,7 +300,7 @@ export default async (req) => {
       ...warehouseLimits.map(r=>`${r.destination}:${r.max_batch_quantity}:${r.updated_at}`),
       ...riskBudgets.map(r=>`${r.summary_group_id}:${r.point_loss_tolerance}:${r.updated_at}`),
     ].join(",");
-    const version=[session.id,messages[0]?.event_timestamp??"",batchFreshResult.data?.[0]?.confirmed_at??"",actual.map(r=>`${r.category}${r.code}`).join(","),promotions.map(r=>`${r.category}${r.code}:${r.point_factor_pct}`).join(","),settingsSignature].join("|");
+    const version=[session.id,messages[0]?.event_timestamp??"",batchFreshResult.data?.[0]?.confirmed_at??"",actual.map(r=>`${r.category}${r.code}`).join(","),promotions.map(r=>`${r.summary_group_id}:${r.category}${r.code}:${r.point_factor_pct}`).join(","),settingsSignature].join("|");
 
     const mainPlans=distributionPlans.filter((plan)=>plan.risk_pool==="MAIN");
     const distributionIncomplete = summaryGroupId

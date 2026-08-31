@@ -67,7 +67,7 @@ async function getPayload() {
   let actualStatus = null;
   if (open?.id) {
     const [promoResult,profileResult,statusResult] = await Promise.all([
-      supabase.from("settlement_point_promotions").select("category,code,point_factor_pct").eq("settlement_session_id",open.id).order("category").order("code"),
+      supabase.from("settlement_point_promotions").select("summary_group_id,category,code,point_factor_pct,updated_at,updated_by").eq("settlement_session_id",open.id).order("category").order("code"),
       supabase.from("settlement_point_profiles").select("category,special_multiplier,max_special_codes").eq("settlement_session_id",open.id).order("category"),
       supabase.from("session_actual_point_status").select("actual_codes_ready,category_counts").eq("settlement_session_id",open.id).maybeSingle(),
     ]);
@@ -152,6 +152,149 @@ async function changeSummaryGroupState(
   });
 }
 
+async function changePointPromotion(
+  body,
+  deleting = false,
+) {
+  const sessionId =
+    String(
+      body.settlement_session_id ?? "",
+    );
+
+  const summaryGroupId =
+    String(
+      body.summary_group_id ?? "",
+    ).trim();
+
+  const category =
+    String(
+      body.category ?? "",
+    ).trim().toUpperCase();
+
+  const code =
+    String(
+      body.code ?? "",
+    ).trim();
+
+  if (!sessionId) {
+    return json(
+      {
+        ok: false,
+        error: "SETTLEMENT_NOT_FOUND",
+      },
+      400,
+    );
+  }
+
+  if (!summaryGroupId) {
+    return json(
+      {
+        ok: false,
+        error: "SUMMARY_GROUP_REQUIRED",
+      },
+      400,
+    );
+  }
+
+  if (!category || !code) {
+    return json(
+      {
+        ok: false,
+        error: "INVALID_PROMOTION_RULE",
+      },
+      400,
+    );
+  }
+
+  let rpc;
+  let args;
+
+  if (deleting) {
+    rpc =
+      "delete_settlement_summary_group_point_promotion";
+
+    args = {
+      p_settlement_session_id:
+        sessionId,
+      p_summary_group_id:
+        summaryGroupId,
+      p_category:
+        category,
+      p_code:
+        code,
+      p_changed_by:
+        OPERATOR,
+    };
+  } else {
+    const factor =
+      Number(
+        body.point_factor_pct,
+      );
+
+    if (
+      !Number.isFinite(factor)
+      || factor < 0
+      || factor > 100
+    ) {
+      return json(
+        {
+          ok: false,
+          error:
+            "INVALID_PROMOTION_RULE",
+        },
+        400,
+      );
+    }
+
+    rpc =
+      "set_settlement_summary_group_point_promotion";
+
+    args = {
+      p_settlement_session_id:
+        sessionId,
+      p_summary_group_id:
+        summaryGroupId,
+      p_category:
+        category,
+      p_code:
+        code,
+      p_point_factor_pct:
+        factor,
+      p_changed_by:
+        OPERATOR,
+    };
+  }
+
+  const { data, error } =
+    await supabase.rpc(
+      rpc,
+      args,
+    );
+
+  if (error) {
+    const [status, errorCode] =
+      mapError(
+        error.message,
+      );
+
+    return json(
+      {
+        ok: false,
+        error: errorCode,
+      },
+      status,
+    );
+  }
+
+  return json({
+    ok: true,
+    promotion_change:
+      data,
+    ...(await getPayload()),
+  });
+}
+
+
 export default async (req) => {
   const denied = requireDashboardAccess(req);
   if (denied) return denied;
@@ -171,6 +314,20 @@ export default async (req) => {
       return changeSummaryGroupState(
         body,
         false,
+      );
+    }
+
+    if (action === "SET_PROMOTION") {
+      return changePointPromotion(
+        body,
+        false,
+      );
+    }
+
+    if (action === "DELETE_PROMOTION") {
+      return changePointPromotion(
+        body,
+        true,
       );
     }
 

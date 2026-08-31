@@ -52,11 +52,19 @@
           class="settlement-group-controls hidden"
         ></div>
 
+        <div
+          id="settlementPromotionControls"
+          class="settlement-promotion-controls hidden"
+        ></div>
+
         <div id="openSettlementEditor" class="settlement-editor hidden">
           <h3>Promotion</h3>
           <p class="muted">กำหนดเฉพาะรหัสที่มี Promotion</p>
           <div id="openingPointProfiles" class="profile-strip"></div>
           <form id="promotionDraftForm" class="compact-form inline-form">
+            <select name="summary_group_id" required>
+              <option value="">เลือกกลุ่มสรุป</option>
+            </select>
             <select name="category"><option>A</option><option>B</option><option>E</option><option>F</option><option>G</option><option>H</option><option>L</option></select>
             <input name="code" placeholder="รหัส เช่น 01 / 125" required />
             <input name="point_factor_pct" type="number" min="0" max="100" step="0.1" placeholder="% Point เช่น 50" required />

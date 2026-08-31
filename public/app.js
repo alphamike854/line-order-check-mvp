@@ -3873,13 +3873,630 @@ function renderProfileStrip(target, profiles = []) {
   root.innerHTML=(profiles||[]).map((p)=>`<span class="profile-chip"><strong>${escapeHtml(p.category)} ×${formatNumber(p.special_multiplier)}</strong><small>${escapeHtml(p.category)==="F"?`สูงสุด ${formatNumber(p.max_special_codes)} รหัส`:escapeHtml(p.category)==="G"?`${formatNumber(p.max_special_codes)} รหัส`:`${formatNumber(p.max_special_codes)} รหัส`}</small></span>`).join("");
 }
 
+function promotionSummaryGroups(
+  payload = state.settlement,
+) {
+  const sessionGroups =
+    Array.isArray(payload?.summary_group_states)
+    && payload.summary_group_states.length
+      ? payload.summary_group_states.map(
+          (item) => ({
+            id: String(
+              item.summary_group_id || "",
+            ),
+            name:
+              groupName(
+                String(
+                  item.summary_group_id || "",
+                ),
+              ),
+          }),
+        )
+      : [];
+
+  const source =
+    sessionGroups.length
+      ? sessionGroups
+      : (
+          state.dashboard?.summary_groups
+          || state.settings?.summary_groups
+          || []
+        );
+
+  const seen = new Set();
+
+  return source
+    .map((item) => ({
+      id: String(
+        item.id
+        || item.summary_group_id
+        || "",
+      ),
+      name:
+        item.name
+        || groupName(
+          String(
+            item.id
+            || item.summary_group_id
+            || "",
+          ),
+        ),
+    }))
+    .filter((item) => {
+      if (!item.id || seen.has(item.id)) {
+        return false;
+      }
+
+      seen.add(item.id);
+      return true;
+    });
+}
+
+
+function promotionGroupOptions(
+  groups,
+  selected = "",
+) {
+  return [
+    `<option value="">เลือกกลุ่มสรุป</option>`,
+    ...groups.map(
+      (item) =>
+        `<option value="${escapeHtml(item.id)}" ${
+          item.id === selected
+            ? "selected"
+            : ""
+        }>${escapeHtml(
+          item.name || item.id,
+        )}</option>`,
+    ),
+  ].join("");
+}
+
+
+function syncPromotionDraftGroupSelect() {
+  const select =
+    $("#promotionDraftForm")
+      ?.elements
+      ?.summary_group_id;
+
+  if (!select) return;
+
+  const current = select.value;
+
+  select.innerHTML =
+    promotionGroupOptions(
+      promotionSummaryGroups(),
+      current,
+    );
+}
+
+
 function renderPromotionDrafts() {
-  const list=$("#promotionDraftList");
-  renderProfileStrip("#openingPointProfiles",state.settlement?.company_point_profiles||state.settlement?.point_profiles||[]);
-  if(!state.promotionDrafts.length){list.innerHTML=`<div class="muted">ไม่มี Promotion — ถ้ารหัสใดถูก Point พิเศษ จะใช้ตัวคูณเต็มของหมวด</div>`;return;}
-  const profileMap=new Map((state.settlement?.company_point_profiles||state.settlement?.point_profiles||[]).map(p=>[p.category,Number(p.special_multiplier)]));
-  list.innerHTML=state.promotionDrafts.map((r,i)=>{const effective=(profileMap.get(r.category)||0)*Number(r.point_factor_pct||0)/100;return `<div class="settings-row"><span><strong>${escapeHtml(r.category)}${escapeHtml(r.code)} · ${formatNumber(r.point_factor_pct)}% ของ Point</strong><small>ถ้าได้ Point พิเศษ → ×${formatNumber(effective)}</small></span><span></span><button class="button ghost small remove-promo" data-i="${i}">ลบ</button></div>`;}).join("");
-  $$(".remove-promo").forEach(b=>b.addEventListener("click",()=>{state.promotionDrafts.splice(Number(b.dataset.i),1);renderPromotionDrafts();}));
+  const list = $("#promotionDraftList");
+
+  renderProfileStrip(
+    "#openingPointProfiles",
+    state.settlement?.company_point_profiles
+      || state.settlement?.point_profiles
+      || [],
+  );
+
+  syncPromotionDraftGroupSelect();
+
+  if (!state.promotionDrafts.length) {
+    list.innerHTML =
+      `<div class="muted">ไม่มี Promotion — ถ้ารหัสใดถูก Point พิเศษ จะใช้ตัวคูณเต็มของหมวด</div>`;
+    return;
+  }
+
+  const profileMap =
+    new Map(
+      (
+        state.settlement?.company_point_profiles
+        || state.settlement?.point_profiles
+        || []
+      ).map(
+        (p) => [
+          p.category,
+          Number(p.special_multiplier),
+        ],
+      ),
+    );
+
+  list.innerHTML =
+    state.promotionDrafts
+      .map((r, i) => {
+        const effective =
+          (profileMap.get(r.category) || 0)
+          * Number(
+            r.point_factor_pct || 0,
+          )
+          / 100;
+
+        return `
+          <div class="settings-row">
+            <span>
+              <strong>
+                ${escapeHtml(
+                  groupName(
+                    r.summary_group_id,
+                  ),
+                )}
+                · ${escapeHtml(r.category)}${escapeHtml(r.code)}
+                · ${formatNumber(r.point_factor_pct)}% ของ Point
+              </strong>
+              <small>
+                ถ้าได้ Point พิเศษ →
+                ×${formatNumber(effective)}
+              </small>
+            </span>
+            <span></span>
+            <button
+              class="button ghost small remove-promo"
+              data-i="${i}"
+              type="button"
+            >
+              ลบ
+            </button>
+          </div>
+        `;
+      })
+      .join("");
+
+  $$(".remove-promo").forEach(
+    (button) =>
+      button.addEventListener(
+        "click",
+        () => {
+          state.promotionDrafts.splice(
+            Number(button.dataset.i),
+            1,
+          );
+
+          renderPromotionDrafts();
+        },
+      ),
+  );
+}
+
+
+function renderSettlementPromotionControls(
+  payload,
+) {
+  const root =
+    $("#settlementPromotionControls");
+
+  if (!root) return;
+
+  const open =
+    payload?.open_session;
+
+  if (!open?.id) {
+    root.innerHTML = "";
+    root.classList.add("hidden");
+    return;
+  }
+
+  const groups =
+    promotionSummaryGroups(payload);
+
+  const promotions =
+    Array.isArray(payload?.promotions)
+      ? [...payload.promotions]
+      : [];
+
+  promotions.sort(
+    (a, b) =>
+      String(a.summary_group_id || "")
+        .localeCompare(
+          String(b.summary_group_id || ""),
+        )
+      || String(a.category || "")
+        .localeCompare(
+          String(b.category || ""),
+        )
+      || String(a.code || "")
+        .localeCompare(
+          String(b.code || ""),
+        ),
+  );
+
+  root.classList.remove("hidden");
+
+  root.innerHTML = `
+    <div class="settlement-promotion-head">
+      <div>
+        <strong>Promotion รายกลุ่ม</strong>
+        <span>
+          ใช้เฉพาะกลุ่มสรุปที่กำหนด
+          และมีผลกับยอดทั้งหมดในรอบนี้
+        </span>
+      </div>
+      <small>
+        ${formatNumber(promotions.length)} รายการ
+      </small>
+    </div>
+
+    <form
+      id="livePromotionForm"
+      class="compact-form inline-form"
+    >
+      <select
+        name="summary_group_id"
+        required
+      >
+        ${promotionGroupOptions(groups)}
+      </select>
+
+      <select name="category">
+        <option>A</option>
+        <option>B</option>
+        <option>E</option>
+        <option>F</option>
+        <option>G</option>
+        <option>H</option>
+        <option>L</option>
+      </select>
+
+      <input
+        name="code"
+        placeholder="รหัส เช่น 01 / 125"
+        required
+      />
+
+      <input
+        name="point_factor_pct"
+        type="number"
+        min="0"
+        max="100"
+        step="0.1"
+        placeholder="% Point เช่น 50"
+        required
+      />
+
+      <button
+        class="button primary small"
+        type="submit"
+      >
+        บันทึก Promotion
+      </button>
+    </form>
+
+    <div class="settings-list live-promotion-list">
+      ${
+        promotions.length
+          ? promotions
+              .map(
+                (item) => `
+                  <div class="settings-row">
+                    <span>
+                      <strong>
+                        ${escapeHtml(
+                          groupName(
+                            item.summary_group_id,
+                          ),
+                        )}
+                        · ${escapeHtml(item.category)}
+                        ${escapeHtml(item.code)}
+                        · ${formatNumber(
+                          item.point_factor_pct,
+                        )}% ของ Point
+                      </strong>
+                      <small>
+                        ${escapeHtml(
+                          item.summary_group_id,
+                        )}
+                      </small>
+                    </span>
+
+                    <button
+                      type="button"
+                      class="button ghost small edit-live-promotion"
+                      data-summary-group-id="${escapeHtml(
+                        item.summary_group_id,
+                      )}"
+                      data-category="${escapeHtml(
+                        item.category,
+                      )}"
+                      data-code="${escapeHtml(
+                        item.code,
+                      )}"
+                      data-factor="${escapeHtml(
+                        item.point_factor_pct,
+                      )}"
+                    >
+                      แก้ไข
+                    </button>
+
+                    <button
+                      type="button"
+                      class="button ghost small delete-live-promotion"
+                      data-summary-group-id="${escapeHtml(
+                        item.summary_group_id,
+                      )}"
+                      data-category="${escapeHtml(
+                        item.category,
+                      )}"
+                      data-code="${escapeHtml(
+                        item.code,
+                      )}"
+                    >
+                      ลบ
+                    </button>
+                  </div>
+                `,
+              )
+              .join("")
+          : `<div class="muted">
+              ยังไม่มี Promotion ในรอบนี้
+            </div>`
+      }
+    </div>
+  `;
+
+  $("#livePromotionForm")
+    ?.addEventListener(
+      "submit",
+      saveLivePromotion,
+    );
+
+  $$(".edit-live-promotion")
+    .forEach(
+      (button) =>
+        button.addEventListener(
+          "click",
+          () =>
+            editLivePromotion(button),
+        ),
+    );
+
+  $$(".delete-live-promotion")
+    .forEach(
+      (button) =>
+        button.addEventListener(
+          "click",
+          () =>
+            deleteLivePromotion(button),
+        ),
+    );
+}
+
+
+function editLivePromotion(button) {
+  const form =
+    $("#livePromotionForm");
+
+  if (!form) return;
+
+  form.elements.summary_group_id.value =
+    button.dataset.summaryGroupId || "";
+
+  form.elements.category.value =
+    button.dataset.category || "A";
+
+  form.elements.code.value =
+    button.dataset.code || "";
+
+  form.elements.point_factor_pct.value =
+    button.dataset.factor || "";
+
+  form.elements.code.focus();
+}
+
+
+async function refreshAfterPromotionChange(
+  settlementSessionId,
+) {
+  await loadDashboard({
+    silent: true,
+    preserveReviewWorkbench: true,
+  });
+
+  const reportSelect =
+    $("#reportSessionSelect");
+
+  if (
+    reportSelect
+    && reportSelect.value ===
+      settlementSessionId
+  ) {
+    await loadReport({
+      silent: true,
+    });
+  }
+}
+
+
+async function saveLivePromotion(event) {
+  event.preventDefault();
+
+  const form =
+    event.currentTarget;
+
+  const open =
+    state.settlement?.open_session;
+
+  if (!open?.id) {
+    return toast(
+      "ยังไม่ได้เปิดยอด",
+      true,
+    );
+  }
+
+  const summaryGroupId =
+    String(
+      form.elements.summary_group_id.value
+      || "",
+    );
+
+  const category =
+    String(
+      form.elements.category.value
+      || "",
+    );
+
+  const code =
+    String(
+      form.elements.code.value
+      || "",
+    ).trim();
+
+  const factor =
+    Number(
+      form.elements.point_factor_pct.value,
+    );
+
+  const expectedLength =
+    categoryCodeLength(category);
+
+  if (!summaryGroupId) {
+    return toast(
+      "กรุณาเลือกกลุ่มสรุป",
+      true,
+    );
+  }
+
+  if (
+    !new RegExp(
+      `^\\d{${expectedLength}}$`,
+    ).test(code)
+  ) {
+    return toast(
+      `รหัส ${category} ต้องเป็น ${expectedLength} หลัก`,
+      true,
+    );
+  }
+
+  if (
+    !Number.isFinite(factor)
+    || factor < 0
+    || factor > 100
+  ) {
+    return toast(
+      "Promotion ต้องอยู่ระหว่าง 0–100%",
+      true,
+    );
+  }
+
+  const submit =
+    form.querySelector(
+      'button[type="submit"]',
+    );
+
+  submit.disabled = true;
+
+  try {
+    await api(
+      "/api/settlement",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          action: "SET_PROMOTION",
+          settlement_session_id:
+            open.id,
+          summary_group_id:
+            summaryGroupId,
+          category,
+          code,
+          point_factor_pct:
+            factor,
+        }),
+      },
+    );
+
+    form.elements.code.value = "";
+    form.elements.point_factor_pct.value =
+      "";
+
+    await refreshAfterPromotionChange(
+      open.id,
+    );
+
+    toast(
+      `บันทึก Promotion ${
+        groupName(summaryGroupId)
+      } ${category}${code} แล้ว`,
+    );
+  } catch (error) {
+    toast(
+      `บันทึก Promotion ไม่สำเร็จ: ${
+        error.message
+      }`,
+      true,
+    );
+  } finally {
+    submit.disabled = false;
+  }
+}
+
+
+async function deleteLivePromotion(
+  button,
+) {
+  const open =
+    state.settlement?.open_session;
+
+  if (!open?.id) return;
+
+  const summaryGroupId =
+    button.dataset.summaryGroupId || "";
+
+  const category =
+    button.dataset.category || "";
+
+  const code =
+    button.dataset.code || "";
+
+  if (
+    !window.confirm(
+      `ลบ Promotion ${
+        groupName(summaryGroupId)
+      } ${category}${code}?\n`
+      + `Point และ Risk ของยอดทั้งหมดในกลุ่มนี้`
+      + `จะถูกคำนวณใหม่`,
+    )
+  ) {
+    return;
+  }
+
+  button.disabled = true;
+
+  try {
+    await api(
+      "/api/settlement",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          action: "DELETE_PROMOTION",
+          settlement_session_id:
+            open.id,
+          summary_group_id:
+            summaryGroupId,
+          category,
+          code,
+        }),
+      },
+    );
+
+    await refreshAfterPromotionChange(
+      open.id,
+    );
+
+    toast(
+      `ลบ Promotion ${
+        groupName(summaryGroupId)
+      } ${category}${code} แล้ว`,
+    );
+  } catch (error) {
+    toast(
+      `ลบ Promotion ไม่สำเร็จ: ${
+        error.message
+      }`,
+      true,
+    );
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function renderSettlementGroupControls(payload) {
@@ -4102,13 +4719,14 @@ async function changeSettlementSummaryGroup(
 function renderSettlementStatus(payload) {
   state.settlement=payload;
   renderSettlementGroupControls(payload);
+  renderSettlementPromotionControls(payload);
   const open=payload.open_session;
   $("#prepareOpenButton").classList.toggle("hidden",Boolean(open));
   $("#closeSettlementButton").classList.toggle("hidden",!open);
   if(open){
     businessDateInput.value=open.business_date;businessDateInput.disabled=true;
     $("#settlementStatus").textContent=`เปิดยอดอยู่ · ${open.business_date}`;
-    $("#settlementMeta").textContent=`เริ่ม ${formatBangkokTime(open.opened_at)} · Promotion ${formatNumber((payload.promotions||[]).length)} รหัส · ${payload.actual_point_status?.actual_codes_ready?"Point ครบ":"Point ยังไม่ครบ"}`;
+    $("#settlementMeta").textContent=`เริ่ม ${formatBangkokTime(open.opened_at)} · Promotion ${formatNumber((payload.promotions||[]).length)} รายการ · ${payload.actual_point_status?.actual_codes_ready?"Point ครบ":"Point ยังไม่ครบ"}`;
     $("#openSettlementEditor").classList.add("hidden");
   }else{
     businessDateInput.disabled=false;if(!businessDateInput.value)businessDateInput.value=todayBangkok();
@@ -4336,10 +4954,11 @@ function bindV5Controls() {
   });
   $("#cancelOpenSettlementButton").addEventListener("click",()=>$("#openSettlementEditor").classList.add("hidden"));
   $("#promotionDraftForm").addEventListener("submit",event=>{
-    event.preventDefault();const f=event.currentTarget;const category=f.elements.category.value;const code=f.elements.code.value.trim();const point_factor_pct=Number(f.elements.point_factor_pct.value);
+    event.preventDefault();const f=event.currentTarget;const summary_group_id=f.elements.summary_group_id.value;const category=f.elements.category.value;const code=f.elements.code.value.trim();const point_factor_pct=Number(f.elements.point_factor_pct.value);
+    if(!summary_group_id)return toast("กรุณาเลือกกลุ่มสรุป",true);
     const expectedLength=categoryCodeLength(category);if(!new RegExp(`^\\d{${expectedLength}}$`).test(code))return toast(`รหัส ${category} ต้องเป็น ${expectedLength} หลัก`,true);
     if(!Number.isFinite(point_factor_pct)||point_factor_pct<0||point_factor_pct>100)return toast("Promotion ต้องอยู่ระหว่าง 0–100%",true);
-    const rule={category,code,point_factor_pct};const existing=state.promotionDrafts.findIndex(x=>x.category===category&&x.code===code);if(existing>=0)state.promotionDrafts[existing]=rule;else state.promotionDrafts.push(rule);
+    const rule={summary_group_id,category,code,point_factor_pct};const existing=state.promotionDrafts.findIndex(x=>x.summary_group_id===summary_group_id&&x.category===category&&x.code===code);if(existing>=0)state.promotionDrafts[existing]=rule;else state.promotionDrafts.push(rule);
     f.elements.code.value="";f.elements.point_factor_pct.value="";renderPromotionDrafts();
   });
   $("#openSettlementButton").addEventListener("click",openSettlement);$("#closeSettlementButton").addEventListener("click",closeSettlement);

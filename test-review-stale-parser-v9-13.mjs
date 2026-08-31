@@ -129,15 +129,16 @@ assert.match(
   "Review list reload must be suppressible during post-resolution refresh"
 );
 
-const preserveCalls =
-  app.match(
-    /preserveReviewWorkbench:\s*true/g
-  ) || [];
+assert.match(
+  app,
+  /async function applyReview\(card\)[\s\S]{0,2600}?preserveReviewWorkbench:\s*true/,
+  "CORRECT must preserve the Review workbench"
+);
 
-assert.equal(
-  preserveCalls.length,
-  2,
-  "CORRECT and IGNORE must both preserve the Review workbench"
+assert.match(
+  app,
+  /async function ignoreReview\(event\)[\s\S]{0,2200}?preserveReviewWorkbench:\s*true/,
+  "IGNORE must preserve the Review workbench"
 );
 
 const localRemoveCalls =

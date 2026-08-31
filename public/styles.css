@@ -1362,3 +1362,34 @@ body{background:#f3f6fa}
     padding-right:8px;
   }
 }
+
+/* Summary Group scoped live Promotion */
+.settlement-promotion-controls{
+  grid-column:1/-1;
+  border-top:1px solid var(--border,#e5e7eb);
+  padding-top:14px;
+}
+.settlement-promotion-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:14px;
+  margin-bottom:10px;
+}
+.settlement-promotion-head>div{
+  display:grid;
+  gap:2px;
+}
+.settlement-promotion-head span,
+.settlement-promotion-head small{
+  font-size:.75rem;
+  color:#64748b;
+}
+.live-promotion-list{
+  margin-top:10px;
+}
+@media(max-width:700px){
+  .settlement-promotion-head{
+    flex-direction:column;
+  }
+}

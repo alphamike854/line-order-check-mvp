@@ -63,7 +63,7 @@ export default async (req) => {
     const [configResult,profileResult,promoResult,actualResult,statusResult] = await Promise.all([
       configQuery,
       supabase.from("settlement_point_profiles").select("category,special_multiplier,max_special_codes").eq("settlement_session_id",session.id),
-      supabase.from("settlement_point_promotions").select("category,code,point_factor_pct").eq("settlement_session_id",session.id),
+      supabase.from("settlement_point_promotions").select("summary_group_id,category,code,point_factor_pct").eq("settlement_session_id",session.id),
       supabase.from("settlement_actual_special_point_codes").select("category,code").eq("settlement_session_id",session.id),
       supabase.from("session_actual_point_status").select("actual_codes_ready,category_counts").eq("settlement_session_id",session.id).maybeSingle(),
     ]);
@@ -73,7 +73,7 @@ export default async (req) => {
     const promotions=promoResult.data??[];
     const actualCodes=actualResult.data??[];
     const profileMap=new Map(profiles.map(r=>[r.category,Number(r.special_multiplier)]));
-    const promoMap=new Map(promotions.map(r=>[`${r.category}|${r.code}`,Number(r.point_factor_pct)]));
+    const promoMap=new Map(promotions.map(r=>[`${r.summary_group_id}|${r.category}|${r.code}`,Number(r.point_factor_pct)]));
     const actualSet=new Set(actualCodes.map(r=>`${r.category}|${r.code}`));
     const lineIds=configs.map(g=>g.line_group_id);
     if(!lineIds.length) return json({ok:true,session,actual_point_status:statusResult.data??null,actual_special_codes:actualCodes,groups:[]});
@@ -139,7 +139,7 @@ export default async (req) => {
           const key=`${item.category}|${item.code}`;
           if(!actualSet.has(key)) continue;
           const base=profileMap.get(item.category)??0;
-          const factor=promoMap.get(key)??100;
+          const factor=promoMap.get(`${cfg.summary_group_id}|${key}`)??100;
           const multiplier=effectiveMultiplier(base,factor);
           const points=round2(Number(item.quantity)*multiplier);
           special+=points;
