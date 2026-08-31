@@ -77,6 +77,42 @@ assert.match(
 
 assert.match(
   app,
+  /Review #\$\{escapeHtml\(item\.id\)\}/,
+  "Review card must show the Review ID"
+);
+
+assert.match(
+  app,
+  /item\.parse_status/,
+  "Review card must show the original parse status"
+);
+
+assert.match(
+  app,
+  /const itemCount = previewItems\.length/,
+  "Review preview must calculate item count"
+);
+
+assert.match(
+  app,
+  /const totalQuantity = previewItems\.reduce/,
+  "Review preview must calculate total quantity"
+);
+
+assert.match(
+  app,
+  /"ยอดรวม"/,
+  "Fully parsed Review preview must label the complete total"
+);
+
+assert.match(
+  app,
+  /"ยอดที่อ่านได้"/,
+  "Incomplete Review preview must label only the readable total"
+);
+
+assert.match(
+  app,
   /\/api\/review-preview/,
   "Review must continue using the existing preview endpoint"
 );

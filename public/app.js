@@ -3470,11 +3470,25 @@ function reviewReasonsHtml(item) {
 
 function previewItemsHtml(preview) {
   const statusClass = preview.can_apply ? "ok" : "warn";
+  const previewItems = preview.items || [];
+  const itemCount = previewItems.length;
+  const totalQuantity = previewItems.reduce(
+    (sum, item) => sum + Number(item.quantity || 0),
+    0
+  );
+  const totalLabel =
+    preview.status === "PARSED"
+      ? "ยอดรวม"
+      : "ยอดที่อ่านได้";
   const errors = (preview.errors || []).map((x) => `<div>${escapeHtml(x.code)}${x.detail ? ` — ${escapeHtml(x.detail)}` : ""}</div>`).join("");
-  const items = (preview.items || []).map((x) => `<span class="item-chip">${escapeHtml(x.category)}${escapeHtml(x.code)} = ${formatNumber(x.quantity)}</span>`).join("");
+  const items = previewItems.map((x) => `<span class="item-chip">${escapeHtml(x.category)}${escapeHtml(x.code)} = ${formatNumber(x.quantity)}</span>`).join("");
   return `
     <div class="preview-box ${statusClass}">
       <div class="preview-heading">ผลตรวจ <strong>${escapeHtml(preview.status)}</strong> <span class="muted">· Parser ${escapeHtml(preview.parser_version || "ไม่ระบุ")}</span></div>
+      <div class="review-preview-summary">
+        <strong>${formatNumber(itemCount)} รายการ</strong>
+        <span>· ${escapeHtml(totalLabel)} <strong>${formatNumber(totalQuantity)}</strong></span>
+      </div>
       ${items ? `<div class="item-chips">${items}</div>` : ""}
       ${errors ? `<div class="preview-errors">${errors}</div>` : ""}
       ${preview.can_apply ? `<button class="button primary small apply-review">ยืนยันใช้ผลนี้</button>` : `<div class="muted small-text">ยังยืนยันไม่ได้ กรุณาแก้ข้อความแล้วตรวจอีกครั้ง</div>`}
@@ -3596,11 +3610,13 @@ async function loadReviews() {
     list.innerHTML = payload.items.map((item) => `
       <article class="review-card" data-review-id="${escapeHtml(item.id)}">
         <div class="review-meta">
+          <span><strong>Review #${escapeHtml(item.id)}</strong></span>
+          <span>${escapeHtml(item.parse_status || "ไม่ระบุสถานะ")}</span>
+          <span>Parser เดิม ${escapeHtml(item.parser_version || "ไม่ระบุ")}</span>
           <span>${escapeHtml(item.line_group_name)}</span>
           <span>${escapeHtml(item.message_type)}</span>
           <span>${escapeHtml(formatBangkokTime(item.created_at))}</span>
           <span>${escapeHtml(item.user_id || "ไม่ทราบผู้ส่ง")}</span>
-          <span>Parser เดิม ${escapeHtml(item.parser_version || "ไม่ระบุ")}</span>
         </div>
         <div class="reason">${reviewReasonsHtml(item)}</div>
         <label class="editor-label">ข้อความสำหรับ Parse
