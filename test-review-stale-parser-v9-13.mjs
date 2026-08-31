@@ -113,6 +113,52 @@ assert.match(
 
 assert.match(
   app,
+  /function removeCompletedReviewCard\(card\)/,
+  "Completed Review must be removable locally without rebuilding the workbench"
+);
+
+assert.match(
+  app,
+  /preserveReviewWorkbench = false/,
+  "Dashboard refresh must support preserving the Review workbench"
+);
+
+assert.match(
+  app,
+  /!preserveReviewWorkbench/,
+  "Review list reload must be suppressible during post-resolution refresh"
+);
+
+const preserveCalls =
+  app.match(
+    /preserveReviewWorkbench:\s*true/g
+  ) || [];
+
+assert.equal(
+  preserveCalls.length,
+  2,
+  "CORRECT and IGNORE must both preserve the Review workbench"
+);
+
+const localRemoveCalls =
+  app.match(
+    /removeCompletedReviewCard\(card\);/g
+  ) || [];
+
+assert.equal(
+  localRemoveCalls.length,
+  2,
+  "CORRECT and IGNORE must both remove only their completed card"
+);
+
+assert.doesNotMatch(
+  app,
+  /await loadDashboard\(\);\s*await loadReviews\(\);/,
+  "Review actions must not trigger duplicate dashboard + Review reloads"
+);
+
+assert.match(
+  app,
   /\/api\/review-preview/,
   "Review must continue using the existing preview endpoint"
 );

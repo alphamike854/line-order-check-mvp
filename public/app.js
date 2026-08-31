@@ -3542,6 +3542,20 @@ async function previewReview(event) {
   }
 }
 
+function removeCompletedReviewCard(card) {
+  const list = $("#reviewList");
+
+  card.remove();
+
+  if (
+    list &&
+    !list.querySelector(".review-card")
+  ) {
+    list.innerHTML =
+      `<div class="empty">ไม่มีรายการ Review ที่เปิดอยู่</div>`;
+  }
+}
+
 async function applyReview(card) {
   const reviewId = Number(card.dataset.reviewId);
   const correctedText = card.querySelector(".review-editor").value;
@@ -3566,8 +3580,12 @@ async function applyReview(card) {
     });
     card._reviewPreview = null;
     toast(`แก้ Review สำเร็จ ${formatNumber(payload.items?.length)} รายการ`);
-    await loadDashboard();
-    await loadReviews();
+    removeCompletedReviewCard(card);
+
+    await loadDashboard({
+      silent: true,
+      preserveReviewWorkbench: true,
+    });
   } catch (error) {
     if (["PREVIEW_REQUIRED", "PREVIEW_EXPIRED", "PREVIEW_STALE", "PREVIEW_TOKEN_INVALID"].includes(error.message)) {
       clearReviewPreview(card, "ข้อมูลเปลี่ยนแล้ว กรุณาตรวจผลใหม่ก่อนยืนยัน");
@@ -3589,8 +3607,12 @@ async function ignoreReview(event) {
       body: JSON.stringify({ review_id: reviewId, action: "IGNORE" }),
     });
     toast("ข้าม Review แล้ว");
-    await loadDashboard();
-    await loadReviews();
+    removeCompletedReviewCard(card);
+
+    await loadDashboard({
+      silent: true,
+      preserveReviewWorkbench: true,
+    });
   } catch (error) {
     toast(`ข้าม Review ไม่สำเร็จ: ${error.message}`, true);
   } finally {
@@ -4077,7 +4099,10 @@ function bindV5Controls() {
   $("#exportReportCsvButton").addEventListener("click",exportDailyReportCsv);
 }
 
-async function loadDashboard({ silent = false } = {}) {
+async function loadDashboard({
+  silent = false,
+  preserveReviewWorkbench = false,
+} = {}) {
   if (!silent) {
     refreshButton.disabled = true;
     refreshButton.textContent = "กำลังอัปเดต...";
@@ -4108,7 +4133,12 @@ async function loadDashboard({ silent = false } = {}) {
     const activeTab = $(".tab.active")?.dataset.tab;
     if (activeTab === "allocation") await loadAllocationHistory();
     if (activeTab === "postcut") await loadAllocationHistory({ silent });
-    if (activeTab === "review") await loadReviews();
+    if (
+      activeTab === "review" &&
+      !preserveReviewWorkbench
+    ) {
+      await loadReviews();
+    }
     if (activeTab === "unsend") await loadUnsends();
     if (activeTab === "settings") await loadSettings();
     if (activeTab === "points") await loadSpecialPoints();
