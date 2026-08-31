@@ -3882,8 +3882,226 @@ function renderPromotionDrafts() {
   $$(".remove-promo").forEach(b=>b.addEventListener("click",()=>{state.promotionDrafts.splice(Number(b.dataset.i),1);renderPromotionDrafts();}));
 }
 
+function renderSettlementGroupControls(payload) {
+  const root = $("#settlementGroupControls");
+  if (!root) return;
+
+  const open = payload?.open_session;
+  const groups = Array.isArray(
+    payload?.summary_group_states,
+  )
+    ? payload.summary_group_states
+    : [];
+
+  if (!open) {
+    root.innerHTML = "";
+    root.classList.add("hidden");
+    return;
+  }
+
+  root.classList.remove("hidden");
+
+  if (!groups.length) {
+    root.innerHTML = `
+      <div class="settlement-group-controls-head">
+        <div>
+          <strong>การรับยอดรายกลุ่ม</strong>
+          <span>ไม่พบกลุ่มสรุปในยอดนี้</span>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  const acceptingCount =
+    groups.filter(
+      (item) =>
+        item.accepting_orders !== false,
+    ).length;
+
+  root.innerHTML = `
+    <div class="settlement-group-controls-head">
+      <div>
+        <strong>การรับยอดรายกลุ่ม</strong>
+        <span>
+          เปิดรับ ${formatNumber(acceptingCount)}
+          / ${formatNumber(groups.length)} กลุ่ม
+        </span>
+      </div>
+      <small>
+        ปิดเฉพาะกลุ่มได้ โดยไม่ปิดยอดทั้งหมด
+      </small>
+    </div>
+
+    <div class="settlement-group-control-list">
+      ${groups.map((item) => {
+        const accepting =
+          item.accepting_orders !== false;
+
+        const id =
+          String(
+            item.summary_group_id || "",
+          );
+
+        const label =
+          groupName(id) || id;
+
+        const stateText =
+          accepting
+            ? "เปิดรับยอด"
+            : "ปิดรับยอด";
+
+        const changedText =
+          !accepting && item.closed_at
+            ? ` · ปิด ${formatBangkokTime(
+                item.closed_at,
+              )}`
+            : "";
+
+        return `
+          <div class="settlement-group-control-row">
+            <div class="settlement-group-control-name">
+              <strong>${escapeHtml(label)}</strong>
+              <small>${escapeHtml(id)}</small>
+            </div>
+
+            <span
+              class="settlement-group-state ${
+                accepting ? "open" : "closed"
+              }"
+            >
+              ${stateText}${escapeHtml(changedText)}
+            </span>
+
+            <button
+              type="button"
+              class="button ${
+                accepting ? "ghost" : "primary"
+              } small settlement-group-toggle"
+              data-summary-group-id="${escapeHtml(id)}"
+              data-accepting="${
+                accepting ? "true" : "false"
+              }"
+            >
+              ${
+                accepting
+                  ? "ปิดรับยอด"
+                  : "เปิดรับยอด"
+              }
+            </button>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+
+  $$(".settlement-group-toggle")
+    .forEach(
+      (button) =>
+        button.addEventListener(
+          "click",
+          () =>
+            changeSettlementSummaryGroup(
+              button,
+            ),
+        ),
+    );
+}
+
+
+async function changeSettlementSummaryGroup(
+  button,
+) {
+  const open =
+    state.settlement?.open_session;
+
+  if (!open?.id) {
+    return toast(
+      "ยังไม่ได้เปิดยอด",
+      true,
+    );
+  }
+
+  const summaryGroupId =
+    String(
+      button.dataset.summaryGroupId
+      || "",
+    );
+
+  if (!summaryGroupId) {
+    return;
+  }
+
+  const currentlyAccepting =
+    button.dataset.accepting === "true";
+
+  const nextAccepting =
+    !currentlyAccepting;
+
+  const label =
+    groupName(summaryGroupId)
+    || summaryGroupId;
+
+  if (
+    currentlyAccepting
+    && !window.confirm(
+      `ปิดรับยอด ${label}?\n`
+      + `ข้อความใหม่ของกลุ่มนี้จะไม่เข้ายอด `
+      + `และจะถูกส่งไปหน้าตรวจรายการ`,
+    )
+  ) {
+    return;
+  }
+
+  button.disabled = true;
+
+  try {
+    await api(
+      "/api/settlement",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          action:
+            nextAccepting
+              ? "OPEN_GROUP"
+              : "CLOSE_GROUP",
+
+          settlement_session_id:
+            open.id,
+
+          summary_group_id:
+            summaryGroupId,
+        }),
+      },
+    );
+
+    await loadSettlement();
+
+    toast(
+      nextAccepting
+        ? `เปิดรับยอด ${label} แล้ว`
+        : `ปิดรับยอด ${label} แล้ว`,
+    );
+  } catch (error) {
+    toast(
+      `${
+        nextAccepting
+          ? "เปิด"
+          : "ปิด"
+      }รับยอดไม่สำเร็จ: ${
+        error.message
+      }`,
+      true,
+    );
+  } finally {
+    button.disabled = false;
+  }
+}
+
+
 function renderSettlementStatus(payload) {
   state.settlement=payload;
+  renderSettlementGroupControls(payload);
   const open=payload.open_session;
   $("#prepareOpenButton").classList.toggle("hidden",Boolean(open));
   $("#closeSettlementButton").classList.toggle("hidden",!open);
@@ -3982,7 +4200,20 @@ async function closeSettlement() {
   const reviewNote=reviewCount>0
     ? `\nมีรายการรอตรวจ ${formatNumber(reviewCount)} รายการ — ระบบจะบันทึกเป็น DEFERRED และไม่รวมในยอดที่ปิด`
     : "";
-  if(!window.confirm(`ปิดยอดปัจจุบัน?${reviewNote}\nหลังปิดยังระบุ Point ได้`))return;
+
+  const acceptingGroupCount=
+    (state.settlement?.summary_group_states||[])
+      .filter(
+        (item)=>
+          item.accepting_orders!==false
+      )
+      .length;
+
+  const groupNote=acceptingGroupCount>0
+    ? `\nยังมี ${formatNumber(acceptingGroupCount)} กลุ่มเปิดรับยอด — การปิดยอดทั้งหมดจะจบรอบนี้ทันที`
+    : "";
+
+  if(!window.confirm(`ปิดยอดทั้งหมดของรอบนี้?${groupNote}${reviewNote}\nหลังปิดยังระบุ Point ได้`))return;
   $("#closeSettlementButton").disabled=true;
   try{
     await api("/api/settlement",{method:"POST",body:JSON.stringify({action:"CLOSE",settlement_session_id:open.id})});

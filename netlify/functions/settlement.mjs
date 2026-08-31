@@ -2,6 +2,56 @@ import { json, requireDashboardAccess, supabase } from "../../src/lib/dashboard-
 
 const OPERATOR = process.env.DASHBOARD_OPERATOR_NAME || "DASHBOARD";
 
+async function loadSummaryGroupStates(openSession) {
+  if (!openSession?.id) return [];
+
+  const [configResult, controlResult] =
+    await Promise.all([
+      supabase
+        .from("settlement_line_group_config")
+        .select("summary_group_id")
+        .eq("settlement_session_id", openSession.id)
+        .eq("enabled", true),
+
+      supabase
+        .from("settlement_summary_group_controls")
+        .select(
+          "summary_group_id,accepting_orders,changed_at,changed_by,closed_at",
+        )
+        .eq("settlement_session_id", openSession.id),
+    ]);
+
+  if (configResult.error) throw configResult.error;
+  if (controlResult.error) throw controlResult.error;
+
+  const controls = new Map(
+    (controlResult.data ?? []).map(
+      (row) => [row.summary_group_id, row],
+    ),
+  );
+
+  const groupIds = [
+    ...new Set(
+      (configResult.data ?? [])
+        .map((row) => row.summary_group_id)
+        .filter(Boolean),
+    ),
+  ].sort();
+
+  return groupIds.map((summaryGroupId) => {
+    const control = controls.get(summaryGroupId);
+
+    return {
+      summary_group_id: summaryGroupId,
+      accepting_orders:
+        control?.accepting_orders !== false,
+      changed_at: control?.changed_at ?? null,
+      changed_by: control?.changed_by ?? null,
+      closed_at: control?.closed_at ?? null,
+    };
+  });
+}
+
 async function getPayload() {
   const [{ data: open, error: openError }, { data: history, error: historyError }, {data: profiles,error:profilesError}] = await Promise.all([
     supabase.from("settlement_sessions").select("id,business_date,status,opened_at,closed_at,opened_by,closed_by").eq("status", "OPEN").maybeSingle(),
@@ -24,16 +74,82 @@ async function getPayload() {
     for(const r of [promoResult,profileResult,statusResult]) if(r.error) throw r.error;
     promotions=promoResult.data??[]; openProfiles=profileResult.data??[]; actualStatus=statusResult.data??null;
   }
-  return { open_session: open ?? null, promotions, point_profiles: openProfiles.length?openProfiles:(profiles??[]), company_point_profiles:profiles??[], actual_point_status:actualStatus, closed_sessions: history ?? [] };
+  return {
+    open_session: open ?? null,
+    promotions,
+    point_profiles:
+      openProfiles.length
+        ? openProfiles
+        : (profiles ?? []),
+    company_point_profiles: profiles ?? [],
+    actual_point_status: actualStatus,
+    summary_group_states:
+      await loadSummaryGroupStates(open),
+    closed_sessions: history ?? [],
+  };
 }
 
 function mapError(message) {
   if (message.includes("SETTLEMENT_ALREADY_OPEN")) return [409, "SETTLEMENT_ALREADY_OPEN"];
   if (message.includes("SETTLEMENT_NOT_OPEN")) return [409, "SETTLEMENT_NOT_OPEN"];
   if (message.includes("SETTLEMENT_NOT_FOUND")) return [404, "SETTLEMENT_NOT_FOUND"];
+  if (message.includes("SUMMARY_GROUP_NOT_IN_SETTLEMENT")) return [400, "SUMMARY_GROUP_NOT_IN_SETTLEMENT"];
+  if (message.includes("SUMMARY_GROUP_REQUIRED")) return [400, "SUMMARY_GROUP_REQUIRED"];
+  if (message.includes("SUMMARY_GROUP_STATE_REQUIRED")) return [400, "SUMMARY_GROUP_STATE_REQUIRED"];
   if (message.includes("SPECIAL_POINT_CODES_INCOMPLETE")) return [409, "SPECIAL_POINT_CODES_INCOMPLETE"];
   if (message.includes("INVALID_PROMOTION")) return [400, message.includes("CODE")?"INVALID_PROMOTION_CODE":"INVALID_PROMOTION_RULE"];
   return [500, message];
+}
+
+async function changeSummaryGroupState(
+  body,
+  acceptingOrders,
+) {
+  const sessionId =
+    String(body.settlement_session_id ?? "");
+
+  const summaryGroupId =
+    String(body.summary_group_id ?? "").trim();
+
+  if (!sessionId) {
+    return json(
+      { ok: false, error: "SETTLEMENT_NOT_FOUND" },
+      400,
+    );
+  }
+
+  if (!summaryGroupId) {
+    return json(
+      { ok: false, error: "SUMMARY_GROUP_REQUIRED" },
+      400,
+    );
+  }
+
+  const { data, error } = await supabase.rpc(
+    "set_settlement_summary_group_accepting",
+    {
+      p_settlement_session_id: sessionId,
+      p_summary_group_id: summaryGroupId,
+      p_accepting_orders: acceptingOrders,
+      p_changed_by: OPERATOR,
+    },
+  );
+
+  if (error) {
+    const [status, code] =
+      mapError(error.message);
+
+    return json(
+      { ok: false, error: code },
+      status,
+    );
+  }
+
+  return json({
+    ok: true,
+    group_state: data,
+    ...(await getPayload()),
+  });
 }
 
 export default async (req) => {
@@ -44,6 +160,20 @@ export default async (req) => {
     if (req.method !== "POST") return json({ ok: false, error: "METHOD_NOT_ALLOWED" }, 405);
     const body = await req.json();
     const action = String(body.action ?? "").toUpperCase();
+    if (action === "OPEN_GROUP") {
+      return changeSummaryGroupState(
+        body,
+        true,
+      );
+    }
+
+    if (action === "CLOSE_GROUP") {
+      return changeSummaryGroupState(
+        body,
+        false,
+      );
+    }
+
     if (action === "OPEN") {
       const businessDate = String(body.business_date ?? "");
       if (!/^\d{4}-\d{2}-\d{2}$/.test(businessDate)) return json({ ok: false, error: "INVALID_BUSINESS_DATE" }, 400);

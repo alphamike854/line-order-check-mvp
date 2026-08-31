@@ -110,6 +110,48 @@ async function resolveSettlementLineGroup(sessionId, lineGroupId) {
   return data;
 }
 
+async function isSettlementSummaryGroupAccepting(
+  sessionId,
+  summaryGroupId,
+) {
+  if (!sessionId || !summaryGroupId) return true;
+
+  const { data, error } = await supabase
+    .from("settlement_summary_group_controls")
+    .select("accepting_orders")
+    .eq("settlement_session_id", sessionId)
+    .eq("summary_group_id", summaryGroupId)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  return data?.accepting_orders !== false;
+}
+
+async function markSummaryGroupClosedReview(
+  message,
+  summaryGroupId,
+) {
+  await supabase
+    .from("messages")
+    .update({ parse_status: "REVIEW" })
+    .eq("id", message.id);
+
+  await saveReview(
+    message.id,
+    [{
+      code: "SUMMARY_GROUP_CLOSED",
+      detail: summaryGroupId,
+    }],
+    [],
+  );
+
+  return {
+    status: "REVIEW",
+    reason: "SUMMARY_GROUP_CLOSED",
+  };
+}
+
 async function claimWebhookEvent(destination, event) {
   const { data, error } = await supabase.rpc(
     "claim_webhook_event",
@@ -359,6 +401,19 @@ async function handleTextMessage(destination, event, group, session, existingMes
     return { status: "REVIEW", reason: "GROUP_NOT_CONFIGURED" };
   }
 
+  const groupAccepting =
+    await isSettlementSummaryGroupAccepting(
+      message.settlement_session_id,
+      effectiveGroup.summary_group_id,
+    );
+
+  if (!groupAccepting) {
+    return markSummaryGroupClosedReview(
+      message,
+      effectiveGroup.summary_group_id,
+    );
+  }
+
   const config = await loadParserConfig();
   const result = parseOrder(text, config);
   return persistParsedResult(message, effectiveGroup, result, { first_order_code: firstLedgerCode(result.items, text) || null });
@@ -458,6 +513,19 @@ async function handleImageMessage(
       [],
     );
     return { status: "REVIEW", reason: "GROUP_NOT_CONFIGURED" };
+  }
+
+  const groupAccepting =
+    await isSettlementSummaryGroupAccepting(
+      message.settlement_session_id,
+      effectiveGroup.summary_group_id,
+    );
+
+  if (!groupAccepting) {
+    return markSummaryGroupClosedReview(
+      message,
+      effectiveGroup.summary_group_id,
+    );
   }
 
   if (event.message?.contentProvider?.type && event.message.contentProvider.type !== "line") {
