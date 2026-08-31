@@ -139,47 +139,153 @@ export async function fetchDashboardFreshness({ businessDate, summaryGroupId = n
 }
 
 export async function fetchOpenReviews(businessDate, summaryGroupId = null, settlementSessionId = null) {
-  const { data: reviews, error: reviewError } = await supabase
-    .from("review_items")
-    .select("id,message_record_id,reason_codes,warnings,status,created_at")
-    .eq("status", "OPEN")
-    .order("created_at", { ascending: false })
-    .limit(250);
-  if (reviewError) throw reviewError;
+  const MESSAGE_PAGE_SIZE = 500;
+  const REVIEW_MESSAGE_CHUNK_SIZE = 100;
+  const messages = [];
 
-  const ids = [...new Set((reviews ?? []).map((r) => r.message_record_id).filter(Boolean))];
-  if (!ids.length) return [];
+  for (let from = 0; ; from += MESSAGE_PAGE_SIZE) {
+    let query = supabase
+      .from("messages")
+      .select(
+        "id,business_date,settlement_session_id,summary_group_id,line_group_id,user_id,message_type,raw_text,normalized_text,ocr_text,parse_status,parser_version,created_at"
+      )
+      .eq("business_date", businessDate)
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .range(from, from + MESSAGE_PAGE_SIZE - 1);
 
-  const { data: messages, error: messageError } = await supabase
-    .from("messages")
-    .select("id,business_date,settlement_session_id,summary_group_id,line_group_id,user_id,message_type,raw_text,normalized_text,ocr_text,parse_status,created_at")
-    .in("id", ids);
-  if (messageError) throw messageError;
+    if (settlementSessionId) {
+      query = query.eq(
+        "settlement_session_id",
+        settlementSessionId
+      );
+    }
 
-  const messageById = new Map((messages ?? []).map((m) => [m.id, m]));
-  const { lineGroups } = await loadGroupConfig();
-  const lineNameById = new Map(lineGroups.map((g) => [g.line_group_id, g.line_group_name]));
+    if (summaryGroupId) {
+      query = query.eq(
+        "summary_group_id",
+        summaryGroupId
+      );
+    }
 
-  return (reviews ?? [])
+    const {
+      data,
+      error,
+    } = await query;
+
+    if (error) throw error;
+
+    const page = data ?? [];
+
+    messages.push(...page);
+
+    if (page.length < MESSAGE_PAGE_SIZE) {
+      break;
+    }
+  }
+
+  if (!messages.length) return [];
+
+  const messageById = new Map(
+    messages.map((message) => [
+      message.id,
+      message,
+    ])
+  );
+
+  const messageIds = [
+    ...messageById.keys(),
+  ];
+
+  const reviews = [];
+
+  for (
+    let index = 0;
+    index < messageIds.length;
+    index += REVIEW_MESSAGE_CHUNK_SIZE
+  ) {
+    const ids = messageIds.slice(
+      index,
+      index + REVIEW_MESSAGE_CHUNK_SIZE
+    );
+
+    const {
+      data,
+      error,
+    } = await supabase
+      .from("review_items")
+      .select(
+        "id,message_record_id,reason_codes,warnings,status,created_at"
+      )
+      .eq("status", "OPEN")
+      .in("message_record_id", ids);
+
+    if (error) throw error;
+
+    reviews.push(...(data ?? []));
+  }
+
+  reviews.sort((left, right) => {
+    const timeDifference =
+      Date.parse(right.created_at) -
+      Date.parse(left.created_at);
+
+    if (timeDifference) {
+      return timeDifference;
+    }
+
+    return Number(right.id) -
+      Number(left.id);
+  });
+
+  const {
+    lineGroups,
+  } = await loadGroupConfig();
+
+  const lineNameById = new Map(
+    lineGroups.map((group) => [
+      group.line_group_id,
+      group.line_group_name,
+    ])
+  );
+
+  return reviews
     .map((review) => {
-      const message = messageById.get(review.message_record_id);
+      const message = messageById.get(
+        review.message_record_id
+      );
+
       if (!message) return null;
-      if (message.business_date !== businessDate) return null;
-      if (settlementSessionId && message.settlement_session_id !== settlementSessionId) return null;
-      if (summaryGroupId && message.summary_group_id !== summaryGroupId) return null;
+
       return {
         id: review.id,
-        message_record_id: review.message_record_id,
-        summary_group_id: message.summary_group_id,
-        line_group_id: message.line_group_id,
-        line_group_name: lineNameById.get(message.line_group_id) ?? message.line_group_id,
+        message_record_id:
+          review.message_record_id,
+        summary_group_id:
+          message.summary_group_id,
+        line_group_id:
+          message.line_group_id,
+        line_group_name:
+          lineNameById.get(
+            message.line_group_id
+          ) ?? message.line_group_id,
         user_id: message.user_id,
         message_type: message.message_type,
-        parse_status: message.parse_status,
-        text: message.normalized_text ?? message.ocr_text ?? message.raw_text ?? "",
-        reason_codes: review.reason_codes ?? [],
-        warnings: review.warnings ?? [],
-        created_at: review.created_at,
+        parse_status:
+          message.parse_status,
+        parser_version:
+          message.parser_version,
+        text:
+          message.normalized_text ??
+          message.ocr_text ??
+          message.raw_text ??
+          "",
+        reason_codes:
+          review.reason_codes ?? [],
+        warnings:
+          review.warnings ?? [],
+        created_at:
+          review.created_at,
       };
     })
     .filter(Boolean);

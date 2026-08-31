@@ -1,0 +1,92 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+
+const dashboardApi = fs.readFileSync(
+  "src/lib/dashboard-api.mjs",
+  "utf8"
+);
+
+const app = fs.readFileSync(
+  "public/app.js",
+  "utf8"
+);
+
+const reviewFunction =
+  dashboardApi.match(
+    /export async function fetchOpenReviews[\s\S]*?export async function fetchUnsends/
+  )?.[0] ?? "";
+
+assert.ok(
+  reviewFunction,
+  "fetchOpenReviews must exist"
+);
+
+assert.doesNotMatch(
+  reviewFunction,
+  /\.limit\(\s*250\s*\)/,
+  "Review loading must not globally truncate OPEN reviews at 250 before session filtering"
+);
+
+assert.match(
+  reviewFunction,
+  /\.eq\(\s*"business_date"\s*,\s*businessDate\s*\)/,
+  "Review messages must be scoped by business date before Review lookup"
+);
+
+assert.match(
+  reviewFunction,
+  /settlement_session_id/,
+  "Review messages must support settlement-session scoping"
+);
+
+assert.match(
+  reviewFunction,
+  /summary_group_id/,
+  "Review messages must support summary-group scoping"
+);
+
+assert.match(
+  reviewFunction,
+  /\.range\(/,
+  "Review message lookup must page instead of relying on one capped response"
+);
+
+assert.match(
+  reviewFunction,
+  /REVIEW_MESSAGE_CHUNK_SIZE/,
+  "Review lookup must chunk message ids"
+);
+
+assert.match(
+  reviewFunction,
+  /parser_version/,
+  "Review read model must include the original parser version"
+);
+
+assert.match(
+  app,
+  /Parser เดิม \$\{escapeHtml\(item\.parser_version \|\| "ไม่ระบุ"\)\}/,
+  "Review card must show the original parser version"
+);
+
+assert.match(
+  app,
+  /preview\.parser_version/,
+  "Review preview must show the parser version used for the new parse"
+);
+
+assert.match(
+  app,
+  /\/api\/review-preview/,
+  "Review must continue using the existing preview endpoint"
+);
+
+assert.match(
+  app,
+  /\/api\/review-resolve/,
+  "Review must continue using the existing audited resolve endpoint"
+);
+
+console.log(
+  "PASS: stale Review visibility + parser context v9.13"
+);

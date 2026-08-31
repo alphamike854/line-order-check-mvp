@@ -3474,7 +3474,7 @@ function previewItemsHtml(preview) {
   const items = (preview.items || []).map((x) => `<span class="item-chip">${escapeHtml(x.category)}${escapeHtml(x.code)} = ${formatNumber(x.quantity)}</span>`).join("");
   return `
     <div class="preview-box ${statusClass}">
-      <div class="preview-heading">ผลตรวจ <strong>${escapeHtml(preview.status)}</strong></div>
+      <div class="preview-heading">ผลตรวจ <strong>${escapeHtml(preview.status)}</strong> <span class="muted">· Parser ${escapeHtml(preview.parser_version || "ไม่ระบุ")}</span></div>
       ${items ? `<div class="item-chips">${items}</div>` : ""}
       ${errors ? `<div class="preview-errors">${errors}</div>` : ""}
       ${preview.can_apply ? `<button class="button primary small apply-review">ยืนยันใช้ผลนี้</button>` : `<div class="muted small-text">ยังยืนยันไม่ได้ กรุณาแก้ข้อความแล้วตรวจอีกครั้ง</div>`}
@@ -3600,6 +3600,7 @@ async function loadReviews() {
           <span>${escapeHtml(item.message_type)}</span>
           <span>${escapeHtml(formatBangkokTime(item.created_at))}</span>
           <span>${escapeHtml(item.user_id || "ไม่ทราบผู้ส่ง")}</span>
+          <span>Parser เดิม ${escapeHtml(item.parser_version || "ไม่ระบุ")}</span>
         </div>
         <div class="reason">${reviewReasonsHtml(item)}</div>
         <label class="editor-label">ข้อความสำหรับ Parse
