@@ -147,7 +147,7 @@ export async function fetchOpenReviews(businessDate, summaryGroupId = null, sett
     let query = supabase
       .from("messages")
       .select(
-        "id,business_date,settlement_session_id,summary_group_id,line_group_id,user_id,message_type,raw_text,normalized_text,ocr_text,parse_status,parser_version,created_at"
+        "id,business_date,settlement_session_id,summary_group_id,line_group_id,user_id,message_type,raw_text,normalized_text,ocr_text,parse_status,parser_version,image_storage_path,created_at"
       )
       .eq("business_date", businessDate)
       .order("created_at", { ascending: false })
@@ -271,6 +271,8 @@ export async function fetchOpenReviews(businessDate, summaryGroupId = null, sett
           ) ?? message.line_group_id,
         user_id: message.user_id,
         message_type: message.message_type,
+        image_storage_path:
+          message.image_storage_path ?? null,
         parse_status:
           message.parse_status,
         parser_version:

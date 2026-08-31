@@ -3468,6 +3468,39 @@ function reviewReasonsHtml(item) {
   `).join("") || "ต้องตรวจสอบ";
 }
 
+function reviewImageEvidenceHtml(item) {
+  if (!item.image_evidence_url) {
+    return "";
+  }
+
+  const url =
+    escapeHtml(item.image_evidence_url);
+
+  return `
+    <div class="review-evidence">
+      <div class="review-evidence-heading">
+        ภาพต้นฉบับ
+      </div>
+      <a
+        class="review-evidence-link"
+        href="${url}"
+        target="_blank"
+        rel="noopener noreferrer"
+        title="เปิดภาพต้นฉบับขนาดเต็ม"
+      >
+        <img
+          class="review-evidence-image"
+          src="${url}"
+          alt="ภาพต้นฉบับ Review #${escapeHtml(item.id)}"
+          loading="lazy"
+        >
+      </a>
+      <div class="muted small-text">
+        คลิกภาพเพื่อเปิดขนาดเต็ม
+      </div>
+    </div>`;
+}
+
 function previewItemsHtml(preview) {
   const statusClass = preview.can_apply ? "ok" : "warn";
   const previewItems = preview.items || [];
@@ -3640,6 +3673,7 @@ async function loadReviews() {
           <span>${escapeHtml(formatBangkokTime(item.created_at))}</span>
           <span>${escapeHtml(item.user_id || "ไม่ทราบผู้ส่ง")}</span>
         </div>
+        ${reviewImageEvidenceHtml(item)}
         <div class="reason">${reviewReasonsHtml(item)}</div>
         <label class="editor-label">ข้อความสำหรับ Parse
           <textarea class="review-editor" rows="5" placeholder="แก้หรือกรอกข้อความออเดอร์ที่ถูกต้อง">${escapeHtml(item.text || "")}</textarea>
