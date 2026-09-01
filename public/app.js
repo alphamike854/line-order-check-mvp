@@ -5342,12 +5342,45 @@ function renderReport(payload) {
     );
 }
 
+let reportLoadVersion = 0;
+
 async function loadReport(options = {}) {
   const silent = options?.silent === true;
+  const loadVersion = ++reportLoadVersion;
   const sessionId=$("#reportSessionSelect").value || state.settlement?.open_session?.id;
   if(!sessionId){renderReport({session:null,groups:[]});return;}
-  try { const payload=await api(`/api/accounting-report?session_id=${encodeURIComponent(sessionId)}&group=${encodeURIComponent(summaryGroupSelect.value||"ALL")}&line_group=${encodeURIComponent($("#reportLineGroupSelect").value||"ALL")}`); renderReport(payload); }
+
+  const reportSummaryGroup =
+    summaryGroupSelect.value || "ALL";
+
+  const reportLineGroup =
+    $("#reportLineGroupSelect").value || "ALL";
+
+  if(reportLineGroup==="ALL"){
+    state.reportPayload=null;
+
+    const exportButton=$("#exportReportCsvButton");
+    if(exportButton)exportButton.disabled=true;
+
+    $("#reportContent").innerHTML=`
+      <div class="empty">
+        เลือก LINE Group เพื่อดูรายละเอียดรายงาน
+      </div>
+    `;
+
+    return;
+  }
+
+  try {
+    const payload=await api(`/api/accounting-report?session_id=${encodeURIComponent(sessionId)}&group=${encodeURIComponent(reportSummaryGroup)}&line_group=${encodeURIComponent(reportLineGroup)}`);
+
+    if(loadVersion!==reportLoadVersion)return;
+
+    renderReport(payload);
+  }
   catch(error){
+    if(loadVersion!==reportLoadVersion)return;
+
     state.reportPayload=null;
     const exportButton=$("#exportReportCsvButton");
     if(exportButton) exportButton.disabled=true;
