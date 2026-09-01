@@ -293,6 +293,131 @@ export async function fetchOpenReviews(businessDate, summaryGroupId = null, sett
     .filter(Boolean);
 }
 
+
+export async function fetchOpenReviewCount(
+  businessDate,
+  summaryGroupId = null,
+  settlementSessionId = null
+) {
+  const MESSAGE_PAGE_SIZE = 1000;
+  const REVIEW_MESSAGE_CHUNK_SIZE = 100;
+  const REVIEW_COUNT_CONCURRENCY = 8;
+
+  const messageIds = [];
+
+  for (
+    let from = 0;
+    ;
+    from += MESSAGE_PAGE_SIZE
+  ) {
+    let query = supabase
+      .from("messages")
+      .select("id")
+      .eq("business_date", businessDate)
+      .order("created_at", {
+        ascending: false,
+      })
+      .order("id", {
+        ascending: false,
+      })
+      .range(
+        from,
+        from + MESSAGE_PAGE_SIZE - 1
+      );
+
+    if (settlementSessionId) {
+      query = query.eq(
+        "settlement_session_id",
+        settlementSessionId
+      );
+    }
+
+    if (summaryGroupId) {
+      query = query.eq(
+        "summary_group_id",
+        summaryGroupId
+      );
+    }
+
+    const {
+      data,
+      error,
+    } = await query;
+
+    if (error) throw error;
+
+    const page = data ?? [];
+
+    messageIds.push(
+      ...page.map((message) => message.id)
+    );
+
+    if (page.length < MESSAGE_PAGE_SIZE) {
+      break;
+    }
+  }
+
+  if (!messageIds.length) {
+    return 0;
+  }
+
+  const chunks = [];
+
+  for (
+    let index = 0;
+    index < messageIds.length;
+    index += REVIEW_MESSAGE_CHUNK_SIZE
+  ) {
+    chunks.push(
+      messageIds.slice(
+        index,
+        index + REVIEW_MESSAGE_CHUNK_SIZE
+      )
+    );
+  }
+
+  let total = 0;
+
+  for (
+    let index = 0;
+    index < chunks.length;
+    index += REVIEW_COUNT_CONCURRENCY
+  ) {
+    const batch = chunks.slice(
+      index,
+      index + REVIEW_COUNT_CONCURRENCY
+    );
+
+    const results = await Promise.all(
+      batch.map((ids) =>
+        supabase
+          .from("review_items")
+          .select(
+            "id",
+            {
+              count: "exact",
+              head: true,
+            }
+          )
+          .eq("status", "OPEN")
+          .in("message_record_id", ids)
+      )
+    );
+
+    for (const result of results) {
+      if (result.error) {
+        throw result.error;
+      }
+
+      total += Number(
+        result.count ?? 0
+      );
+    }
+  }
+
+  return total;
+}
+
 export async function fetchUnsends(businessDate, summaryGroupId = null) {
   const { startIso, endIso } = bangkokDayRange(businessDate);
   const { lineGroups } = await loadGroupConfig();
