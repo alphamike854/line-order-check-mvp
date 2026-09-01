@@ -248,18 +248,13 @@ async function checkFreshness() {
     const payload = await api(`/api/dashboard-freshness?${selectedQuery()}`);
     if (state.freshnessVersion != null && payload.freshness?.version !== state.freshnessVersion) {
       const activeTab = $(".tab.active")?.dataset.tab;
-      if (activeTab === "summary") {
-        await loadDashboard({ silent: true });
-      } else if (activeTab === "postcut") {
-        await loadDashboard({ silent: true });
-      } else if (activeTab === "report") {
-        state.freshnessVersion = payload.freshness?.version ?? state.freshnessVersion;
-        await loadReport({ silent: true });
-      } else if (activeTab === "review") {
+      if (activeTab === "review") {
         // Keep the Review workbench stable while the operator is checking items.
         // Incoming LINE messages continue to be stored normally by the webhook.
         // Do not reload, reorder or stale the current Review screen.
       } else {
+        // Incoming data must not rebuild the operator's screen automatically.
+        // Mark the current snapshot stale and let the operator refresh when ready.
         setDashboardStale(true);
       }
     }

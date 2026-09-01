@@ -28,7 +28,7 @@ assert.match(
 // Review must remain stable while LINE messages continue arriving.
 assert.match(
   app,
-  /else if \(activeTab === "review"\)/
+  /if \(activeTab === "review"\)/
 );
 
 assert.match(
