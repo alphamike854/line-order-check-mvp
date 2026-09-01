@@ -4864,7 +4864,13 @@ async function loadSettlement() {
   const payload=await api("/api/settlement");renderSettlementStatus(payload);
   const select=$("#reportSessionSelect");const previousSessionId=select.value;const sessions=[payload.open_session,...(payload.closed_sessions||[])].filter(Boolean);
   select.innerHTML=sessions.map(s=>`<option value="${escapeHtml(s.id)}">${s.status==="OPEN"?"ยอดปัจจุบัน":"ปิด "+formatBangkokTime(s.closed_at)} · ${escapeHtml(s.business_date)}</option>`).join("")||`<option value="">ยังไม่มีรายงาน</option>`;
-  if(previousSessionId && sessions.some(s=>s.id===previousSessionId))select.value=previousSessionId;
+
+  const reportSessionId=
+    previousSessionId && sessions.some(s=>s.id===previousSessionId)
+      ? previousSessionId
+      : payload.open_session?.id || payload.closed_sessions?.[0]?.id || "";
+
+  if(reportSessionId)select.value=reportSessionId;
   const lineSelect=$("#reportLineGroupSelect");const lines=state.dashboard?.line_groups||[];
   lineSelect.innerHTML=`<option value="ALL">ทุก LINE Group</option>`+lines.map(g=>`<option value="${escapeHtml(g.line_group_id)}">${escapeHtml(g.line_group_name)}</option>`).join("");
   renderProfileStrip("#openingPointProfiles",payload.company_point_profiles||payload.point_profiles||[]);
