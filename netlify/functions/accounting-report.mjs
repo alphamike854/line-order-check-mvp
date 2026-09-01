@@ -54,6 +54,10 @@ export default async (req) => {
     const selectedSummary = url.searchParams.get("group");
     const selectedLine = url.searchParams.get("line_group");
 
+    const summaryOnly =
+      url.searchParams.get("summary_only") === "1"
+      && (!selectedLine || selectedLine === "ALL");
+
     let configQuery = supabase.from("settlement_line_group_config")
       .select("line_group_id,line_group_name,summary_group_id,reduction_pct")
       .eq("settlement_session_id", session.id).order("line_group_name");
@@ -88,6 +92,61 @@ export default async (req) => {
     }:null;
     const lineIds=configs.map(g=>g.line_group_id);
     if(!lineIds.length) return json({ok:true,session,actual_point_status:aggregateStatus,actual_point_statuses:relevantStatusRows,actual_special_codes:relevantActualCodes,groups:[]});
+
+    if(summaryOnly){
+      const {
+        data: summaryRows,
+        error: summaryError,
+      } = await supabase.rpc(
+        "accounting_report_line_group_summary",
+        {
+          p_session_id: session.id,
+          p_summary_group_id:
+            selectedSummary
+            && selectedSummary !== "ALL"
+              ? selectedSummary
+              : null,
+        },
+      );
+
+      if(summaryError) throw summaryError;
+
+      const groups=(summaryRows??[]).map(row=>({
+        line_group_id:row.line_group_id,
+        line_group_name:row.line_group_name,
+        summary_group_id:row.summary_group_id,
+        reduction_pct:Number(row.reduction_pct||0),
+        point_specified:relevantActualCodes.some(
+          r=>
+            r.summary_group_id===
+            row.summary_group_id,
+        ),
+        actual_point_status:
+          statusMap.get(
+            row.summary_group_id,
+          )??null,
+        received_total:Number(row.received_total||0),
+        after_reduction:Number(row.after_reduction||0),
+        reduction_amount:Number(row.reduction_amount||0),
+        special_point_total:Number(row.special_point_total||0),
+        reconciliation_total:Number(row.reconciliation_total||0),
+        message_count:Number(row.message_count||0),
+        special_point_codes:[],
+        ledger:[],
+      }));
+
+      return json({
+        ok:true,
+        summary_only:true,
+        session,
+        actual_point_status:aggregateStatus,
+        actual_point_statuses:relevantStatusRows,
+        point_profiles:profiles,
+        promotions,
+        actual_special_codes:relevantActualCodes,
+        groups,
+      });
+    }
 
     const [messages,items] = await Promise.all([
       fetchAllPages(() =>

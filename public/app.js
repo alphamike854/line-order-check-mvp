@@ -5214,12 +5214,16 @@ function renderReport(payload) {
 
   state.reportPayload=payload;
 
+  const summaryOnly=
+    payload?.summary_only===true;
+
   const exportButton=
     $("#exportReportCsvButton");
 
   if(exportButton){
     exportButton.disabled=
-      !payload?.session
+      summaryOnly
+      || !payload?.session
       || !(payload?.groups||[]).length;
   }
 
@@ -5321,6 +5325,49 @@ function renderReport(payload) {
           )?.actual_codes_ready,
         );
 
+      if(summaryOnly){
+        return `<section class="report-card">
+          <div class="report-title">
+            <div>
+              <h3>${escapeHtml(g.line_group_name)}</h3>
+              <span>${escapeHtml(groupName(g.summary_group_id))}</span>
+            </div>
+            <span>${formatNumber(g.message_count)} ข้อความ</span>
+          </div>
+
+          <div class="report-metrics">
+            <div>
+              <span>ยอดรับจริง</span>
+              <strong>${formatNumber(g.received_total)}</strong>
+            </div>
+
+            <div>
+              <span>ลด</span>
+              <strong>${formatNumber(g.reduction_pct)}%</strong>
+            </div>
+
+            <div>
+              <span>ยอดหลังลด</span>
+              <strong>${formatNumber(g.after_reduction)}</strong>
+            </div>
+
+            <div>
+              <span>Point พิเศษ</span>
+              <strong>${pointSpecified?formatNumber(g.special_point_total):"รอระบุ"}</strong>
+            </div>
+
+            <div class="net">
+              <span>ยอดสุทธิเทียบ</span>
+              <strong>${finalReady?formatNumber(g.reconciliation_total):"—"}</strong>
+            </div>
+          </div>
+
+          <div class="muted">
+            เลือก LINE Group ด้านบนเพื่อดูรายการข้อความและรายละเอียด Point
+          </div>
+        </section>`;
+      }
+
       return `<section class="report-card">
         <div class="report-title"><div><h3>${escapeHtml(g.line_group_name)}</h3><span>${escapeHtml(groupName(g.summary_group_id))}</span></div><span>${formatNumber(g.message_count)} ข้อความ</span></div>
         <div class="report-metrics"><div><span>ยอดรับจริง</span><strong>${formatNumber(g.received_total)}</strong></div><div><span>ลด</span><strong>${formatNumber(g.reduction_pct)}%</strong></div><div><span>ยอดหลังลด</span><strong>${formatNumber(g.after_reduction)}</strong></div><div><span>Point พิเศษ</span><strong>${pointSpecified?formatNumber(g.special_point_total):"รอระบุ"}</strong></div><div class="net"><span>ยอดสุทธิเทียบ</span><strong>${finalReady?formatNumber(g.reconciliation_total):"—"}</strong></div></div>
@@ -5356,23 +5403,16 @@ async function loadReport(options = {}) {
   const reportLineGroup =
     $("#reportLineGroupSelect").value || "ALL";
 
-  if(reportLineGroup==="ALL"){
-    state.reportPayload=null;
+  const summaryOnly=
+    reportLineGroup==="ALL";
 
-    const exportButton=$("#exportReportCsvButton");
-    if(exportButton)exportButton.disabled=true;
-
-    $("#reportContent").innerHTML=`
-      <div class="empty">
-        เลือก LINE Group เพื่อดูรายละเอียดรายงาน
-      </div>
-    `;
-
-    return;
-  }
+  const summaryOnlyQuery=
+    summaryOnly
+      ? "&summary_only=1"
+      : "";
 
   try {
-    const payload=await api(`/api/accounting-report?session_id=${encodeURIComponent(sessionId)}&group=${encodeURIComponent(reportSummaryGroup)}&line_group=${encodeURIComponent(reportLineGroup)}`);
+    const payload=await api(`/api/accounting-report?session_id=${encodeURIComponent(sessionId)}&group=${encodeURIComponent(reportSummaryGroup)}&line_group=${encodeURIComponent(reportLineGroup)}${summaryOnlyQuery}`);
 
     if(loadVersion!==reportLoadVersion)return;
 
