@@ -382,11 +382,14 @@ function renderMetrics(metrics) {
           ],
           [
             "ควรตัด",
-            metrics.distribution_incomplete
-              ? "คำนวณไม่สำเร็จ"
-              : metrics.transfer_required_total,
+            metrics.distribution_point_pending
+              ? "รอระบุ Point"
+              : metrics.distribution_incomplete
+                ? "คำนวณไม่สำเร็จ"
+                : metrics.transfer_required_total,
             (
-              !metrics.distribution_incomplete
+              !metrics.distribution_point_pending
+              && !metrics.distribution_incomplete
               && Number(
                 metrics.transfer_required_total || 0
               ) > 0
@@ -462,9 +465,22 @@ function anyDistributionPlanCalculationFailed(groupId) {
 
 function distributionTransferLabel(groupId, riskPool = "MAIN") {
   const plan = distributionPlanFor(groupId, riskPool);
-  return plan?.calculation_status === "LIMIT"
-    ? "คำนวณไม่สำเร็จ"
-    : formatNumber(plan?.transfer_required_total || 0);
+
+  if (
+    plan?.calculation_status === "LIMIT"
+  ) {
+    return "คำนวณไม่สำเร็จ";
+  }
+
+  if (
+    plan?.calculation_status === "NOT_READY"
+  ) {
+    return "รอระบุ Point";
+  }
+
+  return formatNumber(
+    plan?.transfer_required_total || 0
+  );
 }
 
 function riskPoolLabel(pool) {
@@ -1671,12 +1687,13 @@ function renderAllocationPoolStatus(groupId, pool) {
   if (received <= 0) return "";
   const configured = pool === "MAIN" || stateRow.multiplier_configured !== false;
   const calculationFailed = plan?.calculation_status === "LIMIT";
+  const pointPending = plan?.calculation_status === "NOT_READY";
   const required = Number(plan?.transfer_required_total || 0);
   const excess = Number(stateRow.excess_point_risk || 0);
-  return `<div class="pool-status-card ${required > 0 ? "active" : ""} ${!configured || calculationFailed ? "unconfigured" : ""}">
+  return `<div class="pool-status-card ${required > 0 ? "active" : ""} ${!configured || calculationFailed || pointPending ? "unconfigured" : ""}">
     <span>${escapeHtml(riskPoolLabel(pool))}</span>
-    <strong>${calculationFailed ? "—" : configured ? formatNumber(required) : "—"}</strong>
-    <small>${calculationFailed ? "คำนวณไม่สำเร็จ" : !configured ? "ตั้งตัวคูณ Point" : required > 0 ? "ควรตัด" : "ปกติ"}</small>
+    <strong>${calculationFailed || pointPending ? "—" : configured ? formatNumber(required) : "—"}</strong>
+    <small>${calculationFailed ? "คำนวณไม่สำเร็จ" : pointPending ? "รอระบุ Point" : !configured ? "ตั้งตัวคูณ Point" : required > 0 ? "ควรตัด" : "ปกติ"}</small>
     <details><summary>รายละเอียด</summary><div><span>รับ ${formatNumber(received)}</span><span>หลังหัก ${formatNumber(stateRow.adjusted_received || 0)}</span><span>Point ${formatNumber(stateRow.risk_point_total || 0)}</span><span>เกิน ${formatNumber(excess)}</span></div></details>
   </div>`;
 }
@@ -1689,24 +1706,25 @@ function renderOneDigitAllocationCategory(groupId, category) {
   const recs = recommendationMapFor(groupId, category);
   const configured = Number(profile?.special_multiplier || 0) > 0;
   const calculationFailed = plan?.calculation_status === "LIMIT";
+  const pointPending = plan?.calculation_status === "NOT_READY";
   const list = rows.map((row) => {
     const qty = Number(row.order_total || 0);
     const retained = Number(row.retained_quantity ?? row.available_to_cut ?? qty);
     const rec = recs.get(`${category}|${row.code}`);
-    const recommended = calculationFailed
+    const recommended = calculationFailed || pointPending
       ? 0
       : Math.min(retained, Number(rec?.recommended_transfer || 0));
     return `<label class="one-digit-code allocation-one-digit-code ${qty === 0 ? "zero" : ""} ${recommended > 0 ? "recommended" : ""}">
       ${recommended > 0 ? `<input class="allocation-code-select" type="checkbox" checked data-pool="${category}" data-category="${category}" data-code="${escapeHtml(row.code)}" />` : `<span class="allocation-code-spacer"></span>`}
       <strong>${category}${escapeHtml(row.code)}</strong>
       <span>${formatNumber(qty)}</span>
-      <small>${calculationFailed ? "คำนวณไม่สำเร็จ" : recommended > 0 ? `ตัด ${formatNumber(recommended)}` : Number(row.confirmed_cut||0)>0 ? `คง ${formatNumber(retained)}` : ""}</small>
+      <small>${calculationFailed ? "คำนวณไม่สำเร็จ" : pointPending ? "รอระบุ Point" : recommended > 0 ? `ตัด ${formatNumber(recommended)}` : Number(row.confirmed_cut||0)>0 ? `คง ${formatNumber(retained)}` : ""}</small>
     </label>`;
   }).join("");
   return `<section class="one-digit-category allocation-one-digit-category ${Number(plan?.transfer_required_total || 0)>0 ? "risk-active" : ""}">
     <div class="one-digit-head">
       <div><strong>${category}</strong></div>
-      <div class="one-digit-head-metrics"><span>${configured ? `×${formatNumber(profile?.special_multiplier || 0)}` : "ยังไม่ตั้งตัวคูณ"}</span><span>รับ ${formatNumber(pool?.gross_received || 0)}</span><strong>${calculationFailed ? "คำนวณไม่สำเร็จ" : configured ? `ตัด ${formatNumber(plan?.transfer_required_total || 0)}` : "ตั้งค่าก่อน"}</strong></div>
+      <div class="one-digit-head-metrics"><span>${configured ? `×${formatNumber(profile?.special_multiplier || 0)}` : "ยังไม่ตั้งตัวคูณ"}</span><span>รับ ${formatNumber(pool?.gross_received || 0)}</span><strong>${calculationFailed ? "คำนวณไม่สำเร็จ" : pointPending ? "รอระบุ Point" : configured ? `ตัด ${formatNumber(plan?.transfer_required_total || 0)}` : "ตั้งค่าก่อน"}</strong></div>
     </div>
     <div class="one-digit-code-grid">${list}</div>
   </section>`;

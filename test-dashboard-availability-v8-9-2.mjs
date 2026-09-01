@@ -36,12 +36,16 @@ assert.match(dashboard, /calculation_status:"LIMIT"/);
 assert.match(dashboard, /distribution_incomplete:distributionIncomplete/);
 assert.match(dashboard, /transfer_required_total:null/);
 
-// UI must never present a failed calculation as "0 / no cut required".
+// Summary distribution failure must never present an unsafe numeric zero.
 assert.match(app, /function distributionPlanCalculationFailed/);
 assert.match(app, /function anyDistributionPlanCalculationFailed/);
 assert.match(app, /คำนวณไม่สำเร็จ/);
-assert.match(app, /ยังไม่ควรตัดยอดจนกว่าจะคำนวณใหม่ได้/);
-assert.match(app, /แผนตัดยอดคำนวณไม่สำเร็จ กรุณายังไม่ตัดยอด/);
+
+// Operational allocation was cut over to the LINE Group risk model in v8.9.4.
+// Non-ready LINE Group states must block allocation instead of falling through.
+assert.match(app, /function lineGroupAllocationBlockReason/);
+assert.match(app, /risk\.calculation_status !== "READY"/);
+assert.match(app, /return "NOT_READY"/);
 
 console.log(
   "PASS: dashboard survives risk simulation limit without unsafe zero fallback v8.9.2"

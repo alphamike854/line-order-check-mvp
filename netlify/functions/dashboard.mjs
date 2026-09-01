@@ -255,6 +255,28 @@ export default async (req) => {
         };
       }
 
+      if(
+        pool.actual_codes_ready===false
+        && Number(pool.gross_received||0)>0
+      ){
+        return {
+          summary_group_id:pool.summary_group_id,
+          risk_pool:pool.risk_pool,
+          adjusted_received:Number(pool.adjusted_received||0),
+          point_loss_tolerance:Number(pool.point_loss_tolerance||0),
+          risk_budget:Number(pool.risk_budget||0),
+          point_reserve_before:Number(pool.risk_point_total||0),
+          point_reserve_after_plan:null,
+          excess_point_risk_before:Number(pool.excess_point_risk||0),
+          excess_point_risk_after_plan:null,
+          transfer_required_total:null,
+          recommendations:[],
+          multiplier_configured:pool.multiplier_configured!==false,
+          calculation_status:"NOT_READY",
+          calculation_error:"ACTUAL_POINT_CODES_INCOMPLETE",
+        };
+      }
+
       try {
         const plan=buildRiskDistributionPlan({
           rows:riskCodes.filter((row)=>row.summary_group_id===pool.summary_group_id && allowed.has(row.category)),
@@ -310,17 +332,27 @@ export default async (req) => {
     const version=[session.id,messages[0]?.event_timestamp??"",batchFreshResult.data?.[0]?.confirmed_at??"",actual.map(r=>`${r.category}${r.code}`).join(","),promotions.map(r=>`${r.summary_group_id}:${r.category}${r.code}:${r.point_factor_pct}`).join(","),settingsSignature].join("|");
 
     const mainPlans=distributionPlans.filter((plan)=>plan.risk_pool==="MAIN");
-    const distributionIncomplete = summaryGroupId
-      ? distributionPlans.some((plan)=>
-          plan.summary_group_id===summaryGroupId
-          && plan.calculation_status==="LIMIT"
+
+    const relevantDistributionPlans=summaryGroupId
+      ? distributionPlans.filter(
+          (plan)=>plan.summary_group_id===summaryGroupId
         )
-      : distributionPlans.some((plan)=>plan.calculation_status==="LIMIT");
+      : distributionPlans;
+
+    const distributionIncomplete=
+      relevantDistributionPlans.some(
+        (plan)=>plan.calculation_status==="LIMIT"
+      );
+
+    const distributionPointPending=
+      relevantDistributionPlans.some(
+        (plan)=>plan.calculation_status==="NOT_READY"
+      );
 
     const metricOverall = summaryGroupId
       ? {
           ...overallRisk[0],
-          transfer_required_total:distributionIncomplete
+          transfer_required_total:(distributionIncomplete||distributionPointPending)
             ? null
             : Number(mainPlans.find((plan)=>plan.summary_group_id===overallRisk[0]?.summary_group_id)?.transfer_required_total||0),
         }
@@ -334,7 +366,7 @@ export default async (req) => {
           risk_budget:sum(overallRisk,"risk_budget"),
           excess_point_risk:sum(overallRisk,"excess_point_risk"),
           confirmed_cut_total:sum(overallRisk,"confirmed_cut_total"),
-          transfer_required_total:distributionIncomplete
+          transfer_required_total:(distributionIncomplete||distributionPointPending)
             ? null
             : sum(mainPlans,"transfer_required_total"),
           risk_pct:sum(overallRisk,"adjusted_received")>0
@@ -344,7 +376,7 @@ export default async (req) => {
 
     return json({
       ok:true,settlement_session:session,business_date:session.business_date,selected_summary_group:summaryGroupId??"ALL",generated_at:new Date().toISOString(),freshness:{version},summary_groups:summaryGroups,line_groups:lineGroups,
-      metrics:{messages_total:messages.length,parsed:messages.filter(m=>m.parse_status==="PARSED").length,pending:messages.filter(m=>m.parse_status==="PENDING").length,review_open:reviews.length,gross_received:Number(metricOverall?.gross_received||0),adjusted_received:Number(metricOverall?.adjusted_received||0),point_reserve_total:Number(metricOverall?.point_reserve_total||0),risk_point_total:Number(metricOverall?.risk_point_total||0),safety_margin:Number(metricOverall?.safety_margin||0),point_loss_tolerance:Number(metricOverall?.point_loss_tolerance||0),risk_budget:Number(metricOverall?.risk_budget||0),excess_point_risk:Number(metricOverall?.excess_point_risk||0),transfer_required_total:metricOverall?.transfer_required_total==null?null:Number(metricOverall.transfer_required_total||0),distribution_incomplete:distributionIncomplete,confirmed_cut_total:Number(metricOverall?.confirmed_cut_total||0),risk_pct:Number(metricOverall?.risk_pct||0),last_event_at:messages[0]?.event_timestamp??session.opened_at},
+      metrics:{messages_total:messages.length,parsed:messages.filter(m=>m.parse_status==="PARSED").length,pending:messages.filter(m=>m.parse_status==="PENDING").length,review_open:reviews.length,gross_received:Number(metricOverall?.gross_received||0),adjusted_received:Number(metricOverall?.adjusted_received||0),point_reserve_total:Number(metricOverall?.point_reserve_total||0),risk_point_total:Number(metricOverall?.risk_point_total||0),safety_margin:Number(metricOverall?.safety_margin||0),point_loss_tolerance:Number(metricOverall?.point_loss_tolerance||0),risk_budget:Number(metricOverall?.risk_budget||0),excess_point_risk:Number(metricOverall?.excess_point_risk||0),transfer_required_total:metricOverall?.transfer_required_total==null?null:Number(metricOverall.transfer_required_total||0),distribution_incomplete:distributionIncomplete,distribution_point_pending:distributionPointPending,confirmed_cut_total:Number(metricOverall?.confirmed_cut_total||0),risk_pct:Number(metricOverall?.risk_pct||0),last_event_at:messages[0]?.event_timestamp??session.opened_at},
       risk_codes:riskCodes,category_risk:categoryRisk,overall_risk:overallRisk,risk_pools:riskPools,distribution_plans:distributionPlans,line_group_risk:lineGroupRisk,line_group_risk_codes:lineGroupRiskCodes,line_group_distribution_plans:lineGroupDistributionPlans,point_profiles:profiles,point_promotions:promotions,warehouse_limits:warehouseLimits,actual_special_codes:actual,
     });
   } catch(error){console.error("dashboard failed",error);return json({ok:false,error:error?.message??String(error)},500);}
