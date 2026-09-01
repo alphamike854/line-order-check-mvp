@@ -1393,3 +1393,58 @@ body{background:#f3f6fa}
     flex-direction:column;
   }
 }
+
+
+/* v9.19: Promotion code visual cue
+   Keep Risk / Reserve / Actual backgrounds intact.
+   Promotion is shown as a narrow purple rail + compact % badge. */
+.promotion-code-row{
+  position:relative;
+}
+
+.promotion-code-row::before{
+  content:"";
+  position:absolute;
+  left:0;
+  top:4px;
+  bottom:4px;
+  width:3px;
+  border-radius:0 3px 3px 0;
+  background:#7c3aed;
+  pointer-events:none;
+}
+
+.promotion-code-cue,
+.board-code-row .promotion-code-cue,
+.g-code .promotion-code-cue,
+.one-digit-code .promotion-code-cue{
+  display:inline-flex;
+  align-items:center;
+  margin-left:4px;
+  padding:1px 4px;
+  border-radius:999px;
+  background:#ede9fe;
+  color:#6d28d9;
+  font-size:8px;
+  line-height:1.15;
+  font-weight:850;
+  font-style:normal;
+  vertical-align:1px;
+  white-space:nowrap;
+}
+
+.g-code.promotion-code-row,
+.one-digit-code.promotion-code-row{
+  padding-left:12px;
+}
+
+@media(max-width:700px){
+  .promotion-code-cue,
+  .board-code-row .promotion-code-cue,
+  .g-code .promotion-code-cue,
+  .one-digit-code .promotion-code-cue{
+    margin-left:3px;
+    padding:1px 3px;
+    font-size:7px;
+  }
+}

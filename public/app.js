@@ -504,6 +504,51 @@ function codeRowsFor(groupId, category) {
     .sort((a, b) => Number(b.order_total) - Number(a.order_total) || String(a.code).localeCompare(String(b.code)));
 }
 
+function promotionFactorForSummaryCode(
+  summaryGroupId,
+  category,
+  code
+) {
+  if (!summaryGroupId) return 100;
+
+  const row = (
+    state.dashboard?.risk_codes || []
+  ).find(
+    (item) =>
+      item.summary_group_id === summaryGroupId
+      && item.category === category
+      && String(item.code) === String(code)
+  );
+
+  return Number(
+    row?.promotion_factor_pct ?? 100
+  );
+}
+
+
+function promotionCodeClass(factor) {
+  const pct = Number(factor ?? 100);
+
+  return Number.isFinite(pct) && pct < 100
+    ? "promotion-code-row"
+    : "";
+}
+
+
+function promotionCodeCue(factor) {
+  const pct = Number(factor ?? 100);
+
+  if (!Number.isFinite(pct) || pct >= 100) {
+    return "";
+  }
+
+  return `<small
+    class="promotion-code-cue"
+    title="Promotion ${formatNumber(pct)}%"
+  >${formatNumber(pct)}%</small>`;
+}
+
+
 function renderRankedOverflow(rowHtml) {
   if (!rowHtml.length) return "";
 
@@ -531,12 +576,21 @@ function renderCategoryColumn(groupId, category) {
   const renderedRows = rows.map((row) => {
     const qty = Number(row.order_total || 0);
     const width = qty > 0 ? Math.max(3, qty / maxQty * 100) : 0;
-    const promo = Number(row.promotion_factor_pct ?? 100) < 100 ? `<span class="promo-badge">PROMO ${formatNumber(row.promotion_factor_pct)}%</span>` : "";
+    const promotionFactor =
+      promotionFactorForSummaryCode(
+        groupId,
+        category,
+        row.code
+      );
+    const promotionClass =
+      promotionCodeClass(promotionFactor);
+    const promotionCue =
+      promotionCodeCue(promotionFactor);
     const reserve = row.reserve_candidate && qty > 0 ? `<span class="reserve-badge">สำรอง</span>` : "";
     const actual = row.actual_special_point ? `<span class="point-badge">★ Point จริง</span>` : "";
-    return `<div class="board-code-row ${qty === 0 ? "zero" : ""} ${row.reserve_candidate ? "reserve" : ""} ${row.actual_special_point ? "actual" : ""}">
-      <div class="board-code-main"><strong>${escapeHtml(row.code)}</strong><span>${formatNumber(qty)}</span></div>
-      <div class="board-code-badges">${actual}${reserve}${promo}${Number(row.confirmed_cut||0)>0?`<span class="promo-badge">คงคลัง ${formatNumber(row.retained_quantity ?? row.available_to_cut ?? 0)}</span>`:""}</div>
+    return `<div class="board-code-row ${promotionClass} ${qty === 0 ? "zero" : ""} ${row.reserve_candidate ? "reserve" : ""} ${row.actual_special_point ? "actual" : ""}">
+      <div class="board-code-main"><strong>${escapeHtml(row.code)}${promotionCue}</strong><span>${formatNumber(qty)}</span></div>
+      <div class="board-code-badges">${actual}${reserve}${Number(row.confirmed_cut||0)>0?`<span class="promo-badge">คงคลัง ${formatNumber(row.retained_quantity ?? row.available_to_cut ?? 0)}</span>`:""}</div>
       <div class="qty-track"><div class="qty-fill" style="width:${width}%"></div></div>
     </div>`;
   });
@@ -558,8 +612,18 @@ function renderOneDigitSummaryCategory(groupId, category) {
   const list = rows.map((row) => {
     const qty = Number(row.order_total || 0);
     const retained = Number(row.retained_quantity ?? row.available_to_cut ?? qty);
-    return `<div class="one-digit-code ${qty === 0 ? "zero" : ""} ${row.reserve_candidate ? "reserve" : ""} ${row.actual_special_point ? "actual" : ""}">
-      <strong>${escapeHtml(category)}${escapeHtml(row.code)}</strong>
+    const promotionFactor =
+      promotionFactorForSummaryCode(
+        groupId,
+        category,
+        row.code
+      );
+    const promotionClass =
+      promotionCodeClass(promotionFactor);
+    const promotionCue =
+      promotionCodeCue(promotionFactor);
+    return `<div class="one-digit-code ${promotionClass} ${qty === 0 ? "zero" : ""} ${row.reserve_candidate ? "reserve" : ""} ${row.actual_special_point ? "actual" : ""}">
+      <strong>${escapeHtml(category)}${escapeHtml(row.code)}${promotionCue}</strong>
       <span>${formatNumber(qty)}</span>
       ${Number(row.confirmed_cut || 0) > 0 ? `<small>คง ${formatNumber(retained)}</small>` : row.actual_special_point ? `<small>★ Point</small>` : row.reserve_candidate ? `<small>สำรอง</small>` : `<small></small>`}
     </div>`;
@@ -596,7 +660,7 @@ function renderGroupBoard(groupId) {
       </div>
     </div>
     <div class="four-column-board">${["A","B","E","F"].map((c) => renderCategoryColumn(groupId,c)).join("")}</div>
-    ${gRows.length ? `<div class="g-board"><div class="category-heading"><h3>หมวด G</h3><span>×${formatNumber(profileFor("G")?.special_multiplier || 20)} · สูงสุด ${formatNumber(profileFor("G")?.max_special_codes || 4)} รหัส</span></div><div class="g-code-grid">${gRows.map((row)=>`<div class="g-code ${row.reserve_candidate?"reserve":""} ${row.actual_special_point?"actual":""}"><strong>G${escapeHtml(row.code)}</strong><span>${formatNumber(row.order_total)}</span>${row.actual_special_point?`<em>★</em>`:row.reserve_candidate?`<em>สำรอง</em>`:""}${Number(row.promotion_factor_pct??100)<100?`<small>PROMO ${formatNumber(row.promotion_factor_pct)}%</small>`:""}</div>`).join("")}</div></div>` : ""}
+    ${gRows.length ? `<div class="g-board"><div class="category-heading"><h3>หมวด G</h3><span>×${formatNumber(profileFor("G")?.special_multiplier || 20)} · สูงสุด ${formatNumber(profileFor("G")?.max_special_codes || 4)} รหัส</span></div><div class="g-code-grid">${gRows.map((row)=>`<div class="g-code ${promotionCodeClass(promotionFactorForSummaryCode(groupId, "G", row.code))} ${row.reserve_candidate?"reserve":""} ${row.actual_special_point?"actual":""}"><strong>G${escapeHtml(row.code)}${promotionCodeCue(promotionFactorForSummaryCode(groupId, "G", row.code))}</strong><span>${formatNumber(row.order_total)}</span>${row.actual_special_point?`<em>★</em>`:row.reserve_candidate?`<em>สำรอง</em>`:""}</div>`).join("")}</div></div>` : ""}
     ${renderOneDigitSummaryPair(groupId)}
   </section>`;
 }
@@ -744,10 +808,21 @@ function renderPostCutCategoryColumn(groupId, category, roundsByCode) {
           </details>`
         : "";
 
-    const html = `<div class="board-code-row postcut-code-row postcut-summary-row ${qty === 0 ? "zero" : ""} ${cut > 0 ? "has-cut" : ""}">
+    const promotionFactor =
+      promotionFactorForSummaryCode(
+        groupId,
+        category,
+        row.code
+      );
+    const promotionClass =
+      promotionCodeClass(promotionFactor);
+    const promotionCue =
+      promotionCodeCue(promotionFactor);
+
+    const html = `<div class="board-code-row postcut-code-row postcut-summary-row ${promotionClass} ${qty === 0 ? "zero" : ""} ${cut > 0 ? "has-cut" : ""}">
       <div class="postcut-summary-main">
         <strong class="postcut-code">
-          ${escapeHtml(row.code)}
+          ${escapeHtml(row.code)}${promotionCue}
         </strong>
 
         <span class="postcut-received">
@@ -834,7 +909,13 @@ function renderPostCutGroupBoard(groupId, roundsByCode) {
       const cut = Number(row.confirmed_cut || 0);
       const retainedQty = Number(row.retained_quantity ?? row.available_to_cut ?? Math.max(0, qty-cut));
       const rounds = roundsByCode.get(`${groupId}|G|${row.code}`) || [];
-      return `<div class="g-code postcut-g-code ${cut > 0 ? "has-cut" : ""}"><strong>G${escapeHtml(row.code)}</strong><span>คง ${formatNumber(retainedQty)}</span><em>รับ ${formatNumber(qty)} · ตัด ${formatNumber(cut)}</em>${rounds.length ? `<small>${rounds.map((round) => `#${formatNumber(round.batch_number)} ${escapeHtml(round.destination)} ${formatNumber(round.quantity)}`).join(" · ")}</small>` : ""}</div>`;
+      const promotionFactor =
+        promotionFactorForSummaryCode(
+          groupId,
+          "G",
+          row.code
+        );
+      return `<div class="g-code postcut-g-code ${promotionCodeClass(promotionFactor)} ${cut > 0 ? "has-cut" : ""}"><strong>G${escapeHtml(row.code)}${promotionCodeCue(promotionFactor)}</strong><span>คง ${formatNumber(retainedQty)}</span><em>รับ ${formatNumber(qty)} · ตัด ${formatNumber(cut)}</em>${rounds.length ? `<small>${rounds.map((round) => `#${formatNumber(round.batch_number)} ${escapeHtml(round.destination)} ${formatNumber(round.quantity)}`).join(" · ")}</small>` : ""}</div>`;
     }).join("")}</div></div>` : ""}
     <div class="one-digit-board postcut-one-digit-board">${["H","L"].map((category) => renderPostCutCategoryColumn(groupId, category, roundsByCode)).join("")}</div>
   </section>`;
@@ -1835,6 +1916,20 @@ function renderLineGroupAllocationCategoryColumn(
       const visible =
         top || recommended > 0;
 
+      const promotionFactor =
+        promotionFactorForSummaryCode(
+          row.summary_group_id
+            || allocationLineGroupRiskFor(
+              lineGroupId
+            )?.summary_group_id,
+          category,
+          row.code
+        );
+      const promotionClass =
+        promotionCodeClass(promotionFactor);
+      const promotionCue =
+        promotionCodeCue(promotionFactor);
+
       const html = `
         <label class="
           board-code-row
@@ -1842,6 +1937,7 @@ function renderLineGroupAllocationCategoryColumn(
           allocation-compact-row
           allocation-summary-row
           ${recommended > 0 ? "recommended" : ""}
+          ${promotionClass}
         ">
 
           <div class="allocation-code-check">
@@ -1864,7 +1960,7 @@ function renderLineGroupAllocationCategoryColumn(
           <div class="allocation-compact-main allocation-summary-main">
 
             <strong class="allocation-compact-code">
-              ${escapeHtml(row.code)}
+              ${escapeHtml(row.code)}${promotionCue}
             </strong>
 
             <span class="allocation-compact-qty">
@@ -1991,6 +2087,20 @@ function renderLineGroupOneDigitCategory(
       const visible =
         top || recommended > 0;
 
+      const promotionFactor =
+        promotionFactorForSummaryCode(
+          row.summary_group_id
+            || allocationLineGroupRiskFor(
+              lineGroupId
+            )?.summary_group_id,
+          category,
+          row.code
+        );
+      const promotionClass =
+        promotionCodeClass(promotionFactor);
+      const promotionCue =
+        promotionCodeCue(promotionFactor);
+
       const html = `
         <label class="
           one-digit-code
@@ -1998,6 +2108,7 @@ function renderLineGroupOneDigitCategory(
           allocation-compact-row
           allocation-summary-row
           ${recommended > 0 ? "recommended" : ""}
+          ${promotionClass}
         ">
 
           <div class="allocation-code-check">
@@ -2020,7 +2131,7 @@ function renderLineGroupOneDigitCategory(
           <div class="allocation-compact-main allocation-summary-main">
 
             <strong class="allocation-compact-code">
-              ${escapeHtml(row.code)}
+              ${escapeHtml(row.code)}${promotionCue}
             </strong>
 
             <span class="allocation-compact-qty">
