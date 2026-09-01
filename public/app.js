@@ -15,6 +15,7 @@ const state = {
   specialPointProfiles: [],
   specialPointPromotions: [],
   specialPointSessionId: null,
+  specialPointSummaryGroupId: null,
   specialPointSession: null,
   specialPointStatus: null,
   promotionDrafts: [],
@@ -94,9 +95,9 @@ function buildDailyReportCsv(payload) {
   const headers = ["วันที่","สถานะ","กลุ่มสรุป","LINE Group","ลำดับ","เวลา","รหัสแรก","จำนวน","ลด %","ยอดหลังลด","Point รวม","ยอดสุทธิเทียบ","รายละเอียด Point"];
   const lines = [headers.map(reportCsvCell).join(",")];
   const session = payload?.session || {};
-  const finalReady = Boolean(payload?.actual_point_status?.actual_codes_ready);
-  const pointSpecified = Boolean((payload?.actual_special_codes || []).length);
   for (const group of payload?.groups || []) {
+    const finalReady = Boolean(group?.actual_point_status?.actual_codes_ready);
+    const pointSpecified = Boolean(group?.point_specified);
     for (const row of group.ledger || []) {
       const values = [
         session.business_date || "",
@@ -4979,65 +4980,342 @@ function renderSpecialPoints() {
   $$(".remove-point").forEach(b=>b.addEventListener("click",()=>{state.specialPointRules.splice(Number(b.dataset.i),1);renderSpecialPoints();}));
 }
 
-async function loadSpecialPoints(sessionId = null) {
-  const targetId=sessionId || state.settlement?.open_session?.id || $("#reportSessionSelect")?.value || state.specialPointSessionId || "";
-  const query=targetId?`?session_id=${encodeURIComponent(targetId)}`:"";
-  const payload=await api(`/api/special-points${query}`);
-  state.specialPointSession=payload.session||null;
-  state.specialPointSessionId=payload.session?.id||null;
-  state.specialPointStatus=payload.status||null;
-  state.specialPointProfiles=payload.profiles||[];
-  state.specialPointPromotions=payload.promotions||[];
-  state.specialPointRules=(payload.codes||[]).map(r=>({category:r.category,code:r.code}));
+async function loadSpecialPoints(
+  sessionId = null,
+  summaryGroupId = null,
+) {
+  const targetId=
+    sessionId
+    || state.settlement?.open_session?.id
+    || $("#reportSessionSelect")?.value
+    || state.specialPointSessionId
+    || "";
+
+  const requestedSummaryGroup=
+    summaryGroupId
+    || summaryGroupSelect.value
+    || "ALL";
+
+  const params=new URLSearchParams();
+
+  if(targetId){
+    params.set(
+      "session_id",
+      targetId,
+    );
+  }
+
+  params.set(
+    "group",
+    requestedSummaryGroup,
+  );
+
+  const query=
+    params.toString()
+      ? `?${params.toString()}`
+      : "";
+
+  const payload=
+    await api(
+      `/api/special-points${query}`,
+    );
+
+  state.specialPointSession=
+    payload.session||null;
+
+  state.specialPointSessionId=
+    payload.session?.id||null;
+
+  state.specialPointSummaryGroupId=
+    payload.selected_summary_group||null;
+
+  state.specialPointStatus=
+    payload.status||null;
+
+  state.specialPointProfiles=
+    payload.profiles||[];
+
+  state.specialPointPromotions=
+    payload.promotions||[];
+
+  state.specialPointRules=
+    (payload.codes||[]).map(
+      r=>({
+        category:r.category,
+        code:r.code,
+      }),
+    );
+
   renderSpecialPoints();
-  const enabled=Boolean(payload.session);
-  $("#specialPointForm").querySelectorAll("input,select,button").forEach(el=>{el.disabled=!enabled;});
-  $("#saveSpecialPointsButton").disabled=!enabled;
-  const context=$("#specialPointContext");
-  if(context) context.textContent=payload.session?`${payload.session.status==="CLOSED"?"ปิดยอดแล้ว":"ยอดปัจจุบัน"} · ${formatThaiDate(payload.session.business_date)}`:"ยังไม่มีชุดยอด";
+
+  const enabled=
+    Boolean(
+      payload.session
+      && payload.selected_summary_group,
+    );
+
+  $("#specialPointForm")
+    .querySelectorAll(
+      "input,select,button",
+    )
+    .forEach(
+      el=>{
+        el.disabled=!enabled;
+      },
+    );
+
+  $("#saveSpecialPointsButton")
+    .disabled=!enabled;
+
+  const context=
+    $("#specialPointContext");
+
+  if(context){
+    if(!payload.session){
+      context.textContent=
+        "ยังไม่มีชุดยอด";
+    }else if(
+      !payload.selected_summary_group
+    ){
+      context.textContent=
+        `${payload.session.status==="CLOSED"?"ปิดยอดแล้ว":"ยอดปัจจุบัน"} · ${formatThaiDate(payload.session.business_date)} · เลือกกลุ่มสรุปจากตัวกรองด้านบน`;
+    }else{
+      context.textContent=
+        `${payload.session.status==="CLOSED"?"ปิดยอดแล้ว":"ยอดปัจจุบัน"} · ${formatThaiDate(payload.session.business_date)} · ${groupName(payload.selected_summary_group)}`;
+    }
+  }
 }
 
 async function saveSpecialPoints() {
-  const sessionId=state.specialPointSessionId;
-  const editingStatus=state.specialPointSession?.status;
-  if(!sessionId)return toast("ยังไม่มีชุดยอด",true);
-  try{
-    await api("/api/special-points",{method:"POST",body:JSON.stringify({settlement_session_id:sessionId,codes:state.specialPointRules})});
-    toast("บันทึก Point แล้ว");
-    await loadSpecialPoints(sessionId);
-    await loadSettlement();
-    if(editingStatus==="OPEN")await loadDashboard();
-    await loadReport();
+  const sessionId=
+    state.specialPointSessionId;
+
+  const summaryGroupId=
+    state.specialPointSummaryGroupId;
+
+  const editingStatus=
+    state.specialPointSession?.status;
+
+  if(!sessionId){
+    return toast(
+      "ยังไม่มีชุดยอด",
+      true,
+    );
   }
-  catch(error){toast(`บันทึก Point ไม่สำเร็จ: ${error.message}`,true);}
+
+  if(!summaryGroupId){
+    return toast(
+      "กรุณาเลือกกลุ่มสรุป",
+      true,
+    );
+  }
+
+  try{
+    await api(
+      "/api/special-points",
+      {
+        method:"POST",
+        body:JSON.stringify({
+          settlement_session_id:
+            sessionId,
+          summary_group_id:
+            summaryGroupId,
+          codes:
+            state.specialPointRules,
+        }),
+      },
+    );
+
+    toast(
+      `บันทึก Point ${groupName(summaryGroupId)} แล้ว`,
+    );
+
+    await loadSpecialPoints(
+      sessionId,
+      summaryGroupId,
+    );
+
+    await loadSettlement();
+
+    if(editingStatus==="OPEN"){
+      await loadDashboard();
+    }
+
+    await loadReport();
+  }catch(error){
+    toast(
+      `บันทึก Point ไม่สำเร็จ: ${error.message}`,
+      true,
+    );
+  }
 }
 
-function editReportPoints(sessionId) {
+function editReportPoints(
+  sessionId,
+  summaryGroupId,
+) {
   if(!sessionId)return;
-  state.specialPointSessionId=sessionId;
-  activateTab("points",{pointSessionId:sessionId});
-}
 
+  if(
+    summaryGroupId
+    && [...summaryGroupSelect.options]
+      .some(
+        option=>
+          option.value===summaryGroupId,
+      )
+  ){
+    summaryGroupSelect.value=
+      summaryGroupId;
+  }
+
+  state.specialPointSessionId=
+    sessionId;
+
+  state.specialPointSummaryGroupId=
+    summaryGroupId||null;
+
+  activateTab(
+    "points",
+    {
+      pointSessionId:
+        sessionId,
+      pointSummaryGroupId:
+        summaryGroupId||null,
+    },
+  );
+}
 
 function renderReport(payload) {
   const root=$("#reportContent");
+
   state.reportPayload=payload;
-  const exportButton=$("#exportReportCsvButton");
-  if(exportButton) exportButton.disabled=!payload?.session || !(payload?.groups||[]).length;
-  if(!payload.session){root.innerHTML=`<div class="empty">ยังไม่มีชุดยอดสำหรับรายงาน</div>`;return;}
-  if(!payload.groups.length){root.innerHTML=`<div class="empty">ยังไม่มีข้อมูลในชุดยอดนี้</div>`;return;}
-  const finalReady=Boolean(payload.actual_point_status?.actual_codes_ready);
-  const pointSpecified=Boolean((payload.actual_special_codes||[]).length);
-  const pointActionLabel=pointSpecified?"แก้ไข Point":"ระบุ Point";
-  const pointStateLabel=finalReady?"Point ครบ":pointSpecified?"Point ระบุแล้ว · ยังไม่ครบ":"รอ Point";
-  const pointNotice=`<div class="report-point-state ${finalReady?"ready":"pending"}"><span><strong>${pointStateLabel}</strong>${payload.session.status==="CLOSED"&&!finalReady?" · ปิดยอดแล้ว ระบุ/แก้ไขภายหลังได้":""}</span><button class="button ghost small edit-report-points" data-session-id="${escapeHtml(payload.session.id)}">${pointActionLabel}</button></div>`;
-  root.innerHTML=`<div class="report-session-heading"><strong>รายงานประจำวัน ${escapeHtml(formatThaiDate(payload.session.business_date))}</strong><span>${payload.session.status === "OPEN" ? "ยอดปัจจุบัน" : `ปิด ${escapeHtml(formatBangkokTime(payload.session.closed_at))}`}</span></div>${pointNotice}` + payload.groups.map(g=>`<section class="report-card">
-    <div class="report-title"><div><h3>${escapeHtml(g.line_group_name)}</h3><span>${escapeHtml(groupName(g.summary_group_id))}</span></div><span>${formatNumber(g.message_count)} ข้อความ</span></div>
-    <div class="report-metrics"><div><span>ยอดรับจริง</span><strong>${formatNumber(g.received_total)}</strong></div><div><span>ลด</span><strong>${formatNumber(g.reduction_pct)}%</strong></div><div><span>ยอดหลังลด</span><strong>${formatNumber(g.after_reduction)}</strong></div><div><span>Point พิเศษ</span><strong>${pointSpecified?formatNumber(g.special_point_total):"รอระบุ"}</strong></div><div class="net"><span>ยอดสุทธิเทียบ</span><strong>${finalReady?formatNumber(g.reconciliation_total):"—"}</strong></div></div>
-    <div class="special-summary"><h4>Point พิเศษ</h4>${g.special_point_codes.length?`<div class="table-wrap"><table><thead><tr><th>รหัส</th><th class="num">จำนวนรวม</th><th class="num">ตัวคูณ</th><th class="num">Point</th></tr></thead><tbody>${g.special_point_codes.map(x=>`<tr><td><strong>${escapeHtml(x.category)}${escapeHtml(x.code)}</strong></td><td class="num">${formatNumber(x.quantity)}</td><td class="num">×${formatNumber(x.multiplier)}</td><td class="num">${formatNumber(x.points)}</td></tr>`).join("")}</tbody></table></div>`:`<div class="muted">${pointSpecified?"ยังไม่มียอดตรงรหัส Point ที่ระบุ":"รอระบุ"}</div>`}</div>
-    <div class="table-wrap"><table><thead><tr><th>ลำดับ</th><th>เวลา</th><th>รหัสแรก</th><th class="num">สรุปจำนวน</th><th>Point พิเศษ</th></tr></thead><tbody>${g.ledger.map(row=>`<tr><td>${String(row.sequence).padStart(3,"0")}</td><td>${escapeHtml(new Intl.DateTimeFormat("th-TH",{timeZone:"Asia/Bangkok",hour:"2-digit",minute:"2-digit",second:"2-digit"}).format(new Date(row.event_timestamp)))}</td><td class="report-first-code"><strong>${escapeHtml(row.first_code||"-")}</strong></td><td class="num"><strong>${formatNumber(row.summary_quantity)}</strong></td><td>${row.special_points.length?`★ ${row.special_points.map(x=>`${escapeHtml(x.category)}${escapeHtml(x.code)}=${formatNumber(x.quantity)} ×${formatNumber(x.multiplier)}`).join(", ")}`:""}</td></tr>`).join("")}</tbody><tfoot><tr><th colspan="3">รวม</th><th class="num">${formatNumber(g.received_total)}</th><th></th></tr></tfoot></table></div>
-  </section>`).join("");
-  $$(".edit-report-points").forEach(button=>button.addEventListener("click",()=>editReportPoints(button.dataset.sessionId)));
+
+  const exportButton=
+    $("#exportReportCsvButton");
+
+  if(exportButton){
+    exportButton.disabled=
+      !payload?.session
+      || !(payload?.groups||[]).length;
+  }
+
+  if(!payload.session){
+    root.innerHTML=
+      `<div class="empty">ยังไม่มีชุดยอดสำหรับรายงาน</div>`;
+    return;
+  }
+
+  if(!payload.groups.length){
+    root.innerHTML=
+      `<div class="empty">ยังไม่มีข้อมูลในชุดยอดนี้</div>`;
+    return;
+  }
+
+  const reportSummaryIds=[
+    ...new Set(
+      payload.groups.map(
+        g=>g.summary_group_id,
+      ),
+    ),
+  ];
+
+  const statusMap=
+    new Map(
+      (payload.actual_point_statuses||[])
+        .map(
+          row=>[
+            row.summary_group_id,
+            row,
+          ],
+        ),
+    );
+
+  const actualSummarySet=
+    new Set(
+      (payload.actual_special_codes||[])
+        .map(
+          row=>
+            row.summary_group_id,
+        ),
+    );
+
+  const readyCount=
+    reportSummaryIds.filter(
+      id=>
+        statusMap.get(id)
+          ?.actual_codes_ready===true,
+    ).length;
+
+  const allReady=
+    reportSummaryIds.length>0
+    && readyCount===
+       reportSummaryIds.length;
+
+  const anyPoint=
+    reportSummaryIds.some(
+      id=>
+        actualSummarySet.has(id),
+    );
+
+  const singleSummaryId=
+    reportSummaryIds.length===1
+      ? reportSummaryIds[0]
+      : null;
+
+  const pointStateLabel=
+    allReady
+      ? "Point ครบ"
+      : anyPoint
+        ? `Point ครบ ${formatNumber(readyCount)}/${formatNumber(reportSummaryIds.length)} กลุ่ม`
+        : "รอ Point";
+
+  const pointAction=
+    singleSummaryId
+      ? `<button class="button ghost small edit-report-points" data-session-id="${escapeHtml(payload.session.id)}" data-summary-group-id="${escapeHtml(singleSummaryId)}">${actualSummarySet.has(singleSummaryId)?"แก้ไข Point":"ระบุ Point"}</button>`
+      : `<span class="muted">เลือกกลุ่มสรุปเพื่อระบุ/แก้ไข Point</span>`;
+
+  const pointNotice=
+    `<div class="report-point-state ${allReady?"ready":"pending"}"><span><strong>${escapeHtml(pointStateLabel)}</strong>${payload.session.status==="CLOSED"&&!allReady?" · ปิดยอดแล้ว ระบุ/แก้ไขภายหลังได้":""}</span>${pointAction}</div>`;
+
+  root.innerHTML=
+    `<div class="report-session-heading"><strong>รายงานประจำวัน ${escapeHtml(formatThaiDate(payload.session.business_date))}</strong><span>${payload.session.status==="OPEN"?"ยอดปัจจุบัน":`ปิด ${escapeHtml(formatBangkokTime(payload.session.closed_at))}`}</span></div>${pointNotice}`
+    + payload.groups.map(g=>{
+      const pointSpecified=
+        Boolean(
+          g.point_specified
+          ?? actualSummarySet.has(
+            g.summary_group_id,
+          ),
+        );
+
+      const finalReady=
+        Boolean(
+          g.actual_point_status
+            ?.actual_codes_ready
+          ?? statusMap.get(
+            g.summary_group_id,
+          )?.actual_codes_ready,
+        );
+
+      return `<section class="report-card">
+        <div class="report-title"><div><h3>${escapeHtml(g.line_group_name)}</h3><span>${escapeHtml(groupName(g.summary_group_id))}</span></div><span>${formatNumber(g.message_count)} ข้อความ</span></div>
+        <div class="report-metrics"><div><span>ยอดรับจริง</span><strong>${formatNumber(g.received_total)}</strong></div><div><span>ลด</span><strong>${formatNumber(g.reduction_pct)}%</strong></div><div><span>ยอดหลังลด</span><strong>${formatNumber(g.after_reduction)}</strong></div><div><span>Point พิเศษ</span><strong>${pointSpecified?formatNumber(g.special_point_total):"รอระบุ"}</strong></div><div class="net"><span>ยอดสุทธิเทียบ</span><strong>${finalReady?formatNumber(g.reconciliation_total):"—"}</strong></div></div>
+        <div class="special-summary"><h4>Point พิเศษ</h4>${g.special_point_codes.length?`<div class="table-wrap"><table><thead><tr><th>รหัส</th><th class="num">จำนวนรวม</th><th class="num">ตัวคูณ</th><th class="num">Point</th></tr></thead><tbody>${g.special_point_codes.map(x=>`<tr><td><strong>${escapeHtml(x.category)}${escapeHtml(x.code)}</strong></td><td class="num">${formatNumber(x.quantity)}</td><td class="num">×${formatNumber(x.multiplier)}</td><td class="num">${formatNumber(x.points)}</td></tr>`).join("")}</tbody></table></div>`:`<div class="muted">${pointSpecified?"ยังไม่มียอดตรงรหัส Point ที่ระบุ":"รอระบุ"}</div>`}</div>
+        <div class="table-wrap"><table><thead><tr><th>ลำดับ</th><th>เวลา</th><th>รหัสแรก</th><th class="num">สรุปจำนวน</th><th>Point พิเศษ</th></tr></thead><tbody>${g.ledger.map(row=>`<tr><td>${String(row.sequence).padStart(3,"0")}</td><td>${escapeHtml(new Intl.DateTimeFormat("th-TH",{timeZone:"Asia/Bangkok",hour:"2-digit",minute:"2-digit",second:"2-digit"}).format(new Date(row.event_timestamp)))}</td><td class="report-first-code"><strong>${escapeHtml(row.first_code||"-")}</strong></td><td class="num"><strong>${formatNumber(row.summary_quantity)}</strong></td><td>${row.special_points.length?`★ ${row.special_points.map(x=>`${escapeHtml(x.category)}${escapeHtml(x.code)}=${formatNumber(x.quantity)} ×${formatNumber(x.multiplier)}`).join(", ")}`:""}</td></tr>`).join("")}</tbody><tfoot><tr><th colspan="3">รวม</th><th class="num">${formatNumber(g.received_total)}</th><th></th></tr></tfoot></table></div>
+      </section>`;
+    }).join("");
+
+  $$(".edit-report-points")
+    .forEach(
+      button=>
+        button.addEventListener(
+          "click",
+          ()=>editReportPoints(
+            button.dataset.sessionId,
+            button.dataset.summaryGroupId,
+          ),
+        ),
+    );
 }
 
 async function loadReport(options = {}) {
@@ -5155,7 +5433,7 @@ function activateTab(name, options = {}) {
   if (name === "review") loadReviews();
   if (name === "unsend") loadUnsends();
   if (name === "settings") loadSettings();
-  if (name === "points") loadSpecialPoints(options.pointSessionId || null);
+  if (name === "points") loadSpecialPoints(options.pointSessionId || null, options.pointSummaryGroupId || null);
   if (name === "report") loadReport();
 }
 
@@ -5188,6 +5466,7 @@ summaryGroupSelect.addEventListener("change", async () => {
   await loadDashboard();
   const activeTab = $(".tab.active")?.dataset.tab;
   if (activeTab === "report") await loadReport();
+  if (activeTab === "points") await loadSpecialPoints();
 });
 $$(".tab").forEach((tab) => tab.addEventListener("click", () => activateTab(tab.dataset.tab)));
 bindSettingForms();

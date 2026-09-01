@@ -54,7 +54,14 @@ export default async (req) => {
       codeQuery,categoryQuery,overallQuery,poolQuery,lineGroupRiskQuery,lineGroupCodeQuery,messagesQuery,
       supabase.from("settlement_point_profiles").select("category,special_multiplier,max_special_codes").eq("settlement_session_id",session.id).order("category"),
       supabase.from("settlement_point_promotions").select("summary_group_id,category,code,point_factor_pct").eq("settlement_session_id",session.id).order("summary_group_id").order("category").order("code"),
-      supabase.from("settlement_actual_special_point_codes").select("category,code,created_at").eq("settlement_session_id",session.id).order("category").order("code"),
+      (() => {
+        let query=supabase
+          .from("settlement_summary_group_actual_special_point_codes")
+          .select("summary_group_id,category,code,created_at")
+          .eq("settlement_session_id",session.id);
+        if(summaryGroupId)query=query.eq("summary_group_id",summaryGroupId);
+        return query.order("summary_group_id").order("category").order("code");
+      })(),
       supabase.from("warehouse_transfer_limits").select("destination,max_batch_quantity,enabled,updated_at").eq("enabled",true).order("destination"),
       supabase.from("summary_group_risk_pool_settings").select("summary_group_id,risk_pool,point_loss_tolerance,updated_at").order("summary_group_id").order("risk_pool"),
       fetchOpenReviews(session.business_date,summaryGroupId,session.id),fetchUnsends(session.business_date,summaryGroupId),

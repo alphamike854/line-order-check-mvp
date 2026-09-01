@@ -37,9 +37,32 @@ assert.ok(
 );
 assert.ok(app.includes('finalReady?formatNumber(g.reconciliation_total):"—"'), "pending report must not display a misleading final reconciliation total");
 assert.ok(app.includes('edit-report-points'), "closed report should expose a Point action");
-assert.ok(app.includes('settlement_session_id:sessionId'), "Point save must target the selected settlement explicitly");
-assert.ok(specialApi.includes('session.status === "OPEN" ? session : null'), "special Point API should preserve open_session backward compatibility");
-assert.ok(specialApi.includes('body.settlement_session_id'), "special Point API must support a closed settlement id");
+assert.match(
+  app,
+  /settlement_session_id:\s*sessionId/,
+  "Point save must target the selected settlement explicitly",
+);
+
+assert.match(
+  app,
+  /summary_group_id:\s*summaryGroupId/,
+  "Point save must target the selected Summary Group explicitly",
+);
+
+assert.ok(
+  specialApi.includes('session.status === "OPEN" ? session : null'),
+  "special Point API should preserve open_session backward compatibility",
+);
+
+assert.ok(
+  specialApi.includes('body.settlement_session_id'),
+  "special Point API must support a closed settlement id",
+);
+
+assert.ok(
+  specialApi.includes('body.summary_group_id'),
+  "special Point API must require an explicit Summary Group",
+);
 assert.ok(html.includes('id="specialPointContext"'), "Point page should show which settlement is being edited");
 
 console.log("PASS: one-click close + Point later v7.4 smoke tests");
