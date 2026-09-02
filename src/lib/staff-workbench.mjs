@@ -7,6 +7,47 @@ function numeric(value) {
     : 0;
 }
 
+export function resolveWorkbenchClaimState({
+  actorStaffId = null,
+  claimStaffId = null,
+  claimExpiresAt = null,
+  now = Date.now(),
+} = {}) {
+  if (!claimStaffId) {
+    return "AVAILABLE";
+  }
+
+  const expiresAtMs =
+    Date.parse(
+      String(
+        claimExpiresAt ?? "",
+      ),
+    );
+
+  const nowMs =
+    now instanceof Date
+      ? now.getTime()
+      : Number(now);
+
+  if (
+    Number.isFinite(expiresAtMs)
+    && Number.isFinite(nowMs)
+    && expiresAtMs <= nowMs
+  ) {
+    return "EXPIRED";
+  }
+
+  if (
+    actorStaffId
+    && claimStaffId === actorStaffId
+  ) {
+    return "MINE";
+  }
+
+  return "CLAIMED_BY_OTHER";
+}
+
+
 export function normalizeWorkbenchLimit(
   value,
 ) {
@@ -255,12 +296,149 @@ export async function loadStaffWorkbenchReadModel(
     throw reviewResult.error;
   }
 
+  const reviewRows =
+    reviewResult.data ?? [];
+
+  if (!reviewRows.length) {
+    return {
+      summaryRows:
+        summaryResult.data ?? [],
+      workItems: [],
+    };
+  }
+
+  const messageRecordIds = [
+    ...new Set(
+      reviewRows
+        .map(
+          (row) =>
+            row.message_record_id,
+        )
+        .filter(Boolean),
+    ),
+  ];
+
+  const claimResult =
+    await client.rpc(
+      "staff_workbench_claim_state",
+      {
+        p_message_record_ids:
+          messageRecordIds,
+      },
+    );
+
+  if (claimResult.error) {
+    throw claimResult.error;
+  }
+
+  const claimRows =
+    claimResult.data ?? [];
+
+  const claimStaffIds = [
+    ...new Set(
+      claimRows
+        .map(
+          (row) =>
+            row.staff_id,
+        )
+        .filter(Boolean),
+    ),
+  ];
+
+  const staffById =
+    new Map();
+
+  if (claimStaffIds.length) {
+    const {
+      data: staffRows,
+      error: staffError,
+    } = await client
+      .from(
+        "staff_accounts",
+      )
+      .select(
+        "id,staff_code,display_name",
+      )
+      .in(
+        "id",
+        claimStaffIds,
+      );
+
+    if (staffError) {
+      throw staffError;
+    }
+
+    for (
+      const staff
+      of staffRows ?? []
+    ) {
+      staffById.set(
+        staff.id,
+        staff,
+      );
+    }
+  }
+
+  const claimByMessage =
+    new Map();
+
+  for (
+    const claim
+    of claimRows
+  ) {
+    const staff =
+      staffById.get(
+        claim.staff_id,
+      );
+
+    claimByMessage.set(
+      claim.message_record_id,
+      {
+        claim_staff_id:
+          claim.staff_id
+          ?? null,
+        claim_staff_code:
+          staff?.staff_code
+          ?? null,
+        claim_display_name:
+          staff?.display_name
+          ?? null,
+        claimed_at:
+          claim.claimed_at
+          ?? null,
+        claim_expires_at:
+          claim.claim_expires_at
+          ?? null,
+        lease_version:
+          claim.lease_version
+          ?? null,
+      },
+    );
+  }
+
   return {
     summaryRows:
       summaryResult.data ?? [],
 
     workItems:
-      reviewResult.data ?? [],
+      reviewRows.map(
+        (row) => ({
+          ...row,
+          ...(
+            claimByMessage.get(
+              row.message_record_id,
+            )
+            ?? {
+              claim_staff_id: null,
+              claim_staff_code: null,
+              claim_display_name: null,
+              claimed_at: null,
+              claim_expires_at: null,
+              lease_version: null,
+            }
+          ),
+        }),
+      ),
   };
 }
 
@@ -444,6 +622,43 @@ export function buildStaffWorkbenchPayload({
           numeric(
             row.message_order_total,
           ),
+
+        claim_state:
+          resolveWorkbenchClaimState({
+            actorStaffId:
+              actor?.staff_id
+              ?? null,
+            claimStaffId:
+              row.claim_staff_id
+              ?? null,
+            claimExpiresAt:
+              row.claim_expires_at
+              ?? null,
+          }),
+
+        claimed_by_staff_id:
+          row.claim_staff_id
+          ?? null,
+
+        claimed_by_staff_code:
+          row.claim_staff_code
+          ?? null,
+
+        claimed_by_display_name:
+          row.claim_display_name
+          ?? null,
+
+        claimed_at:
+          row.claimed_at
+          ?? null,
+
+        claim_expires_at:
+          row.claim_expires_at
+          ?? null,
+
+        lease_version:
+          row.lease_version
+          ?? null,
 
         items:
           Array.isArray(

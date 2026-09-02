@@ -3663,6 +3663,650 @@ function clearReviewPreview(card, message = "") {
   }
 }
 
+// ============================================================
+// R2D2B-2 Review Workbench Claim Integration
+// ============================================================
+
+function reviewWorkbenchQuery() {
+  const params =
+    new URLSearchParams(
+      selectedQuery(),
+    );
+
+  params.set(
+    "limit",
+    "200",
+  );
+
+  params.set(
+    "offset",
+    "0",
+  );
+
+  return params.toString();
+}
+
+function reviewClaimFields(
+  workItem,
+) {
+  if (!workItem) {
+    return {
+      message_record_id: null,
+      claim_state: "UNAVAILABLE",
+      claimed_by_staff_id: null,
+      claimed_by_staff_code: null,
+      claimed_by_display_name: null,
+      claimed_at: null,
+      claim_expires_at: null,
+      lease_version: null,
+    };
+  }
+
+  return {
+    message_record_id:
+      workItem.message_record_id
+      ?? null,
+
+    claim_state:
+      workItem.claim_state
+      ?? "AVAILABLE",
+
+    claimed_by_staff_id:
+      workItem.claimed_by_staff_id
+      ?? null,
+
+    claimed_by_staff_code:
+      workItem.claimed_by_staff_code
+      ?? null,
+
+    claimed_by_display_name:
+      workItem.claimed_by_display_name
+      ?? null,
+
+    claimed_at:
+      workItem.claimed_at
+      ?? null,
+
+    claim_expires_at:
+      workItem.claim_expires_at
+      ?? null,
+
+    lease_version:
+      workItem.lease_version
+      ?? null,
+  };
+}
+
+function reviewClaimStatusHtml(
+  item,
+  actor,
+) {
+  if (!actor?.staff_id) {
+    return "";
+  }
+
+  const claimState =
+    item?.claim_state
+    ?? "UNAVAILABLE";
+
+  if (claimState === "MINE") {
+    return `
+      <div class="reason">
+        <strong>
+          คุณกำลังดำเนินการรายการนี้
+        </strong>
+
+        ${
+          item.claim_expires_at
+            ? `<span class="muted">
+                · สิทธิ์ถึง
+                ${escapeHtml(
+                  formatBangkokTime(
+                    item.claim_expires_at,
+                  ),
+                )}
+              </span>`
+            : ""
+        }
+
+        <span class="review-claim-actions">
+          <button
+            type="button"
+            class="button ghost small renew-review-work"
+          >
+            ต่อเวลา
+          </button>
+
+          <button
+            type="button"
+            class="button ghost small release-review-work"
+          >
+            คืนรายการ
+          </button>
+        </span>
+      </div>
+    `;
+  }
+
+  if (
+    claimState === "AVAILABLE"
+    || claimState === "EXPIRED"
+  ) {
+    return `
+      <div class="reason">
+        <strong>
+          รายการพร้อมรับดำเนินการ
+        </strong>
+
+        <span class="review-claim-actions">
+          <button
+            type="button"
+            class="button primary small claim-review-work"
+          >
+            รับรายการ
+          </button>
+        </span>
+      </div>
+    `;
+  }
+
+  if (
+    claimState
+    === "CLAIMED_BY_OTHER"
+  ) {
+    const holder =
+      item.claimed_by_display_name
+      || item.claimed_by_staff_code
+      || "เจ้าหน้าที่อื่น";
+
+    return `
+      <div class="reason">
+        <strong>
+          กำลังดำเนินการโดย
+          ${escapeHtml(holder)}
+        </strong>
+
+        ${
+          item.claim_expires_at
+            ? `<span class="muted">
+                · ถึง
+                ${escapeHtml(
+                  formatBangkokTime(
+                    item.claim_expires_at,
+                  ),
+                )}
+              </span>`
+            : ""
+        }
+      </div>
+    `;
+  }
+
+  return `
+    <div class="reason">
+      <strong>
+        รายการนี้ไม่อยู่ใน Workbench ปัจจุบัน
+      </strong>
+    </div>
+  `;
+}
+
+function reviewCardCanMutate(
+  card,
+  {
+    notify = true,
+  } = {},
+) {
+  const actor =
+    card?._workbenchActor;
+
+  // Shared/Admin legacy path remains compatible.
+  if (!actor?.staff_id) {
+    return true;
+  }
+
+  if (
+    card?._reviewItem
+      ?.claim_state
+    === "MINE"
+  ) {
+    return true;
+  }
+
+  if (notify) {
+    if (
+      card?._reviewItem
+        ?.claim_state
+      === "CLAIMED_BY_OTHER"
+    ) {
+      toast(
+        "รายการนี้กำลังดำเนินการโดยเจ้าหน้าที่อื่น",
+        true,
+      );
+    } else {
+      toast(
+        "กรุณารับรายการก่อนดำเนินการ",
+        true,
+      );
+    }
+  }
+
+  return false;
+}
+
+function bindReviewClaimButtons(
+  card,
+) {
+  card
+    .querySelector(
+      ".claim-review-work",
+    )
+    ?.addEventListener(
+      "click",
+      () =>
+        mutateReviewClaim(
+          card,
+          "CLAIM",
+        ),
+    );
+
+  card
+    .querySelector(
+      ".renew-review-work",
+    )
+    ?.addEventListener(
+      "click",
+      () =>
+        mutateReviewClaim(
+          card,
+          "CLAIM",
+        ),
+    );
+
+  card
+    .querySelector(
+      ".release-review-work",
+    )
+    ?.addEventListener(
+      "click",
+      () =>
+        mutateReviewClaim(
+          card,
+          "RELEASE",
+        ),
+    );
+}
+
+function syncReviewCardClaimUi(
+  card,
+) {
+  if (!card) return;
+
+  const actor =
+    card._workbenchActor;
+
+  const item =
+    card._reviewItem;
+
+  const root =
+    card.querySelector(
+      ".review-claim-state",
+    );
+
+  if (root) {
+    root.innerHTML =
+      reviewClaimStatusHtml(
+        item,
+        actor,
+      );
+  }
+
+  if (item?.message_record_id) {
+    card.dataset.messageRecordId =
+      item.message_record_id;
+  } else {
+    delete card.dataset.messageRecordId;
+  }
+
+  if (item?.lease_version) {
+    card.dataset.leaseVersion =
+      String(
+        item.lease_version,
+      );
+  } else {
+    delete card.dataset.leaseVersion;
+  }
+
+  const requiresClaim =
+    Boolean(
+      actor?.staff_id,
+    );
+
+  const ownsClaim =
+    item?.claim_state
+    === "MINE";
+
+  const locked =
+    requiresClaim
+    && !ownsClaim;
+
+  const editor =
+    card.querySelector(
+      ".review-editor",
+    );
+
+  const preview =
+    card.querySelector(
+      ".preview-review",
+    );
+
+  const ignore =
+    card.querySelector(
+      ".ignore-review",
+    );
+
+  if (editor) {
+    editor.disabled = locked;
+  }
+
+  if (preview) {
+    preview.disabled = locked;
+  }
+
+  if (ignore) {
+    ignore.disabled = locked;
+  }
+
+  bindReviewClaimButtons(
+    card,
+  );
+}
+
+function applyFreshClaimStateToReviewCard(
+  card,
+  workItem,
+  actor,
+) {
+  if (!card) return;
+
+  card._workbenchActor =
+    actor
+    ?? card._workbenchActor
+    ?? null;
+
+  card._reviewItem = {
+    ...(card._reviewItem || {}),
+    ...reviewClaimFields(
+      workItem,
+    ),
+  };
+
+  syncReviewCardClaimUi(
+    card,
+  );
+}
+
+async function refreshReviewClaimState(
+  card,
+) {
+  if (!card) return;
+
+  const reviewId =
+    String(
+      card.dataset.reviewId
+      || "",
+    );
+
+  const payload =
+    await api(
+      `/api/staff-workbench?${reviewWorkbenchQuery()}`,
+    );
+
+  const fresh =
+    (payload.work_items || [])
+      .find(
+        (item) =>
+          String(item.review_id)
+          === reviewId,
+      );
+
+  if (!fresh) {
+    card._workbenchActor =
+      payload.actor
+      ?? card._workbenchActor
+      ?? null;
+
+    card._reviewItem = {
+      ...(card._reviewItem || {}),
+      ...reviewClaimFields(
+        null,
+      ),
+    };
+
+    syncReviewCardClaimUi(
+      card,
+    );
+
+    return;
+  }
+
+  applyFreshClaimStateToReviewCard(
+    card,
+    fresh,
+    payload.actor,
+  );
+}
+
+async function mutateReviewClaim(
+  card,
+  action,
+) {
+  const item =
+    card?._reviewItem;
+
+  const actor =
+    card?._workbenchActor;
+
+  if (
+    !card
+    || !actor?.staff_id
+  ) {
+    return;
+  }
+
+  const messageRecordId =
+    item?.message_record_id;
+
+  if (!messageRecordId) {
+    toast(
+      "ไม่พบรหัสข้อความสำหรับรับรายการ",
+      true,
+    );
+    return;
+  }
+
+  const buttons = [
+    ...card.querySelectorAll(
+      ".review-claim-actions button",
+    ),
+  ];
+
+  buttons.forEach(
+    (button) => {
+      button.disabled = true;
+    },
+  );
+
+  try {
+    const body = {
+      action,
+      message_record_id:
+        messageRecordId,
+    };
+
+    if (action === "CLAIM") {
+      body.lease_seconds = 300;
+    } else if (
+      item?.lease_version
+    ) {
+      body.lease_version =
+        item.lease_version;
+    }
+
+    const payload =
+      await api(
+        "/api/staff-work-claim",
+        {
+          method: "POST",
+          body:
+            JSON.stringify(
+              body,
+            ),
+        },
+      );
+
+    const claim =
+      payload.claim || {};
+
+    if (action === "CLAIM") {
+      card._reviewItem = {
+        ...item,
+
+        claim_state:
+          "MINE",
+
+        claimed_by_staff_id:
+          actor.staff_id,
+
+        claimed_by_staff_code:
+          actor.staff_code
+          ?? null,
+
+        claimed_by_display_name:
+          actor.display_name
+          ?? null,
+
+        claimed_at:
+          claim.claimed_at
+          ?? item.claimed_at
+          ?? null,
+
+        claim_expires_at:
+          claim.claim_expires_at
+          ?? null,
+
+        lease_version:
+          claim.lease_version
+          ?? null,
+      };
+
+      syncReviewCardClaimUi(
+        card,
+      );
+
+      toast(
+        claim.status === "RENEWED"
+          ? "ต่อเวลารายการแล้ว"
+          : "รับรายการแล้ว",
+      );
+    } else {
+      card._reviewItem = {
+        ...item,
+        ...reviewClaimFields({
+          message_record_id:
+            messageRecordId,
+          claim_state:
+            "AVAILABLE",
+        }),
+      };
+
+      syncReviewCardClaimUi(
+        card,
+      );
+
+      toast(
+        "คืนรายการแล้ว",
+      );
+    }
+  } catch (error) {
+    try {
+      await refreshReviewClaimState(
+        card,
+      );
+    } catch (
+      refreshError
+    ) {
+      console.warn(
+        "refresh review claim state failed",
+        refreshError,
+      );
+    }
+
+    toast(
+      `${
+        action === "CLAIM"
+          ? "รับ/ต่อเวลารายการ"
+          : "คืนรายการ"
+      } ไม่สำเร็จ: ${
+        error.message
+      }`,
+      true,
+    );
+  } finally {
+    if (card.isConnected) {
+      syncReviewCardClaimUi(
+        card,
+      );
+    }
+  }
+}
+
+async function releaseReviewClaimAfterCompletion(
+  card,
+) {
+  if (
+    !card?._workbenchActor
+      ?.staff_id
+    || card?._reviewItem
+      ?.claim_state !== "MINE"
+    || !card?._reviewItem
+      ?.message_record_id
+  ) {
+    return;
+  }
+
+  try {
+    await api(
+      "/api/staff-work-claim",
+      {
+        method: "POST",
+        body:
+          JSON.stringify({
+            action:
+              "RELEASE",
+
+            message_record_id:
+              card._reviewItem
+                .message_record_id,
+
+            lease_version:
+              card._reviewItem
+                .lease_version
+              ?? undefined,
+          }),
+      },
+    );
+  } catch (error) {
+    // Review resolution already succeeded.
+    // Claim cleanup is best-effort.
+    console.warn(
+      "release completed review claim failed",
+      error,
+    );
+  }
+}
+
+
 function onReviewEditorInput(event) {
   const card = event.currentTarget.closest(".review-card");
   if (!card._reviewPreview) return;
@@ -3671,6 +4315,10 @@ function onReviewEditorInput(event) {
 
 async function previewReview(event) {
   const card = event.currentTarget.closest(".review-card");
+
+  if (!reviewCardCanMutate(card)) {
+    return;
+  }
   const reviewId = Number(card.dataset.reviewId);
   const correctedText = card.querySelector(".review-editor").value;
   const previewArea = card.querySelector(".review-preview");
@@ -3703,6 +4351,8 @@ async function previewReview(event) {
 function removeCompletedReviewCard(card) {
   const list = $("#reviewList");
 
+  void releaseReviewClaimAfterCompletion(card);
+
   card.remove();
 
   if (
@@ -3715,6 +4365,10 @@ function removeCompletedReviewCard(card) {
 }
 
 async function applyReview(card) {
+  if (!reviewCardCanMutate(card)) {
+    return;
+  }
+
   const reviewId = Number(card.dataset.reviewId);
   const correctedText = card.querySelector(".review-editor").value;
   const preview = card._reviewPreview;
@@ -3756,6 +4410,10 @@ async function applyReview(card) {
 
 async function ignoreReview(event) {
   const card = event.currentTarget.closest(".review-card");
+
+  if (!reviewCardCanMutate(card)) {
+    return;
+  }
   const reviewId = Number(card.dataset.reviewId);
   if (!window.confirm("ยืนยันว่าข้อความนี้ไม่ใช่ออเดอร์และให้ข้าม? ถ้ามีรายการ PARTIAL ที่เคยสร้างไว้ ระบบจะถอนรายการของข้อความนี้ออก")) return;
   event.currentTarget.disabled = true;
@@ -3780,43 +4438,243 @@ async function ignoreReview(event) {
 
 async function loadReviews() {
   const list = $("#reviewList");
-  list.innerHTML = `<div class="empty">กำลังโหลด...</div>`;
+
+  list.innerHTML =
+    `<div class="empty">กำลังโหลด...</div>`;
+
   try {
-    const payload = await api(`/api/reviews?${selectedQuery()}`);
-    if (!payload.items.length) {
-      list.innerHTML = `<div class="empty">ไม่มีรายการ Review ที่เปิดอยู่</div>`;
+    const [
+      reviewPayload,
+      workbenchPayload,
+    ] = await Promise.all([
+      api(
+        `/api/reviews?${selectedQuery()}`,
+      ),
+
+      api(
+        `/api/staff-workbench?${reviewWorkbenchQuery()}`,
+      ),
+    ]);
+
+    const workByReviewId =
+      new Map(
+        (
+          workbenchPayload.work_items
+          || []
+        ).map(
+          (item) => [
+            String(
+              item.review_id,
+            ),
+            item,
+          ],
+        ),
+      );
+
+    const realStaff =
+      Boolean(
+        workbenchPayload.actor
+          ?.staff_id,
+      );
+
+    let items =
+      (
+        reviewPayload.items
+        || []
+      ).map(
+        (item) => ({
+          ...item,
+
+          ...reviewClaimFields(
+            workByReviewId.get(
+              String(item.id),
+            ),
+          ),
+        }),
+      );
+
+    // Real Staff sees only assignment + current-round
+    // Workbench scope.
+    //
+    // Legacy/shared Admin keeps the previous Review
+    // visibility for compatibility.
+    if (realStaff) {
+      items =
+        items.filter(
+          (item) =>
+            workByReviewId.has(
+              String(item.id),
+            ),
+        );
+    }
+
+    if (!items.length) {
+      list.innerHTML =
+        `<div class="empty">ไม่มีรายการ Review ที่เปิดอยู่</div>`;
+
       return;
     }
-    list.innerHTML = payload.items.map((item) => `
-      <article class="review-card" data-review-id="${escapeHtml(item.id)}">
-        <div class="review-meta">
-          <span><strong>Review #${escapeHtml(item.id)}</strong></span>
-          <span>${escapeHtml(item.parse_status || "ไม่ระบุสถานะ")}</span>
-          <span>Parser เดิม ${escapeHtml(item.parser_version || "ไม่ระบุ")}</span>
-          <span>${escapeHtml(item.line_group_name)}</span>
-          <span>${escapeHtml(item.message_type)}</span>
-          <span>${escapeHtml(formatBangkokTime(item.created_at))}</span>
-          <span>${escapeHtml(item.user_id || "ไม่ทราบผู้ส่ง")}</span>
-        </div>
-        ${reviewImageEvidenceHtml(item)}
-        <div class="reason">${reviewReasonsHtml(item)}</div>
-        <label class="editor-label">ข้อความสำหรับ Parse
-          <textarea class="review-editor" rows="5" placeholder="แก้หรือกรอกข้อความออเดอร์ที่ถูกต้อง">${escapeHtml(item.text || "")}</textarea>
-        </label>
-        <div class="review-actions">
-          <button class="button primary small preview-review">ตรวจผล</button>
-          <button class="button ghost small ignore-review">ไม่ใช่ออเดอร์ / ข้าม</button>
-        </div>
-        <div class="review-preview"></div>
-      </article>`).join("");
-    $$(".preview-review").forEach((button) => button.addEventListener("click", previewReview));
-    $$(".ignore-review").forEach((button) => button.addEventListener("click", ignoreReview));
-    $$(".review-editor").forEach((editor) => editor.addEventListener("input", onReviewEditorInput));
+
+    list.innerHTML =
+      items
+        .map(
+          (item) => `
+        <article
+          class="review-card"
+          data-review-id="${escapeHtml(item.id)}"
+        >
+          <div class="review-meta">
+            <span>
+              <strong>
+                Review #${escapeHtml(item.id)}
+              </strong>
+            </span>
+
+            <span>
+              ${escapeHtml(
+                item.parse_status
+                || "ไม่ระบุสถานะ",
+              )}
+            </span>
+
+            <span>Parser เดิม ${escapeHtml(item.parser_version || "ไม่ระบุ")}</span>
+
+            <span>
+              ${escapeHtml(
+                item.line_group_name,
+              )}
+            </span>
+
+            <span>
+              ${escapeHtml(
+                item.message_type,
+              )}
+            </span>
+
+            <span>
+              ${escapeHtml(
+                formatBangkokTime(
+                  item.created_at,
+                ),
+              )}
+            </span>
+
+            <span>
+              ${escapeHtml(
+                item.user_id
+                || "ไม่ทราบผู้ส่ง",
+              )}
+            </span>
+          </div>
+
+          <div class="review-claim-state"></div>
+
+          ${reviewImageEvidenceHtml(item)}
+
+          <div class="reason">
+            ${reviewReasonsHtml(item)}
+          </div>
+
+          <label class="editor-label">
+            ข้อความสำหรับ Parse
+
+            <textarea
+              class="review-editor"
+              rows="5"
+              placeholder="แก้หรือกรอกข้อความออเดอร์ที่ถูกต้อง"
+            >${escapeHtml(item.text || "")}</textarea>
+          </label>
+
+          <div class="review-actions">
+            <button
+              class="button primary small preview-review"
+            >
+              ตรวจผล
+            </button>
+
+            <button
+              class="button ghost small ignore-review"
+            >
+              ไม่ใช่ออเดอร์ / ข้าม
+            </button>
+          </div>
+
+          <div class="review-preview"></div>
+        </article>
+      `,
+        )
+        .join("");
+
+    const itemById =
+      new Map(
+        items.map(
+          (item) => [
+            String(item.id),
+            item,
+          ],
+        ),
+      );
+
+    list
+      .querySelectorAll(
+        ".review-card",
+      )
+      .forEach(
+        (card) => {
+          card._reviewItem =
+            itemById.get(
+              String(
+                card.dataset.reviewId,
+              ),
+            );
+
+          card._workbenchActor =
+            workbenchPayload.actor
+            ?? null;
+
+          syncReviewCardClaimUi(
+            card,
+          );
+        },
+      );
+
+    $$(".preview-review")
+      .forEach(
+        (button) =>
+          button.addEventListener(
+            "click",
+            previewReview,
+          ),
+      );
+
+    $$(".ignore-review")
+      .forEach(
+        (button) =>
+          button.addEventListener(
+            "click",
+            ignoreReview,
+          ),
+      );
+
+    $$(".review-editor")
+      .forEach(
+        (editor) =>
+          editor.addEventListener(
+            "input",
+            onReviewEditorInput,
+          ),
+      );
   } catch (error) {
-    list.innerHTML = `<div class="empty">โหลด Review ไม่สำเร็จ</div>`;
-    toast(error.message, true);
+    list.innerHTML =
+      `<div class="empty">โหลด Review ไม่สำเร็จ</div>`;
+
+    toast(
+      error.message,
+      true,
+    );
   }
 }
+
 
 async function loadUnsends() {
   const body = $("#unsendBody");

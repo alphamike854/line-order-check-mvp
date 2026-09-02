@@ -213,6 +213,9 @@ export default async function handler(req) {
       return json(
         {
           ok: false,
+          error:
+            result?.status
+            ?? "CLAIM_CONFLICT",
           claim:
             result,
         },
