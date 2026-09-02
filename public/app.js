@@ -4678,7 +4678,13 @@ function renderSettlementGroupControls(payload) {
     <div class="settlement-group-control-list">
       ${groups.map((item) => {
         const accepting =
-          item.accepting_orders !== false;
+          item.accepting_orders === true;
+
+        const hasPreviousRound =
+          item.has_previous_round === true;
+
+        const roundNo =
+          Number(item.round_no || 0);
 
         const id =
           String(
@@ -4690,11 +4696,15 @@ function renderSettlementGroupControls(payload) {
 
         const stateText =
           accepting
-            ? "เปิดรับยอด"
-            : "ปิดรับยอด";
+            ? `เปิดรับยอด · รอบ ${formatNumber(roundNo)}`
+            : hasPreviousRound
+              ? `ปิดรับยอด · รอบ ${formatNumber(roundNo)}`
+              : "ยังไม่เปิดรอบ";
 
         const changedText =
-          !accepting && item.closed_at
+          !accepting
+          && hasPreviousRound
+          && item.closed_at
             ? ` · ปิด ${formatBangkokTime(
                 item.closed_at,
               )}`
@@ -4724,11 +4734,16 @@ function renderSettlementGroupControls(payload) {
               data-accepting="${
                 accepting ? "true" : "false"
               }"
+              data-has-previous-round="${
+                hasPreviousRound ? "true" : "false"
+              }"
             >
               ${
                 accepting
                   ? "ปิดรับยอด"
-                  : "เปิดรับยอด"
+                  : hasPreviousRound
+                    ? "เปิดรอบใหม่"
+                    : "เปิดรอบแรก"
               }
             </button>
           </div>
@@ -4780,6 +4795,9 @@ async function changeSettlementSummaryGroup(
   const nextAccepting =
     !currentlyAccepting;
 
+  const hasPreviousRound =
+    button.dataset.hasPreviousRound === "true";
+
   const label =
     groupName(summaryGroupId)
     || summaryGroupId;
@@ -4790,6 +4808,31 @@ async function changeSettlementSummaryGroup(
       `ปิดรับยอด ${label}?\n`
       + `ข้อความใหม่ของกลุ่มนี้จะไม่เข้ายอด `
       + `และจะถูกส่งไปหน้าตรวจรายการ`,
+    )
+  ) {
+    return;
+  }
+
+  if (
+    !currentlyAccepting
+    && hasPreviousRound
+    && !window.confirm(
+      `เปิดรอบใหม่ ${label}?\n`
+      + `ระบบจะเก็บสรุปรอบก่อนหน้า แล้วล้างข้อมูลปฏิบัติการ`
+      + `ของกลุ่มนี้ก่อนเริ่มนับใหม่จาก 0\n`
+      + `กลุ่มอื่นจะไม่ถูกกระทบ`,
+    )
+  ) {
+    return;
+  }
+
+  if (
+    !currentlyAccepting
+    && !hasPreviousRound
+    && !window.confirm(
+      `เปิดรอบแรก ${label}?\n`
+      + `ระบบจะเริ่มนับยอดของกลุ่มนี้จาก 0\n`
+      + `กลุ่มอื่นจะยังไม่เปิดจนกว่าจะสั่งเปิดแยก`,
     )
   ) {
     return;

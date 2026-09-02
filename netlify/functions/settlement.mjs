@@ -5,7 +5,7 @@ const OPERATOR = process.env.DASHBOARD_OPERATOR_NAME || "DASHBOARD";
 async function loadSummaryGroupStates(openSession) {
   if (!openSession?.id) return [];
 
-  const [configResult, controlResult] =
+  const [configResult, roundResult] =
     await Promise.all([
       supabase
         .from("settlement_line_group_config")
@@ -14,21 +14,39 @@ async function loadSummaryGroupStates(openSession) {
         .eq("enabled", true),
 
       supabase
-        .from("settlement_summary_group_controls")
+        .from("settlement_summary_group_rounds")
         .select(
-          "summary_group_id,accepting_orders,changed_at,changed_by,closed_at",
+          [
+            "id",
+            "summary_group_id",
+            "round_no",
+            "status",
+            "opened_at",
+            "opened_by",
+            "closed_at",
+            "closed_by",
+            "updated_at",
+          ].join(","),
         )
-        .eq("settlement_session_id", openSession.id),
+        .eq("settlement_session_id", openSession.id)
+        .order("round_no", { ascending: false }),
     ]);
 
   if (configResult.error) throw configResult.error;
-  if (controlResult.error) throw controlResult.error;
+  if (roundResult.error) throw roundResult.error;
 
-  const controls = new Map(
-    (controlResult.data ?? []).map(
-      (row) => [row.summary_group_id, row],
-    ),
-  );
+  const roundsByGroup = new Map();
+
+  for (const row of roundResult.data ?? []) {
+    if (!row?.summary_group_id) continue;
+
+    const rows =
+      roundsByGroup.get(row.summary_group_id)
+      ?? [];
+
+    rows.push(row);
+    roundsByGroup.set(row.summary_group_id, rows);
+  }
 
   const groupIds = [
     ...new Set(
@@ -39,15 +57,64 @@ async function loadSummaryGroupStates(openSession) {
   ].sort();
 
   return groupIds.map((summaryGroupId) => {
-    const control = controls.get(summaryGroupId);
+    const rounds =
+      roundsByGroup.get(summaryGroupId)
+      ?? [];
+
+    const openRound =
+      rounds.find(
+        (row) => row.status === "OPEN",
+      )
+      ?? null;
+
+    const latestRound =
+      rounds[0]
+      ?? null;
+
+    const acceptingOrders =
+      Boolean(openRound);
 
     return {
       summary_group_id: summaryGroupId,
+
       accepting_orders:
-        control?.accepting_orders !== false,
-      changed_at: control?.changed_at ?? null,
-      changed_by: control?.changed_by ?? null,
-      closed_at: control?.closed_at ?? null,
+        acceptingOrders,
+
+      has_previous_round:
+        Boolean(latestRound),
+
+      round_id:
+        openRound?.id
+        ?? latestRound?.id
+        ?? null,
+
+      round_no:
+        openRound?.round_no
+        ?? latestRound?.round_no
+        ?? null,
+
+      round_status:
+        openRound
+          ? "OPEN"
+          : latestRound?.status
+            ?? "NOT_STARTED",
+
+      changed_at:
+        openRound?.opened_at
+        ?? latestRound?.closed_at
+        ?? latestRound?.updated_at
+        ?? null,
+
+      changed_by:
+        openRound?.opened_by
+        ?? latestRound?.closed_by
+        ?? null,
+
+      closed_at:
+        acceptingOrders
+          ? null
+          : latestRound?.closed_at
+            ?? null,
     };
   });
 }
@@ -145,9 +212,111 @@ async function changeSummaryGroupState(
     );
   }
 
+  const cleanupPaths =
+    acceptingOrders
+    && Array.isArray(data?.image_storage_paths)
+      ? data.image_storage_paths.filter(Boolean)
+      : [];
+
+  let imageCleanup = {
+    requested: cleanupPaths.length,
+    deleted: 0,
+    pending: 0,
+  };
+
+  if (
+    cleanupPaths.length
+    && data?.reset_from_round_id
+  ) {
+    const bucket =
+      String(
+        data.image_storage_bucket
+        || "review-images",
+      );
+
+    const attemptedAt =
+      new Date().toISOString();
+
+    const { error: removeError } =
+      await supabase.storage
+        .from(bucket)
+        .remove(cleanupPaths);
+
+    if (removeError) {
+      console.error(
+        "round reset image cleanup failed",
+        removeError,
+      );
+
+      imageCleanup.pending =
+        cleanupPaths.length;
+
+      const { error: queueError } =
+        await supabase
+          .from(
+            "settlement_round_storage_cleanup_queue",
+          )
+          .update({
+            status: "FAILED",
+            attempted_at: attemptedAt,
+            last_error:
+              String(
+                removeError.message
+                ?? removeError,
+              ).slice(0, 1000),
+          })
+          .eq(
+            "round_id",
+            data.reset_from_round_id,
+          )
+          .in(
+            "storage_path",
+            cleanupPaths,
+          );
+
+      if (queueError) {
+        console.error(
+          "round reset cleanup queue update failed",
+          queueError,
+        );
+      }
+    } else {
+      imageCleanup.deleted =
+        cleanupPaths.length;
+
+      const { error: queueError } =
+        await supabase
+          .from(
+            "settlement_round_storage_cleanup_queue",
+          )
+          .update({
+            status: "DELETED",
+            attempted_at: attemptedAt,
+            deleted_at: attemptedAt,
+            last_error: null,
+          })
+          .eq(
+            "round_id",
+            data.reset_from_round_id,
+          )
+          .in(
+            "storage_path",
+            cleanupPaths,
+          );
+
+      if (queueError) {
+        console.error(
+          "round reset cleanup queue update failed",
+          queueError,
+        );
+      }
+    }
+  }
+
   return json({
     ok: true,
     group_state: data,
+    image_cleanup: imageCleanup,
     ...(await getPayload()),
   });
 }

@@ -200,11 +200,11 @@ assert.match(
 
 assert.match(
   settlementApi,
-  /settlement_summary_group_controls/,
+  /settlement_summary_group_rounds/,
 );
 
 console.log(
-  "PASS S1-09 settlement API exposes Summary Group states",
+  "PASS S1-09 settlement API exposes authoritative Summary Group round states",
 );
 
 
