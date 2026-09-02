@@ -170,6 +170,9 @@ export default async function handler(req) {
 
             allowedLineGroupIds,
 
+            settlementSessionId:
+              session.id,
+
             leaseSeconds:
               normalizeClaimLeaseSeconds(
                 body?.lease_seconds,
@@ -186,6 +189,9 @@ export default async function handler(req) {
 
             staffId:
               auth.actor.staff_id,
+
+            settlementSessionId:
+              session.id,
 
             expectedLeaseVersion:
               normalizeLeaseVersion(
@@ -238,6 +244,10 @@ export default async function handler(req) {
         "MESSAGE_NOT_FOUND",
         "MESSAGE_ALREADY_UNSENT",
         "MESSAGE_OUTSIDE_STAFF_SCOPE",
+        "MESSAGE_OUTSIDE_CURRENT_SETTLEMENT",
+        "MESSAGE_ROUND_NOT_CURRENT",
+        "MESSAGE_LINE_GROUP_CONFIG_MISMATCH",
+        "SETTLEMENT_NOT_OPEN",
         "REVIEW_NOT_OPEN",
         "STAFF_NOT_ACTIVE",
       ]);

@@ -87,6 +87,7 @@ export async function claimStaffReviewWork(
     messageRecordId,
     staffId,
     allowedLineGroupIds,
+    settlementSessionId,
     leaseSeconds,
   },
 ) {
@@ -104,6 +105,9 @@ export async function claimStaffReviewWork(
 
       p_allowed_line_group_ids:
         allowedLineGroupIds,
+
+      p_settlement_session_id:
+        settlementSessionId,
 
       p_lease_seconds:
         normalizeClaimLeaseSeconds(
@@ -125,6 +129,7 @@ export async function releaseStaffReviewWork(
   {
     messageRecordId,
     staffId,
+    settlementSessionId,
     expectedLeaseVersion,
   },
 ) {
@@ -139,6 +144,9 @@ export async function releaseStaffReviewWork(
 
       p_staff_id:
         staffId,
+
+      p_settlement_session_id:
+        settlementSessionId,
 
       p_expected_lease_version:
         normalizeLeaseVersion(
