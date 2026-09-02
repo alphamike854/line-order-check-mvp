@@ -4364,6 +4364,118 @@ function removeCompletedReviewCard(card) {
   }
 }
 
+const REVIEW_RESOLUTION_CLAIM_CONFLICTS =
+  new Set([
+    "LEASE_VERSION_REQUIRED",
+    "CLAIM_REQUIRED",
+    "CLAIM_EXPIRED",
+    "CLAIM_OWNED_BY_OTHER",
+    "STALE_CLAIM_VERSION",
+    "MESSAGE_OUTSIDE_CURRENT_SETTLEMENT",
+    "MESSAGE_ROUND_NOT_CURRENT",
+    "MESSAGE_LINE_GROUP_CONFIG_MISMATCH",
+    "MESSAGE_OUTSIDE_STAFF_SCOPE",
+    "STAFF_NOT_ACTIVE",
+  ]);
+
+
+function reviewResolutionLeaseVersion(
+  card,
+) {
+  if (
+    !card?._workbenchActor
+      ?.staff_id
+  ) {
+    return null;
+  }
+
+  const leaseVersion =
+    Number(
+      card?._reviewItem
+        ?.lease_version
+      ?? card?.dataset
+        ?.leaseVersion
+      ?? null,
+    );
+
+  if (
+    !Number.isInteger(
+      leaseVersion,
+    )
+    || leaseVersion <= 0
+  ) {
+    return null;
+  }
+
+  return leaseVersion;
+}
+
+
+function withReviewResolutionLease(
+  card,
+  body,
+) {
+  if (
+    !card?._workbenchActor
+      ?.staff_id
+  ) {
+    return body;
+  }
+
+  const leaseVersion =
+    reviewResolutionLeaseVersion(
+      card,
+    );
+
+  if (!leaseVersion) {
+    throw new Error(
+      "LEASE_VERSION_REQUIRED",
+    );
+  }
+
+  return {
+    ...body,
+    lease_version:
+      leaseVersion,
+  };
+}
+
+
+function isReviewResolutionClaimConflict(
+  error,
+) {
+  return Boolean(
+    error?.payload
+      ?.claim_conflict,
+  )
+  || REVIEW_RESOLUTION_CLAIM_CONFLICTS
+    .has(
+      error?.message,
+    );
+}
+
+
+async function refreshReviewAfterResolutionConflict(
+  card,
+) {
+  clearReviewPreview(
+    card,
+    "สิทธิ์ดำเนินการรายการเปลี่ยนแล้ว กรุณาตรวจสอบสถานะใหม่",
+  );
+
+  try {
+    await refreshReviewClaimState(
+      card,
+    );
+  } catch (refreshError) {
+    console.warn(
+      "failed to refresh Review claim after resolution conflict",
+      refreshError,
+    );
+  }
+}
+
+
 async function applyReview(card) {
   if (!reviewCardCanMutate(card)) {
     return;
@@ -4381,15 +4493,32 @@ async function applyReview(card) {
   const buttons = [...card.querySelectorAll("button")];
   buttons.forEach((b) => { b.disabled = true; });
   try {
-    const payload = await api("/api/review-resolve", {
-      method: "POST",
-      body: JSON.stringify({
-        review_id: reviewId,
-        action: "CORRECT",
-        corrected_text: correctedText,
-        preview_token: preview.token,
-      }),
-    });
+    const resolutionBody =
+      withReviewResolutionLease(
+        card,
+        {
+          review_id:
+            reviewId,
+          action:
+            "CORRECT",
+          corrected_text:
+            correctedText,
+          preview_token:
+            preview.token,
+        },
+      );
+
+    const payload =
+      await api(
+        "/api/review-resolve",
+        {
+          method: "POST",
+          body:
+            JSON.stringify(
+              resolutionBody,
+            ),
+        },
+      );
     card._reviewPreview = null;
     toast(`แก้ Review สำเร็จ ${formatNumber(payload.items?.length)} รายการ`);
     removeCompletedReviewCard(card);
@@ -4399,10 +4528,36 @@ async function applyReview(card) {
       preserveReviewWorkbench: true,
     });
   } catch (error) {
-    if (["PREVIEW_REQUIRED", "PREVIEW_EXPIRED", "PREVIEW_STALE", "PREVIEW_TOKEN_INVALID"].includes(error.message)) {
-      clearReviewPreview(card, "ข้อมูลเปลี่ยนแล้ว กรุณาตรวจผลใหม่ก่อนยืนยัน");
+    if (
+      [
+        "PREVIEW_REQUIRED",
+        "PREVIEW_EXPIRED",
+        "PREVIEW_STALE",
+        "PREVIEW_TOKEN_INVALID",
+      ].includes(
+        error.message,
+      )
+    ) {
+      clearReviewPreview(
+        card,
+        "ข้อมูลเปลี่ยนแล้ว กรุณาตรวจผลใหม่ก่อนยืนยัน",
+      );
     }
-    toast(`แก้ Review ไม่สำเร็จ: ${error.message}`, true);
+
+    if (
+      isReviewResolutionClaimConflict(
+        error,
+      )
+    ) {
+      await refreshReviewAfterResolutionConflict(
+        card,
+      );
+    }
+
+    toast(
+      `แก้ Review ไม่สำเร็จ: ${error.message}`,
+      true,
+    );
   } finally {
     buttons.forEach((b) => { b.disabled = false; });
   }
@@ -4418,10 +4573,27 @@ async function ignoreReview(event) {
   if (!window.confirm("ยืนยันว่าข้อความนี้ไม่ใช่ออเดอร์และให้ข้าม? ถ้ามีรายการ PARTIAL ที่เคยสร้างไว้ ระบบจะถอนรายการของข้อความนี้ออก")) return;
   event.currentTarget.disabled = true;
   try {
-    await api("/api/review-resolve", {
-      method: "POST",
-      body: JSON.stringify({ review_id: reviewId, action: "IGNORE" }),
-    });
+    const resolutionBody =
+      withReviewResolutionLease(
+        card,
+        {
+          review_id:
+            reviewId,
+          action:
+            "IGNORE",
+        },
+      );
+
+    await api(
+      "/api/review-resolve",
+      {
+        method: "POST",
+        body:
+          JSON.stringify(
+            resolutionBody,
+          ),
+      },
+    );
     toast("ข้าม Review แล้ว");
     removeCompletedReviewCard(card);
 
@@ -4430,7 +4602,20 @@ async function ignoreReview(event) {
       preserveReviewWorkbench: true,
     });
   } catch (error) {
-    toast(`ข้าม Review ไม่สำเร็จ: ${error.message}`, true);
+    if (
+      isReviewResolutionClaimConflict(
+        error,
+      )
+    ) {
+      await refreshReviewAfterResolutionConflict(
+        card,
+      );
+    }
+
+    toast(
+      `ข้าม Review ไม่สำเร็จ: ${error.message}`,
+      true,
+    );
   } finally {
     event.currentTarget.disabled = false;
   }
