@@ -1,8 +1,25 @@
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 
+const ACCESS_KEY_STORAGE =
+  "lineOrderAccessKey";
+
+const LEGACY_DASHBOARD_ACCESS_KEY_STORAGE =
+  "lineOrderDashboardKey";
+
+const persistedAccessKey =
+  sessionStorage.getItem(
+    ACCESS_KEY_STORAGE,
+  )
+  || sessionStorage.getItem(
+    LEGACY_DASHBOARD_ACCESS_KEY_STORAGE,
+  )
+  || "";
+
 const state = {
-  accessKey: sessionStorage.getItem("lineOrderDashboardKey") || "",
+  accessKey: persistedAccessKey,
+  authMode: "",
+  actor: null,
   dashboard: null,
   settings: null,
   groupsLoaded: false,
@@ -176,17 +193,388 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function clearBrowserAuthSession() {
+  sessionStorage.removeItem(
+    ACCESS_KEY_STORAGE,
+  );
+
+  sessionStorage.removeItem(
+    LEGACY_DASHBOARD_ACCESS_KEY_STORAGE,
+  );
+
+  state.accessKey = "";
+  state.authMode = "";
+  state.actor = null;
+}
+
+
+function persistBrowserAuthSession(
+  auth,
+) {
+  const mode =
+    String(
+      auth?.mode ?? "",
+    ).toUpperCase();
+
+  if (
+    mode !== "DASHBOARD"
+    && mode !== "STAFF"
+  ) {
+    throw new Error(
+      "AUTH_MODE_INVALID",
+    );
+  }
+
+  const accessKey =
+    String(
+      auth?.accessKey ?? "",
+    ).trim();
+
+  if (!accessKey) {
+    throw new Error(
+      "ACCESS_KEY_REQUIRED",
+    );
+  }
+
+  state.accessKey =
+    accessKey;
+
+  state.authMode =
+    mode;
+
+  state.actor =
+    auth.actor ?? null;
+
+  // Persist credential only.
+  //
+  // Never persist browser-selected authMode. Every page load
+  // re-classifies the credential through /api/staff-me.
+  sessionStorage.setItem(
+    ACCESS_KEY_STORAGE,
+    accessKey,
+  );
+
+  // One-way migration from the old Dashboard-only storage key.
+  sessionStorage.removeItem(
+    LEGACY_DASHBOARD_ACCESS_KEY_STORAGE,
+  );
+}
+
+
+async function classifyAccessKey(
+  candidate,
+) {
+  const accessKey =
+    String(candidate ?? "").trim();
+
+  if (!accessKey) {
+    throw new Error(
+      "ACCESS_KEY_REQUIRED",
+    );
+  }
+
+  const headers =
+    new Headers();
+
+  // Classification only:
+  //
+  // Send the same candidate in both auth headers.
+  // authenticateWorkbenchActor() checks Dashboard first,
+  // therefore Dashboard identity remains authoritative
+  // if a credential could satisfy both paths.
+  headers.set(
+    "x-dashboard-key",
+    accessKey,
+  );
+
+  headers.set(
+    "x-staff-key",
+    accessKey,
+  );
+
+  const response =
+    await fetch(
+      "/api/staff-me",
+      {
+        method: "GET",
+        headers,
+      },
+    );
+
+  const payload =
+    await response
+      .json()
+      .catch(() => ({
+        ok: false,
+        error:
+          `HTTP_${response.status}`,
+      }));
+
+  if (
+    !response.ok
+    || payload.ok === false
+  ) {
+    const error =
+      new Error(
+        payload.error
+        || `HTTP_${response.status}`,
+      );
+
+    error.status =
+      response.status;
+
+    error.payload =
+      payload;
+
+    throw error;
+  }
+
+  const mode =
+    String(
+      payload.actor?.kind
+      ?? "",
+    ).toUpperCase();
+
+  if (
+    mode !== "DASHBOARD"
+    && mode !== "STAFF"
+  ) {
+    throw new Error(
+      "AUTH_MODE_INVALID",
+    );
+  }
+
+  return {
+    accessKey,
+    mode,
+    actor:
+      payload.actor,
+    lineGroups:
+      payload.line_groups
+      || [],
+  };
+}
+
+
+function configureAppForAuthMode(
+  mode,
+) {
+  const staffMode =
+    mode === "STAFF";
+
+  // Dashboard operational chrome must never be exposed as an
+  // active Staff workflow. Hidden controls are also protected
+  // server-side, but the browser shell should reflect the same
+  // capability boundary.
+  const dashboardOnlySelectors = [
+    "#settlementPanel",
+    ".operational-filters",
+    "#staleBanner",
+    "#metrics",
+  ];
+
+  for (
+    const selector
+    of dashboardOnlySelectors
+  ) {
+    const element =
+      $(selector);
+
+    if (element) {
+      element.classList.toggle(
+        "hidden",
+        staffMode,
+      );
+    }
+  }
+
+  $$(".tab").forEach(
+    (tab) => {
+      tab.classList.toggle(
+        "hidden",
+        staffMode
+        && tab.dataset.tab
+          !== "review",
+      );
+    },
+  );
+}
+
+
+function selectTabUi(
+  name,
+) {
+  $$(".tab").forEach(
+    (tab) =>
+      tab.classList.toggle(
+        "active",
+        tab.dataset.tab === name,
+      ),
+  );
+
+  $$(".tab-panel").forEach(
+    (panel) =>
+      panel.classList.add(
+        "hidden",
+      ),
+  );
+
+  const panel =
+    $(`#${name}Tab`);
+
+  if (panel) {
+    panel.classList.remove(
+      "hidden",
+    );
+  }
+}
+
+
+async function enterStaffSession(
+  auth,
+) {
+  if (
+    auth.mode !== "STAFF"
+    || !auth.actor?.staff_id
+  ) {
+    throw new Error(
+      "STAFF_MODE_REQUIRED",
+    );
+  }
+
+  persistBrowserAuthSession(
+    auth,
+  );
+
+  stopFreshnessPolling();
+
+  state.dashboard = null;
+  state.freshnessVersion = null;
+
+  setDashboardStale(false);
+
+  configureAppForAuthMode(
+    "STAFF",
+  );
+
+  loginError.classList.add(
+    "hidden",
+  );
+
+  showApp();
+
+  selectTabUi(
+    "review",
+  );
+
+  await loadReviews();
+}
+
+
+async function enterDashboardSession(
+  auth,
+) {
+  if (
+    auth.mode !== "DASHBOARD"
+  ) {
+    throw new Error(
+      "DASHBOARD_MODE_REQUIRED",
+    );
+  }
+
+  persistBrowserAuthSession(
+    auth,
+  );
+
+  configureAppForAuthMode(
+    "DASHBOARD",
+  );
+
+  loginError.classList.add(
+    "hidden",
+  );
+
+  showApp();
+
+  await loadDashboard();
+
+  startFreshnessPolling();
+}
+
+
+async function authenticateAndEnter(
+  candidate,
+) {
+  const auth =
+    await classifyAccessKey(
+      candidate,
+    );
+
+  if (
+    auth.mode === "STAFF"
+  ) {
+    await enterStaffSession(
+      auth,
+    );
+
+    return true;
+  }
+
+  await enterDashboardSession(
+    auth,
+  );
+
+  return true;
+}
+
+
 async function api(path, options = {}) {
-  const headers = new Headers(options.headers || {});
-  headers.set("x-dashboard-key", state.accessKey);
+  const headers =
+    new Headers(
+      options.headers || {},
+    );
+
+  if (!state.accessKey) {
+    throw new Error(
+      "UNAUTHORIZED",
+    );
+  }
+
+  if (
+    state.authMode === "DASHBOARD"
+  ) {
+    headers.set(
+      "x-dashboard-key",
+      state.accessKey,
+    );
+
+    headers.delete(
+      "x-staff-key",
+    );
+  } else if (
+    state.authMode === "STAFF"
+  ) {
+    headers.set(
+      "x-staff-key",
+      state.accessKey,
+    );
+
+    headers.delete(
+      "x-dashboard-key",
+    );
+  } else {
+    throw new Error(
+      "AUTH_MODE_REQUIRED",
+    );
+  }
+
   if (options.body && !headers.has("content-type")) headers.set("content-type", "application/json");
 
   const response = await fetch(path, { ...options, headers });
   const payload = await response.json().catch(() => ({ ok: false, error: `HTTP_${response.status}` }));
 
   if (response.status === 401) {
-    sessionStorage.removeItem("lineOrderDashboardKey");
-    state.accessKey = "";
+    clearBrowserAuthSession();
     showLogin("Access Key ไม่ถูกต้อง");
     throw new Error("UNAUTHORIZED");
   }
@@ -4628,12 +5016,17 @@ async function loadReviews() {
     `<div class="empty">กำลังโหลด...</div>`;
 
   try {
+    const reviewReadPath =
+      state.authMode === "STAFF"
+        ? `/api/staff-reviews?${reviewWorkbenchQuery()}`
+        : `/api/reviews?${selectedQuery()}`;
+
     const [
       reviewPayload,
       workbenchPayload,
     ] = await Promise.all([
       api(
-        `/api/reviews?${selectedQuery()}`,
+        reviewReadPath,
       ),
 
       api(
@@ -6608,9 +7001,15 @@ async function loadDashboard({
 }
 
 function activateTab(name, options = {}) {
-  $$(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.tab === name));
-  $$(".tab-panel").forEach((panel) => panel.classList.add("hidden"));
-  $(`#${name}Tab`).classList.remove("hidden");
+  if (
+    state.authMode === "STAFF"
+    && name !== "review"
+  ) {
+    return;
+  }
+
+  selectTabUi(name);
+
   if (name === "allocation") loadAllocationHistory();
   if (name === "postcut") loadAllocationHistory();
   if (name === "review") loadReviews();
@@ -6622,18 +7021,64 @@ function activateTab(name, options = {}) {
 
 loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  state.accessKey = accessKeyInput.value.trim();
-  sessionStorage.setItem("lineOrderDashboardKey", state.accessKey);
-  loginError.classList.add("hidden");
-  showApp();
-  await loadDashboard();
-  startFreshnessPolling();
+
+  const candidate =
+    accessKeyInput.value.trim();
+
+  const submitButton =
+    loginForm.querySelector(
+      'button[type="submit"]',
+    );
+
+  if (submitButton) {
+    submitButton.disabled = true;
+  }
+
+  loginError.classList.add(
+    "hidden",
+  );
+
+  try {
+    await authenticateAndEnter(
+      candidate,
+    );
+  } catch (error) {
+    if (
+      error.message === "UNAUTHORIZED"
+      || error.status === 401
+    ) {
+      clearBrowserAuthSession();
+
+      showLogin(
+        "Access Key ไม่ถูกต้อง",
+      );
+    } else if (
+      error.message
+      === "ACCESS_KEY_REQUIRED"
+    ) {
+      showLogin(
+        "กรุณากรอก Access Key",
+      );
+    } else {
+      console.error(
+        "Access Key classification failed",
+        error,
+      );
+
+      showLogin(
+        `ตรวจสอบ Access Key ไม่สำเร็จ: ${error.message}`,
+      );
+    }
+  } finally {
+    if (submitButton) {
+      submitButton.disabled = false;
+    }
+  }
 });
 
 logoutButton.addEventListener("click", () => {
   stopFreshnessPolling();
-  sessionStorage.removeItem("lineOrderDashboardKey");
-  state.accessKey = "";
+  clearBrowserAuthSession();
   state.freshnessVersion = null;
   state.dashboard = null;
   setDashboardStale(false);
@@ -6641,11 +7086,29 @@ logoutButton.addEventListener("click", () => {
   showLogin();
 });
 
-refreshButton.addEventListener("click", loadDashboard);
+refreshButton.addEventListener(
+  "click",
+  () => {
+    if (
+      state.authMode === "STAFF"
+    ) {
+      loadReviews();
+      return;
+    }
+
+    loadDashboard();
+  },
+);
 $("#staleRefreshButton").addEventListener("click", loadDashboard);
 $("#reloadAllocationHistoryButton").addEventListener("click", loadAllocationHistory);
 businessDateInput.addEventListener("change", () => { if (!state.settlement?.open_session) renderSettlementStatus(state.settlement || {open_session:null,promotions:[],closed_sessions:[]}); });
 summaryGroupSelect.addEventListener("change", async () => {
+  if (
+    state.authMode === "STAFF"
+  ) {
+    return;
+  }
+
   await loadDashboard();
   const activeTab = $(".tab.active")?.dataset.tab;
   if (activeTab === "report") await loadReport();
@@ -6660,8 +7123,36 @@ document.addEventListener("visibilitychange", () => {
 });
 
 if (state.accessKey) {
-  showApp();
-  loadDashboard().then(startFreshnessPolling);
+  const savedAccessKey =
+    state.accessKey;
+
+  showLogin();
+
+  authenticateAndEnter(
+    savedAccessKey,
+  ).catch((error) => {
+    if (
+      error.message === "UNAUTHORIZED"
+      || error.status === 401
+    ) {
+      clearBrowserAuthSession();
+
+      showLogin(
+        "Access Key ไม่ถูกต้อง",
+      );
+
+      return;
+    }
+
+    console.error(
+      "saved Access Key classification failed",
+      error,
+    );
+
+    showLogin(
+      `ตรวจสอบ Access Key ไม่สำเร็จ: ${error.message}`,
+    );
+  });
 } else {
   showLogin();
 }

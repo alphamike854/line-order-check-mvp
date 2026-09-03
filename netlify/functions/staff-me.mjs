@@ -49,6 +49,9 @@ export default async function handler(req) {
       ok: true,
 
       actor: {
+        kind:
+          auth.actor.kind,
+
         staff_id:
           auth.actor.staff_id,
         staff_code:
