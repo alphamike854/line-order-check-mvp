@@ -315,7 +315,32 @@ for (const source of [
 
   assert.doesNotMatch(
     source,
-    /\.rpc\(/,
+    /\.upsert\(/,
+  );
+}
+
+// The queue API itself remains orchestration-only.
+// C2A may use one dedicated read-only RPC inside the helper.
+assert.doesNotMatch(
+  api,
+  /\.rpc\(/,
+);
+
+// Historical queue read must never invoke ownership mutations.
+for (const mutationRpc of [
+  "claim_staff_post_close_review_work",
+  "release_staff_post_close_review_work",
+  "claim_staff_review_work",
+  "release_staff_review_work",
+]) {
+  assert.equal(
+    api.includes(mutationRpc),
+    false,
+  );
+
+  assert.equal(
+    helper.includes(mutationRpc),
+    false,
   );
 }
 

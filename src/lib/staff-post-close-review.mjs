@@ -220,6 +220,85 @@ export async function loadStaffPostCloseReviewReadModel(
 
 
 
+export function resolveStaffPostCloseReviewClaimState(
+  {
+    claim = null,
+    actorStaffId = null,
+  } = {},
+) {
+  if (!claim) {
+    return "AVAILABLE";
+  }
+
+  const claimStaffId =
+    String(
+      claim?.staff_id ?? "",
+    ).trim();
+
+  const safeActorStaffId =
+    String(
+      actorStaffId ?? "",
+    ).trim();
+
+  // Malformed claim metadata must fail closed.
+  if (!claimStaffId) {
+    return "OTHER";
+  }
+
+  if (
+    safeActorStaffId
+    && claimStaffId
+      === safeActorStaffId
+  ) {
+    return "MINE";
+  }
+
+  return "OTHER";
+}
+
+
+export async function loadStaffPostCloseReviewClaimState(
+  client,
+  archiveIds = [],
+) {
+  if (!client) {
+    throw new Error(
+      "POST_CLOSE_REVIEW_SUPABASE_CLIENT_REQUIRED",
+    );
+  }
+
+  const safeArchiveIds =
+    uniqueTextValues(
+      archiveIds,
+    );
+
+  if (!safeArchiveIds.length) {
+    return [];
+  }
+
+  const {
+    data,
+    error,
+  } =
+    await client.rpc(
+      "staff_post_close_review_claim_state",
+      {
+        p_archive_ids:
+          safeArchiveIds,
+      },
+    );
+
+  if (error) {
+    throw new Error(
+      error.message
+      ?? String(error),
+    );
+  }
+
+  return data ?? [];
+}
+
+
 export async function loadStaffPostCloseReviewImageAccess(
   client,
   {
@@ -292,8 +371,21 @@ export function buildStaffPostCloseReviewItem(
   row,
   {
     lineGroupName = null,
+    claim = null,
+    actorStaffId = null,
   } = {},
 ) {
+  const claimState =
+    resolveStaffPostCloseReviewClaimState({
+      claim,
+      actorStaffId,
+    });
+
+  const leaseVersion =
+    Number(
+      claim?.lease_version,
+    );
+
   const {
     image_storage_path:
       imageStoragePath,
@@ -348,6 +440,39 @@ export function buildStaffPostCloseReviewItem(
       lineGroupName
       ?? row?.line_group_id
       ?? null,
+
+    claim_state:
+      claimState,
+
+    claimed_by_staff_code:
+      claimState === "AVAILABLE"
+        ? null
+        : claim?.staff_code
+          ?? null,
+
+    claimed_by_display_name:
+      claimState === "AVAILABLE"
+        ? null
+        : claim?.staff_display_name
+          ?? null,
+
+    claim_expires_at:
+      claimState === "AVAILABLE"
+        ? null
+        : claim?.claim_expires_at
+          ?? null,
+
+    lease_version:
+      claimState === "AVAILABLE"
+        ? null
+        : (
+            Number.isSafeInteger(
+              leaseVersion,
+            )
+            && leaseVersion > 0
+              ? leaseVersion
+              : null
+          ),
 
     user_id:
       row?.user_id

@@ -16,6 +16,7 @@ import {
 
 import {
   buildStaffPostCloseReviewItem,
+  loadStaffPostCloseReviewClaimState,
   loadStaffPostCloseReviewReadModel,
 } from "../../src/lib/staff-post-close-review.mjs";
 
@@ -141,6 +142,37 @@ export default async function handler(
         },
       );
 
+    // Claim-state read is bounded to the exact archive IDs
+    // returned by this page.
+    const archiveIds =
+      rows
+        .map(
+          (row) =>
+            row?.id,
+        )
+        .filter(Boolean);
+
+    const claimRows =
+      await loadStaffPostCloseReviewClaimState(
+        supabase,
+        archiveIds,
+      );
+
+    const claimByArchiveId =
+      new Map(
+        (claimRows ?? [])
+          .map(
+            (claim) => [
+              claim?.archive_id,
+              claim,
+            ],
+          )
+          .filter(
+            ([archiveId]) =>
+              Boolean(archiveId),
+          ),
+      );
+
     const items =
       rows.map(
         (row) =>
@@ -152,6 +184,15 @@ export default async function handler(
                   row.line_group_id,
                 )
                 ?? row.line_group_id,
+
+              claim:
+                claimByArchiveId.get(
+                  row?.id,
+                )
+                ?? null,
+
+              actorStaffId:
+                auth.actor.staff_id,
             },
           ),
       );
