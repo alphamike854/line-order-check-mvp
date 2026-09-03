@@ -5078,15 +5078,21 @@ function postCloseReviewCardHtml(
   const imageEvidence =
     item?.has_image_evidence
       ? `
-        <div class="review-evidence">
+        <div class="review-evidence post-close-review-evidence">
           <div class="review-evidence-heading">
             มีภาพหลักฐานส่วนตัว
           </div>
 
-          <div class="muted small-text">
-            ขั้นนี้แสดงเฉพาะสถานะว่ามีหลักฐาน
-            และยังไม่เปิดภาพย้อนหลัง
-          </div>
+          <button
+            type="button"
+            class="button ghost small post-close-review-image-button"
+          >
+            ดูภาพหลักฐาน
+          </button>
+
+          <div
+            class="post-close-review-image-preview"
+          ></div>
         </div>
       `
       : "";
@@ -5207,6 +5213,154 @@ function postCloseReviewCardHtml(
       </div>
     </article>
   `;
+}
+
+
+
+function postCloseReviewImageHtml(
+  imageEvidenceUrl,
+  archiveId,
+) {
+  const url =
+    escapeHtml(
+      imageEvidenceUrl,
+    );
+
+  return `
+    <div class="review-evidence">
+      <div class="review-evidence-heading">
+        ภาพหลักฐานย้อนหลัง
+      </div>
+
+      <a
+        class="review-evidence-link"
+        href="${url}"
+        target="_blank"
+        rel="noopener noreferrer"
+        title="เปิดภาพหลักฐานขนาดเต็ม"
+      >
+        <img
+          class="review-evidence-image"
+          src="${url}"
+          alt="ภาพหลักฐานย้อนหลัง Archive ${escapeHtml(
+            archiveId,
+          )}"
+          loading="lazy"
+        >
+      </a>
+
+      <div class="muted small-text">
+        คลิกภาพเพื่อเปิดขนาดเต็ม
+        · ลิงก์ภาพเป็นแบบชั่วคราว
+      </div>
+    </div>
+  `;
+}
+
+
+async function loadPostCloseReviewImage(
+  button,
+) {
+  const card =
+    button?.closest(
+      ".post-close-review-card",
+    );
+
+  if (!card) {
+    return;
+  }
+
+  const archiveId =
+    String(
+      card.dataset.archiveId
+      ?? "",
+    ).trim();
+
+  const preview =
+    card.querySelector(
+      ".post-close-review-image-preview",
+    );
+
+  if (
+    !archiveId
+    || !preview
+  ) {
+    return;
+  }
+
+  button.disabled =
+    true;
+
+  preview.innerHTML =
+    `<div class="muted small-text">
+      กำลังเปิดภาพหลักฐาน...
+    </div>`;
+
+  try {
+    const payload =
+      await api(
+        `/api/staff-post-close-review-image?archive_id=${encodeURIComponent(
+          archiveId,
+        )}`,
+      );
+
+    if (
+      !payload?.image_evidence_url
+    ) {
+      throw new Error(
+        "IMAGE_EVIDENCE_URL_MISSING",
+      );
+    }
+
+    preview.innerHTML =
+      postCloseReviewImageHtml(
+        payload.image_evidence_url,
+        archiveId,
+      );
+  } catch (error) {
+    console.error(
+      "post-close Review image load failed",
+      error,
+    );
+
+    preview.innerHTML =
+      `<div class="preview-box warn">
+        เปิดภาพหลักฐานไม่สำเร็จ
+      </div>`;
+  } finally {
+    button.disabled =
+      false;
+  }
+}
+
+
+function bindPostCloseReviewImagePreview(
+  root,
+) {
+  if (!root) {
+    return;
+  }
+
+  root.addEventListener(
+    "click",
+    (event) => {
+      const button =
+        event.target.closest(
+          ".post-close-review-image-button",
+        );
+
+      if (
+        !button
+        || !root.contains(button)
+      ) {
+        return;
+      }
+
+      loadPostCloseReviewImage(
+        button,
+      );
+    },
+  );
 }
 
 
@@ -5454,6 +5608,10 @@ async function appendStaffPostCloseReviewQueue(
     list.querySelector(
       "#postCloseReviewQueue",
     );
+
+  bindPostCloseReviewImagePreview(
+    root,
+  );
 
   await loadStaffPostCloseReviewPage(
     root,

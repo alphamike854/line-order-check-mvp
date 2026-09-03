@@ -219,6 +219,75 @@ export async function loadStaffPostCloseReviewReadModel(
 }
 
 
+
+export async function loadStaffPostCloseReviewImageAccess(
+  client,
+  {
+    archiveId,
+    lineGroupIds,
+  } = {},
+) {
+  if (!client) {
+    throw new Error(
+      "POST_CLOSE_REVIEW_SUPABASE_CLIENT_REQUIRED",
+    );
+  }
+
+  const safeArchiveId =
+    String(
+      archiveId ?? "",
+    ).trim();
+
+  if (!safeArchiveId) {
+    throw new Error(
+      "INVALID_ARCHIVE_ID",
+    );
+  }
+
+  const safeLineGroupIds =
+    uniqueTextValues(
+      lineGroupIds,
+    );
+
+  if (!safeLineGroupIds.length) {
+    return null;
+  }
+
+  const {
+    data,
+    error,
+  } =
+    await client
+      .from(
+        "post_close_review_archive",
+      )
+      .select(
+        [
+          "id",
+          "line_group_id",
+          "message_type",
+          "image_storage_path",
+          "image_deleted_at",
+        ].join(","),
+      )
+      .eq(
+        "id",
+        safeArchiveId,
+      )
+      .in(
+        "line_group_id",
+        safeLineGroupIds,
+      )
+      .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data ?? null;
+}
+
+
 export function buildStaffPostCloseReviewItem(
   row,
   {
