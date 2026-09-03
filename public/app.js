@@ -5009,6 +5009,463 @@ async function ignoreReview(event) {
   }
 }
 
+
+// ============================================================
+// R2D3B-2 Staff-scoped Post-close Review Queue
+//
+// Presentation only:
+// - Staff-only
+// - historical archive read
+// - no claim / lease
+// - no Preview / CORRECT / IGNORE
+// - no private Storage URL
+// ============================================================
+
+function postCloseReviewQueueQuery(
+  {
+    offset = 0,
+    limit = 50,
+  } = {},
+) {
+  // Post-close Review has no visible historical filters
+  // in the Staff shell yet.
+  //
+  // Do not inherit Dashboard date/group state here.
+  // Authorization remains server-side from current
+  // Staff <-> LINE Group assignments.
+  const params =
+    new URLSearchParams();
+
+  params.set(
+    "limit",
+    String(limit),
+  );
+
+  params.set(
+    "offset",
+    String(offset),
+  );
+
+  return params.toString();
+}
+
+
+function postCloseReviewCardHtml(
+  item,
+) {
+  const sourceState =
+    [
+      item?.source_review_status,
+      item?.source_resolution_type,
+    ]
+      .filter(Boolean)
+      .join(" / ")
+    || "รอตรวจย้อนหลัง";
+
+  const roundLabel =
+    item?.round_no == null
+      ? "ไม่ระบุรอบ"
+      : `รอบ ${formatNumber(
+          item.round_no,
+        )}`;
+
+  const eventTime =
+    item?.event_timestamp
+    || item?.source_review_created_at
+    || item?.archived_at
+    || null;
+
+  const imageEvidence =
+    item?.has_image_evidence
+      ? `
+        <div class="review-evidence">
+          <div class="review-evidence-heading">
+            มีภาพหลักฐานส่วนตัว
+          </div>
+
+          <div class="muted small-text">
+            ขั้นนี้แสดงเฉพาะสถานะว่ามีหลักฐาน
+            และยังไม่เปิดภาพย้อนหลัง
+          </div>
+        </div>
+      `
+      : "";
+
+  return `
+    <article
+      class="preview-box post-close-review-card"
+      data-archive-id="${escapeHtml(
+        item?.archive_id ?? "",
+      )}"
+    >
+      <div class="review-meta">
+        <span>
+          <strong>
+            งานย้อนหลัง · Review เดิม
+            #${escapeHtml(
+              item?.source_review_id
+              ?? "-",
+            )}
+          </strong>
+        </span>
+
+        <span>
+          ${escapeHtml(
+            item?.summary_group_id
+            || "ไม่ระบุกลุ่มสรุป",
+          )}
+          ·
+          ${escapeHtml(
+            roundLabel,
+          )}
+        </span>
+
+        <span>
+          ${escapeHtml(
+            item?.line_group_name
+            || item?.line_group_id
+            || "ไม่ระบุ LINE Group",
+          )}
+        </span>
+
+        <span>
+          ${escapeHtml(
+            item?.business_date
+            || "ไม่ระบุวันที่",
+          )}
+        </span>
+
+        <span>
+          ${escapeHtml(
+            item?.parse_status
+            || "ไม่ระบุสถานะ Parse",
+          )}
+        </span>
+
+        <span>
+          ${escapeHtml(
+            sourceState,
+          )}
+        </span>
+
+        ${
+          eventTime
+            ? `
+              <span>
+                ${escapeHtml(
+                  formatBangkokTime(
+                    eventTime,
+                  ),
+                )}
+              </span>
+            `
+            : ""
+        }
+      </div>
+
+      ${imageEvidence}
+
+      <div class="reason">
+        ${reviewReasonsHtml(item)}
+      </div>
+
+      <pre class="post-close-review-text">${escapeHtml(
+        item?.text ?? "",
+      )}</pre>
+
+      <div class="muted small-text">
+        ${
+          item?.archive_reason
+            ? `
+              Archive:
+              ${escapeHtml(
+                item.archive_reason,
+              )}
+              ·
+            `
+            : ""
+        }
+
+        ID
+        ${escapeHtml(
+          item?.archive_id
+          || "-",
+        )}
+
+        ${
+          item?.archived_at
+            ? `
+              · เก็บเมื่อ
+              ${escapeHtml(
+                formatBangkokTime(
+                  item.archived_at,
+                ),
+              )}
+            `
+            : ""
+        }
+      </div>
+    </article>
+  `;
+}
+
+
+async function loadStaffPostCloseReviewPage(
+  root,
+  {
+    offset = 0,
+    append = false,
+  } = {},
+) {
+  const itemsRoot =
+    root.querySelector(
+      ".post-close-review-items",
+    );
+
+  const footer =
+    root.querySelector(
+      ".post-close-review-footer",
+    );
+
+  if (
+    !itemsRoot
+    || !footer
+  ) {
+    return;
+  }
+
+  if (!append) {
+    itemsRoot.innerHTML =
+      `<div class="empty compact">
+        กำลังโหลดงานย้อนหลัง...
+      </div>`;
+
+    footer.innerHTML = "";
+  }
+
+  try {
+    const payload =
+      await api(
+        `/api/staff-post-close-reviews?${postCloseReviewQueueQuery(
+          {
+            offset,
+            limit: 50,
+          },
+        )}`,
+      );
+
+    const items =
+      payload.items || [];
+
+    const cardsHtml =
+      items
+        .map(
+          postCloseReviewCardHtml,
+        )
+        .join("");
+
+    if (append) {
+      itemsRoot.insertAdjacentHTML(
+        "beforeend",
+        cardsHtml,
+      );
+    } else {
+      itemsRoot.innerHTML =
+        cardsHtml
+        || `<div class="empty compact">
+          ไม่มีงานย้อนหลังที่รอตรวจ
+        </div>`;
+    }
+
+    const pagination =
+      payload.pagination || {};
+
+    const total =
+      Number(
+        pagination.total
+        || 0,
+      );
+
+    const returned =
+      Number(
+        pagination.returned
+        ?? items.length,
+      );
+
+    const resolvedOffset =
+      Number(
+        pagination.offset
+        ?? offset,
+      );
+
+    const loaded =
+      itemsRoot.querySelectorAll(
+        ".post-close-review-card",
+      ).length;
+
+    const nextOffset =
+      resolvedOffset
+      + returned;
+
+    footer.innerHTML = `
+      <div class="muted small-text">
+        แสดง
+        ${formatNumber(loaded)}
+        จาก
+        ${formatNumber(total)}
+        รายการ
+      </div>
+
+      ${
+        pagination.has_more
+          ? `
+            <button
+              type="button"
+              class="button ghost small load-more-post-close-reviews"
+              data-next-offset="${escapeHtml(
+                nextOffset,
+              )}"
+            >
+              โหลดเพิ่ม
+            </button>
+          `
+          : ""
+      }
+    `;
+
+    const loadMore =
+      footer.querySelector(
+        ".load-more-post-close-reviews",
+      );
+
+    if (loadMore) {
+      loadMore.addEventListener(
+        "click",
+        async (event) => {
+          const next =
+            Number(
+              event.currentTarget
+                .dataset.nextOffset
+              || 0,
+            );
+
+          event.currentTarget.disabled =
+            true;
+
+          await loadStaffPostCloseReviewPage(
+            root,
+            {
+              offset:
+                next,
+
+              append:
+                true,
+            },
+          );
+        },
+      );
+    }
+  } catch (error) {
+    console.error(
+      "staff post-close Review queue failed",
+      error,
+    );
+
+    if (!append) {
+      itemsRoot.innerHTML =
+        `<div class="empty compact">
+          โหลดงานย้อนหลังไม่สำเร็จ
+        </div>`;
+    }
+
+    footer.innerHTML =
+      `<div class="muted small-text">
+        งานรอบปัจจุบันยังใช้งานได้ตามปกติ
+      </div>`;
+  }
+}
+
+
+async function appendStaffPostCloseReviewQueue(
+  list,
+) {
+  if (
+    state.authMode !== "STAFF"
+  ) {
+    return;
+  }
+
+  if (
+    list.querySelector(
+      "#postCloseReviewQueue",
+    )
+  ) {
+    return;
+  }
+
+  if (
+    list.querySelector(
+      ".review-card",
+    )
+  ) {
+    list.insertAdjacentHTML(
+      "afterbegin",
+      `
+        <div class="preview-heading staff-live-review-heading">
+          งานรอบปัจจุบัน
+          <span class="muted">
+            ต้อง Claim ก่อนแก้ไขหรือข้าม
+          </span>
+        </div>
+      `,
+    );
+  }
+
+  list.insertAdjacentHTML(
+    "beforeend",
+    `
+      <section
+        id="postCloseReviewQueue"
+        class="preview-box"
+      >
+        <div class="preview-heading">
+          งานย้อนหลังหลังปิดรอบ
+          <span class="muted">
+            อ่านอย่างเดียว
+          </span>
+        </div>
+
+        <div class="muted small-text">
+          รายการนี้มาจากหลักฐานที่เก็บไว้หลังปิดรอบ
+          และยังไม่สามารถ Claim, แก้ไข, ข้าม
+          หรือเปิดภาพหลักฐานได้ในขั้นนี้
+        </div>
+
+        <div class="post-close-review-items">
+        </div>
+
+        <div class="post-close-review-footer">
+        </div>
+      </section>
+    `,
+  );
+
+  const root =
+    list.querySelector(
+      "#postCloseReviewQueue",
+    );
+
+  await loadStaffPostCloseReviewPage(
+    root,
+    {
+      offset: 0,
+      append: false,
+    },
+  );
+}
+
+
+
 async function loadReviews() {
   const list = $("#reviewList");
 
@@ -5088,7 +5545,17 @@ async function loadReviews() {
 
     if (!items.length) {
       list.innerHTML =
-        `<div class="empty">ไม่มีรายการ Review ที่เปิดอยู่</div>`;
+        state.authMode === "STAFF"
+          ? `<div class="empty">ไม่มีรายการ Review ของรอบปัจจุบัน</div>`
+          : `<div class="empty">ไม่มีรายการ Review ที่เปิดอยู่</div>`;
+
+      if (
+        state.authMode === "STAFF"
+      ) {
+        await appendStaffPostCloseReviewQueue(
+          list,
+        );
+      }
 
       return;
     }
@@ -5242,6 +5709,14 @@ async function loadReviews() {
             onReviewEditorInput,
           ),
       );
+    if (
+      state.authMode === "STAFF"
+    ) {
+      await appendStaffPostCloseReviewQueue(
+        list,
+      );
+    }
+
   } catch (error) {
     list.innerHTML =
       `<div class="empty">โหลด Review ไม่สำเร็จ</div>`;
