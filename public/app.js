@@ -5152,6 +5152,750 @@ function postCloseReviewClaimStatusHtml(
 }
 
 
+// ============================================================
+// R2D3D-2 Post-close Review Resolution Browser
+//
+// Historical Review resolution intentionally remains separate
+// from the live Review lifecycle.
+//
+// Browser may submit only:
+// - archive_id
+// - lease_version
+// - action
+// - corrected_text for CORRECT
+// - preview_token for CORRECT
+//
+// Staff identity, LINE Group scope, parser result and durable
+// resolution evidence remain server authoritative.
+// ============================================================
+
+
+function postCloseReviewResolutionHtml(
+  item,
+  correctedText = null,
+) {
+  if (
+    item?.claim_state !== "MINE"
+  ) {
+    return "";
+  }
+
+  const initialText =
+    correctedText == null
+      ? String(
+          item?.text
+          ?? "",
+        )
+      : String(
+          correctedText,
+        );
+
+  return `
+    <div class="review-editor-wrap">
+      <div class="review-evidence-heading">
+        ตรวจและแก้ไขงานย้อนหลัง
+      </div>
+
+      <textarea
+        class="review-editor post-close-review-correction"
+        rows="4"
+      >${escapeHtml(initialText)}</textarea>
+
+      <div class="review-actions">
+        <button
+          type="button"
+          class="button ghost small preview-post-close-resolution"
+        >
+          ตรวจผล
+        </button>
+
+        <button
+          type="button"
+          class="button primary small apply-post-close-resolution"
+          disabled
+        >
+          ยืนยันแก้ไข
+        </button>
+
+        <button
+          type="button"
+          class="button ghost small ignore-post-close-resolution"
+        >
+          ข้ามรายการ
+        </button>
+      </div>
+
+      <div class="post-close-review-preview"></div>
+    </div>
+  `;
+}
+
+
+function postCloseReviewResolutionLeaseVersion(
+  card,
+) {
+  const item =
+    card?._postCloseReviewItem;
+
+  const leaseVersion =
+    Number(
+      card?.dataset?.leaseVersion
+      || item?.lease_version
+      || 0,
+    );
+
+  if (
+    !Number.isSafeInteger(
+      leaseVersion,
+    )
+    || leaseVersion <= 0
+  ) {
+    return null;
+  }
+
+  return leaseVersion;
+}
+
+
+function postCloseReviewCanResolve(
+  card,
+) {
+  if (
+    state.authMode !== "STAFF"
+    || !card
+  ) {
+    return false;
+  }
+
+  const item =
+    card._postCloseReviewItem;
+
+  if (
+    item?.claim_state !== "MINE"
+  ) {
+    return false;
+  }
+
+  return Boolean(
+    postCloseReviewResolutionLeaseVersion(
+      card,
+    ),
+  );
+}
+
+
+function clearPostCloseReviewPreview(
+  card,
+  message = "",
+) {
+  if (!card) {
+    return;
+  }
+
+  card._postCloseReviewPreview =
+    null;
+
+  const previewArea =
+    card.querySelector(
+      ".post-close-review-preview",
+    );
+
+  if (previewArea) {
+    previewArea.innerHTML =
+      message
+        ? `<div class="muted small-text">
+            ${escapeHtml(message)}
+          </div>`
+        : "";
+  }
+
+  const applyButton =
+    card.querySelector(
+      ".apply-post-close-resolution",
+    );
+
+  if (applyButton) {
+    applyButton.disabled = true;
+  }
+}
+
+
+function syncPostCloseReviewResolutionUi(
+  card,
+) {
+  if (!card) {
+    return;
+  }
+
+  const item =
+    card._postCloseReviewItem;
+
+  const resolutionRoot =
+    card.querySelector(
+      ".post-close-review-resolution",
+    );
+
+  if (!resolutionRoot) {
+    return;
+  }
+
+  const editor =
+    resolutionRoot.querySelector(
+      ".post-close-review-correction",
+    );
+
+  const currentText =
+    editor
+      ? editor.value
+      : null;
+
+  // A claim/renew/release transition can change the exact
+  // lease precondition. Any prior Preview must therefore die.
+  clearPostCloseReviewPreview(
+    card,
+  );
+
+  resolutionRoot.innerHTML =
+    postCloseReviewResolutionHtml(
+      item,
+      currentText,
+    );
+}
+
+
+function postCloseReviewArchiveId(
+  card,
+) {
+  return String(
+    card?.dataset?.archiveId
+    ?? card?._postCloseReviewItem
+      ?.archive_id
+    ?? "",
+  ).trim();
+}
+
+
+function isPostCloseReviewResolutionConflict(
+  error,
+) {
+  const code =
+    error?.payload?.error
+    ?? error?.message
+    ?? "";
+
+  if (
+    error?.payload?.claim_conflict
+  ) {
+    return true;
+  }
+
+  return [
+    "CLAIM_REQUIRED",
+    "CLAIM_EXPIRED",
+    "CLAIM_OWNED_BY_OTHER",
+    "STALE_CLAIM_VERSION",
+    "CLAIM_RELEASE_FAILED",
+    "POST_CLOSE_REVIEW_NOT_FOUND",
+    "POST_CLOSE_REVIEW_ALREADY_RESOLVED",
+  ].includes(
+    code,
+  );
+}
+
+
+async function previewPostCloseReview(
+  card,
+  button,
+) {
+  if (
+    !postCloseReviewCanResolve(
+      card,
+    )
+  ) {
+    return;
+  }
+
+  const archiveId =
+    postCloseReviewArchiveId(
+      card,
+    );
+
+  const leaseVersion =
+    postCloseReviewResolutionLeaseVersion(
+      card,
+    );
+
+  const editor =
+    card.querySelector(
+      ".post-close-review-correction",
+    );
+
+  const correctedText =
+    String(
+      editor?.value
+      ?? "",
+    );
+
+  const previewArea =
+    card.querySelector(
+      ".post-close-review-preview",
+    );
+
+  if (
+    !archiveId
+    || !leaseVersion
+    || !editor
+    || !previewArea
+  ) {
+    return;
+  }
+
+  clearPostCloseReviewPreview(
+    card,
+  );
+
+  button.disabled = true;
+
+  previewArea.innerHTML =
+    `<div class="muted small-text">
+      กำลังตรวจผล...
+    </div>`;
+
+  try {
+    const payload =
+      await api(
+        "/api/staff-post-close-review-preview",
+        {
+          method: "POST",
+
+          body:
+            JSON.stringify({
+              archive_id:
+                archiveId,
+
+              lease_version:
+                leaseVersion,
+
+              corrected_text:
+                correctedText,
+            }),
+        },
+      );
+
+    if (
+      payload.preview?.can_apply
+      && payload.preview_token
+    ) {
+      card._postCloseReviewPreview = {
+        token:
+          payload.preview_token,
+
+        correctedText,
+
+        leaseVersion,
+      };
+    }
+
+    previewArea.innerHTML =
+      previewItemsHtml(
+        payload.preview
+        ?? {},
+      );
+
+    const applyButton =
+      card.querySelector(
+        ".apply-post-close-resolution",
+      );
+
+    if (applyButton) {
+      applyButton.disabled =
+        !(
+          payload.preview?.can_apply
+          && payload.preview_token
+        );
+    }
+  } catch (error) {
+    clearPostCloseReviewPreview(
+      card,
+      `ตรวจผลไม่สำเร็จ: ${
+        error.message
+      }`,
+    );
+  } finally {
+    if (button.isConnected) {
+      button.disabled = false;
+    }
+  }
+}
+
+
+async function applyPostCloseReview(
+  card,
+  button,
+) {
+  if (
+    !postCloseReviewCanResolve(
+      card,
+    )
+  ) {
+    return;
+  }
+
+  const root =
+    card.closest(
+      "#postCloseReviewQueue",
+    );
+
+  const archiveId =
+    postCloseReviewArchiveId(
+      card,
+    );
+
+  const leaseVersion =
+    postCloseReviewResolutionLeaseVersion(
+      card,
+    );
+
+  const editor =
+    card.querySelector(
+      ".post-close-review-correction",
+    );
+
+  const correctedText =
+    String(
+      editor?.value
+      ?? "",
+    );
+
+  const preview =
+    card._postCloseReviewPreview;
+
+  if (
+    !root
+    || !archiveId
+    || !leaseVersion
+    || !editor
+  ) {
+    return;
+  }
+
+  if (
+    !preview
+    || preview.correctedText
+      !== correctedText
+    || preview.leaseVersion
+      !== leaseVersion
+  ) {
+    clearPostCloseReviewPreview(
+      card,
+      "ผลตรวจไม่ตรงกับข้อความหรือสิทธิ์ปัจจุบัน กรุณาตรวจผลใหม่",
+    );
+
+    toast(
+      "กรุณาตรวจผลใหม่ก่อนยืนยัน",
+      true,
+    );
+
+    return;
+  }
+
+  button.disabled = true;
+
+  try {
+    await api(
+      "/api/staff-post-close-review-resolve",
+      {
+        method: "POST",
+
+        body:
+          JSON.stringify({
+            archive_id:
+              archiveId,
+
+            lease_version:
+              leaseVersion,
+
+            action:
+              "CORRECT",
+
+            corrected_text:
+              correctedText,
+
+            preview_token:
+              preview.token,
+          }),
+      },
+    );
+
+    clearPostCloseReviewPreview(
+      card,
+    );
+
+    toast(
+      "แก้ไขงานย้อนหลังแล้ว",
+    );
+
+    await reloadPostCloseReviewQueue(
+      root,
+    );
+  } catch (error) {
+    const requiresPreview =
+      Boolean(
+        error?.payload
+          ?.requires_preview,
+      );
+
+    if (requiresPreview) {
+      clearPostCloseReviewPreview(
+        card,
+        "ผลตรวจหมดอายุหรือไม่ตรงกับข้อมูลล่าสุด กรุณาตรวจผลใหม่",
+      );
+    }
+
+    if (
+      isPostCloseReviewResolutionConflict(
+        error,
+      )
+    ) {
+      try {
+        await reloadPostCloseReviewQueue(
+          root,
+        );
+      } catch (
+        refreshError
+      ) {
+        console.warn(
+          "refresh post-close resolution state failed",
+          refreshError,
+        );
+      }
+    }
+
+    toast(
+      `แก้ไขงานย้อนหลังไม่สำเร็จ: ${
+        error.message
+      }`,
+      true,
+    );
+  } finally {
+    if (button.isConnected) {
+      button.disabled = false;
+    }
+  }
+}
+
+
+async function ignorePostCloseReview(
+  card,
+  button,
+) {
+  if (
+    !postCloseReviewCanResolve(
+      card,
+    )
+  ) {
+    return;
+  }
+
+  const root =
+    card.closest(
+      "#postCloseReviewQueue",
+    );
+
+  const archiveId =
+    postCloseReviewArchiveId(
+      card,
+    );
+
+  const leaseVersion =
+    postCloseReviewResolutionLeaseVersion(
+      card,
+    );
+
+  if (
+    !root
+    || !archiveId
+    || !leaseVersion
+  ) {
+    return;
+  }
+
+  if (
+    !window.confirm(
+      "ยืนยันว่ารายการย้อนหลังนี้ไม่ใช่ออเดอร์และให้ข้าม?",
+    )
+  ) {
+    return;
+  }
+
+  button.disabled = true;
+
+  try {
+    await api(
+      "/api/staff-post-close-review-resolve",
+      {
+        method: "POST",
+
+        body:
+          JSON.stringify({
+            archive_id:
+              archiveId,
+
+            lease_version:
+              leaseVersion,
+
+            action:
+              "IGNORE",
+          }),
+      },
+    );
+
+    toast(
+      "ข้ามงานย้อนหลังแล้ว",
+    );
+
+    await reloadPostCloseReviewQueue(
+      root,
+    );
+  } catch (error) {
+    if (
+      isPostCloseReviewResolutionConflict(
+        error,
+      )
+    ) {
+      try {
+        await reloadPostCloseReviewQueue(
+          root,
+        );
+      } catch (
+        refreshError
+      ) {
+        console.warn(
+          "refresh post-close resolution state failed",
+          refreshError,
+        );
+      }
+    }
+
+    toast(
+      `ข้ามงานย้อนหลังไม่สำเร็จ: ${
+        error.message
+      }`,
+      true,
+    );
+  } finally {
+    if (button.isConnected) {
+      button.disabled = false;
+    }
+  }
+}
+
+
+function bindPostCloseReviewResolutionActions(
+  root,
+) {
+  if (!root) {
+    return;
+  }
+
+  root.addEventListener(
+    "click",
+    (event) => {
+      const button =
+        event.target.closest(
+          [
+            ".preview-post-close-resolution",
+            ".apply-post-close-resolution",
+            ".ignore-post-close-resolution",
+          ].join(","),
+        );
+
+      if (
+        !button
+        || !root.contains(
+          button,
+        )
+      ) {
+        return;
+      }
+
+      const card =
+        button.closest(
+          ".post-close-review-card",
+        );
+
+      if (!card) {
+        return;
+      }
+
+      if (
+        button.classList.contains(
+          "preview-post-close-resolution",
+        )
+      ) {
+        void previewPostCloseReview(
+          card,
+          button,
+        );
+
+        return;
+      }
+
+      if (
+        button.classList.contains(
+          "apply-post-close-resolution",
+        )
+      ) {
+        void applyPostCloseReview(
+          card,
+          button,
+        );
+
+        return;
+      }
+
+      void ignorePostCloseReview(
+        card,
+        button,
+      );
+    },
+  );
+
+  root.addEventListener(
+    "input",
+    (event) => {
+      const editor =
+        event.target.closest(
+          ".post-close-review-correction",
+        );
+
+      if (
+        !editor
+        || !root.contains(
+          editor,
+        )
+      ) {
+        return;
+      }
+
+      const card =
+        editor.closest(
+          ".post-close-review-card",
+        );
+
+      if (!card) {
+        return;
+      }
+
+      clearPostCloseReviewPreview(
+        card,
+        "ข้อความถูกแก้หลังจากตรวจผลแล้ว กรุณากด “ตรวจผล” ใหม่",
+      );
+    },
+  );
+}
+
+
 function syncPostCloseReviewClaimUi(
   card,
 ) {
@@ -5192,6 +5936,10 @@ function syncPostCloseReviewClaimUi(
   } else {
     delete card.dataset.leaseVersion;
   }
+
+  syncPostCloseReviewResolutionUi(
+    card,
+  );
 }
 
 
@@ -5689,6 +6437,10 @@ function postCloseReviewCardHtml(
         ${postCloseReviewClaimStatusHtml(item)}
       </div>
 
+      <div class="post-close-review-resolution">
+        ${postCloseReviewResolutionHtml(item)}
+      </div>
+
       ${imageEvidence}
 
       <div class="reason">
@@ -6118,7 +6870,7 @@ async function appendStaffPostCloseReviewQueue(
           รายการนี้มาจากหลักฐานที่เก็บไว้หลังปิดรอบ
           สามารถรับรายการ ต่อเวลา คืนรายการ
           และเปิดดูภาพหลักฐานได้
-          ส่วนการแก้ไขหรือข้ามจะเปิดในขั้นตอนถัดไป
+          เมื่อรับรายการแล้วสามารถตรวจผล แก้ไข หรือข้ามได้
         </div>
 
         <div class="post-close-review-items">
@@ -6140,6 +6892,10 @@ async function appendStaffPostCloseReviewQueue(
   );
 
   bindPostCloseReviewClaimActions(
+    root,
+  );
+
+  bindPostCloseReviewResolutionActions(
     root,
   );
 
