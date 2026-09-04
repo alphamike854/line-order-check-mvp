@@ -154,6 +154,10 @@ export async function loadStaffPostCloseReviewReadModel(
       .in(
         "line_group_id",
         safeLineGroupIds,
+      )
+      .is(
+        "post_close_resolution_type",
+        null,
       );
 
   const safeSummaryGroupId =
