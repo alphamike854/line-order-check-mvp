@@ -30,13 +30,6 @@ const migration =
     "utf8",
   );
 
-const app =
-  await readFile(
-    "public/app.js",
-    "utf8",
-  );
-
-
 console.log(
   "===== Staff Post-close Review Claim State v9.23 =====",
 );
@@ -584,18 +577,41 @@ console.log(
 
 
 // ------------------------------------------------------------
-// 18 — browser mutation remains outside C2A
+// 18 — C2A server read-model remains ownership-mutation free
+//
+// Browser Claim/Renew/Release is introduced later in C2B.
+// C2A itself must still remain a read-only server integration.
 // ------------------------------------------------------------
 
-assert.equal(
-  app.includes(
-    "/api/staff-post-close-review-claim",
-  ),
-  false,
-);
+for (
+  const source
+  of [
+    api,
+    helper,
+  ]
+) {
+  for (
+    const forbidden
+    of [
+      "/api/staff-post-close-review-claim",
+      "claimStaffPostCloseReviewWork",
+      "releaseStaffPostCloseReviewWork",
+      "claim_staff_post_close_review_work",
+      "release_staff_post_close_review_work",
+    ]
+  ) {
+    assert.equal(
+      source.includes(
+        forbidden,
+      ),
+      false,
+      `C2A read-model must not contain ${forbidden}`,
+    );
+  }
+}
 
 console.log(
-  "PASS R2D3C2A-18: browser Claim/Renew/Release remains outside C2A",
+  "PASS R2D3C2A-18: C2A server read-model remains ownership-mutation free",
 );
 
 

@@ -5050,6 +5050,522 @@ function postCloseReviewQueueQuery(
 }
 
 
+
+function postCloseReviewClaimStatusHtml(
+  item,
+) {
+  const claimState =
+    item?.claim_state
+    ?? "AVAILABLE";
+
+  if (claimState === "MINE") {
+    return `
+      <div class="reason">
+        <strong>
+          คุณกำลังดำเนินการรายการนี้
+        </strong>
+        ${
+          item?.claim_expires_at
+            ? `<span class="muted">
+                · สิทธิ์ถึง
+                ${escapeHtml(
+                  formatBangkokTime(
+                    item.claim_expires_at,
+                  ),
+                )}
+              </span>`
+            : ""
+        }
+        <span class="review-claim-actions post-close-review-claim-actions">
+          <button
+            type="button"
+            class="button ghost small renew-post-close-review-work"
+          >
+            ต่อเวลา
+          </button>
+
+          <button
+            type="button"
+            class="button ghost small release-post-close-review-work"
+          >
+            คืนรายการ
+          </button>
+        </span>
+      </div>
+    `;
+  }
+
+  if (claimState === "AVAILABLE") {
+    return `
+      <div class="reason">
+        <strong>
+          รายการพร้อมรับดำเนินการ
+        </strong>
+
+        <span class="review-claim-actions post-close-review-claim-actions">
+          <button
+            type="button"
+            class="button primary small claim-post-close-review-work"
+          >
+            รับรายการ
+          </button>
+        </span>
+      </div>
+    `;
+  }
+
+  if (claimState === "OTHER") {
+    const holder =
+      item?.claimed_by_display_name
+      || item?.claimed_by_staff_code
+      || "เจ้าหน้าที่อื่น";
+
+    return `
+      <div class="reason">
+        <strong>
+          กำลังดำเนินการโดย
+          ${escapeHtml(holder)}
+        </strong>
+        ${
+          item?.claim_expires_at
+            ? `<span class="muted">
+                · ถึง
+                ${escapeHtml(
+                  formatBangkokTime(
+                    item.claim_expires_at,
+                  ),
+                )}
+              </span>`
+            : ""
+        }
+      </div>
+    `;
+  }
+
+  return `
+    <div class="reason">
+      <strong>
+        ไม่สามารถระบุสถานะการรับรายการได้
+      </strong>
+    </div>
+  `;
+}
+
+
+function syncPostCloseReviewClaimUi(
+  card,
+) {
+  if (!card) {
+    return;
+  }
+
+  const item =
+    card._postCloseReviewItem;
+
+  const claimRoot =
+    card.querySelector(
+      ".post-close-review-claim-state",
+    );
+
+  if (claimRoot) {
+    claimRoot.innerHTML =
+      postCloseReviewClaimStatusHtml(
+        item,
+      );
+  }
+
+  const leaseVersion =
+    Number(
+      item?.lease_version,
+    );
+
+  if (
+    Number.isSafeInteger(
+      leaseVersion,
+    )
+    && leaseVersion > 0
+  ) {
+    card.dataset.leaseVersion =
+      String(
+        leaseVersion,
+      );
+  } else {
+    delete card.dataset.leaseVersion;
+  }
+}
+
+
+function hydratePostCloseReviewClaimCards(
+  root,
+  items = [],
+) {
+  if (!root) {
+    return;
+  }
+
+  const itemByArchiveId =
+    new Map(
+      (items ?? [])
+        .map(
+          (item) => [
+            String(
+              item?.archive_id
+              ?? "",
+            ),
+            item,
+          ],
+        )
+        .filter(
+          ([archiveId]) =>
+            Boolean(archiveId),
+        ),
+    );
+
+  root
+    .querySelectorAll(
+      ".post-close-review-card",
+    )
+    .forEach(
+      (card) => {
+        const archiveId =
+          String(
+            card.dataset.archiveId
+            ?? "",
+          );
+
+        const item =
+          itemByArchiveId.get(
+            archiveId,
+          );
+
+        // During Load More, existing cards are not part of the
+        // newly returned page. Keep their current local state.
+        if (!item) {
+          return;
+        }
+
+        card._postCloseReviewItem =
+          item;
+
+        syncPostCloseReviewClaimUi(
+          card,
+        );
+      },
+    );
+}
+
+
+async function reloadPostCloseReviewQueue(
+  root,
+) {
+  if (!root) {
+    return;
+  }
+
+  await loadStaffPostCloseReviewPage(
+    root,
+    {
+      offset: 0,
+      append: false,
+    },
+  );
+}
+
+
+function isPostCloseReviewClaimConflict(
+  error,
+) {
+  const code =
+    error?.payload?.error
+    ?? error?.message
+    ?? "";
+
+  return [
+    "BUSY",
+    "CLAIM_OWNED_BY_OTHER",
+    "STALE_CLAIM_VERSION",
+  ].includes(
+    code,
+  );
+}
+
+
+async function mutatePostCloseReviewClaim(
+  card,
+  action,
+) {
+  const item =
+    card?._postCloseReviewItem;
+
+  const root =
+    card?.closest(
+      "#postCloseReviewQueue",
+    );
+
+  if (
+    !card
+    || !item
+    || !root
+  ) {
+    return;
+  }
+
+  const archiveId =
+    String(
+      card.dataset.archiveId
+      ?? item?.archive_id
+      ?? "",
+    ).trim();
+
+  if (!archiveId) {
+    toast(
+      "ไม่พบรหัสงานย้อนหลัง",
+      true,
+    );
+
+    return;
+  }
+
+  const buttons = [
+    ...card.querySelectorAll(
+      ".post-close-review-claim-actions button",
+    ),
+  ];
+
+  buttons.forEach(
+    (button) => {
+      button.disabled = true;
+    },
+  );
+
+  try {
+    const body = {
+      action,
+      archive_id:
+        archiveId,
+    };
+
+    if (action === "CLAIM") {
+      // Server decides CLAIMED vs RENEWED from
+      // authoritative ownership state.
+      body.lease_seconds = 300;
+    }
+
+    if (action === "RELEASE") {
+      const observedLeaseVersion =
+        Number(
+          card.dataset.leaseVersion
+          || item?.lease_version
+          || 0,
+        );
+
+      if (
+        !Number.isSafeInteger(
+          observedLeaseVersion,
+        )
+        || observedLeaseVersion <= 0
+      ) {
+        throw new Error(
+          "INVALID_LEASE_VERSION",
+        );
+      }
+
+      body.lease_version =
+        observedLeaseVersion;
+    }
+
+    const payload =
+      await api(
+        "/api/staff-post-close-review-claim",
+        {
+          method: "POST",
+          body:
+            JSON.stringify(
+              body,
+            ),
+        },
+      );
+
+    const claim =
+      payload?.claim
+      || {};
+
+    if (action === "CLAIM") {
+      card._postCloseReviewItem = {
+        ...item,
+
+        claim_state:
+          "MINE",
+
+        claim_expires_at:
+          claim?.claim_expires_at
+          ?? item?.claim_expires_at
+          ?? null,
+
+        lease_version:
+          claim?.lease_version
+          ?? item?.lease_version
+          ?? null,
+      };
+
+      syncPostCloseReviewClaimUi(
+        card,
+      );
+
+      toast(
+        claim?.status === "RENEWED"
+          ? "ต่อเวลารายการย้อนหลังแล้ว"
+          : "รับรายการย้อนหลังแล้ว",
+      );
+
+      return;
+    }
+
+    card._postCloseReviewItem = {
+      ...item,
+
+      claim_state:
+        "AVAILABLE",
+
+      claimed_by_staff_code:
+        null,
+
+      claimed_by_display_name:
+        null,
+
+      claim_expires_at:
+        null,
+
+      lease_version:
+        null,
+    };
+
+    syncPostCloseReviewClaimUi(
+      card,
+    );
+
+    toast(
+      "คืนรายการย้อนหลังแล้ว",
+    );
+  } catch (error) {
+    if (
+      isPostCloseReviewClaimConflict(
+        error,
+      )
+    ) {
+      try {
+        await reloadPostCloseReviewQueue(
+          root,
+        );
+      } catch (
+        refreshError
+      ) {
+        console.warn(
+          "refresh post-close claim state failed",
+          refreshError,
+        );
+      }
+
+      const code =
+        error?.payload?.error
+        ?? error?.message;
+
+      const message =
+        code === "BUSY"
+          ? "รายการนี้มีเจ้าหน้าที่อื่นรับไปแล้ว"
+          : code === "CLAIM_OWNED_BY_OTHER"
+            ? "ไม่สามารถคืนรายการที่เจ้าหน้าที่อื่นถืออยู่ได้"
+            : "สถานะสิทธิ์ของรายการเปลี่ยนแล้ว กรุณาตรวจสอบข้อมูลล่าสุด";
+
+      toast(
+        message,
+        true,
+      );
+
+      return;
+    }
+
+    toast(
+      `${
+        action === "CLAIM"
+          ? "รับ/ต่อเวลารายการย้อนหลัง"
+          : "คืนรายการย้อนหลัง"
+      } ไม่สำเร็จ: ${
+        error.message
+      }`,
+      true,
+    );
+  } finally {
+    if (card.isConnected) {
+      syncPostCloseReviewClaimUi(
+        card,
+      );
+    }
+  }
+}
+
+
+function bindPostCloseReviewClaimActions(
+  root,
+) {
+  if (!root) {
+    return;
+  }
+
+  root.addEventListener(
+    "click",
+    (event) => {
+      const button =
+        event.target.closest(
+          [
+            ".claim-post-close-review-work",
+            ".renew-post-close-review-work",
+            ".release-post-close-review-work",
+          ].join(","),
+        );
+
+      if (
+        !button
+        || !root.contains(
+          button,
+        )
+      ) {
+        return;
+      }
+
+      const card =
+        button.closest(
+          ".post-close-review-card",
+        );
+
+      if (!card) {
+        return;
+      }
+
+      if (
+        button.classList.contains(
+          "release-post-close-review-work",
+        )
+      ) {
+        void mutatePostCloseReviewClaim(
+          card,
+          "RELEASE",
+        );
+
+        return;
+      }
+
+      // Claim and Renew intentionally use the same
+      // server CLAIM semantic.
+      void mutatePostCloseReviewClaim(
+        card,
+        "CLAIM",
+      );
+    },
+  );
+}
+
+
 function postCloseReviewCardHtml(
   item,
 ) {
@@ -5167,6 +5683,10 @@ function postCloseReviewCardHtml(
             `
             : ""
         }
+      </div>
+
+      <div class="post-close-review-claim-state">
+        ${postCloseReviewClaimStatusHtml(item)}
       </div>
 
       ${imageEvidence}
@@ -5431,6 +5951,11 @@ async function loadStaffPostCloseReviewPage(
         </div>`;
     }
 
+    hydratePostCloseReviewClaimCards(
+      root,
+      items,
+    );
+
     const pagination =
       payload.pagination || {};
 
@@ -5585,14 +6110,15 @@ async function appendStaffPostCloseReviewQueue(
         <div class="preview-heading">
           งานย้อนหลังหลังปิดรอบ
           <span class="muted">
-            อ่านอย่างเดียว
+            รับงานก่อนดำเนินการ
           </span>
         </div>
 
         <div class="muted small-text">
           รายการนี้มาจากหลักฐานที่เก็บไว้หลังปิดรอบ
-          และยังไม่สามารถ Claim, แก้ไข, ข้าม
-          หรือเปิดภาพหลักฐานได้ในขั้นนี้
+          สามารถรับรายการ ต่อเวลา คืนรายการ
+          และเปิดดูภาพหลักฐานได้
+          ส่วนการแก้ไขหรือข้ามจะเปิดในขั้นตอนถัดไป
         </div>
 
         <div class="post-close-review-items">
@@ -5610,6 +6136,10 @@ async function appendStaffPostCloseReviewQueue(
     );
 
   bindPostCloseReviewImagePreview(
+    root,
+  );
+
+  bindPostCloseReviewClaimActions(
     root,
   );
 

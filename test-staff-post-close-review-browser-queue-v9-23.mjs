@@ -202,7 +202,7 @@ console.log(
 
 
 // ------------------------------------------------------------
-// R2D3B2-06 — historical queue remains read-only
+// R2D3B2-06 — historical queue remains free of Review resolution mutations
 // ------------------------------------------------------------
 
 for (
@@ -252,7 +252,7 @@ assert.doesNotMatch(
 );
 
 console.log(
-  "PASS R2D3B2-06: post-close browser queue remains read-only",
+  "PASS R2D3B2-06: post-close queue allows ownership without Review resolution mutation",
 );
 
 
