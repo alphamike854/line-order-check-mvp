@@ -26,7 +26,7 @@ function total(result) {
 
 assert.equal(
   PARSER_VERSION,
-  "1.7.14"
+  "1.7.15"
 );
 
 

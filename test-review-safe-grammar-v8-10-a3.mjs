@@ -11,7 +11,7 @@ function byKey(result) {
 }
 
 assert.ok(
-  ["1.7.0", "1.7.1", "1.7.2", "1.7.3", "1.7.4", "1.7.5", "1.7.6", "1.7.7", "1.7.8", "1.7.9", "1.7.10", "1.7.11", "1.7.12", "1.7.13", "1.7.14"].includes(PARSER_VERSION),
+  ["1.7.0", "1.7.1", "1.7.2", "1.7.3", "1.7.4", "1.7.5", "1.7.6", "1.7.7", "1.7.8", "1.7.9", "1.7.10", "1.7.11", "1.7.12", "1.7.13", "1.7.14", "1.7.15"].includes(PARSER_VERSION),
 );
 
 // ------------------------------------------------------------
@@ -196,15 +196,24 @@ assert.ok(
   );
 }
 
-// 3-digit dash assignment is intentionally outside A3.
+// P2K later promoted standalone 3-digit dash pair to
+// explicit E/F grammar. Keep this older A3 suite aligned
+// with the current parser contract while preserving the
+// surrounding ambiguity safety cases.
 {
   const result = parseOrder("593-50*50");
 
-  assert.ok(
-    !result.items.some(
-      (item) => item.code === "593"
-    ),
-    "A3 must not introduce 3-digit dash assignment"
+  assert.equal(
+    result.status,
+    "PARSED"
+  );
+
+  assert.deepEqual(
+    byKey(result),
+    {
+      E593: 50,
+      F593: 50,
+    }
   );
 }
 

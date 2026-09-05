@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.7.14";
+const PARSER_VERSION = "1.7.15";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -2356,6 +2356,88 @@ function parseTwoDigitSegment(segment, cfg, acc, rules, warnings, errors) {
       rules.add("R_CATEGORY_HEADER");
       if (exactMod.reverse) rules.add("R_REVERSE");
       continue;
+    }
+
+    // --------------------------------------------------------
+    // R2E1B-2A production natural modifier + quantity grammar.
+    //
+    // Human-corrected production examples:
+    //
+    //   28/12 บลก3000
+    //   12/18/28 บลก1000
+    //   28 บลก 1,000
+    //
+    // Equivalent canonical form:
+    //
+    //   28/12=3000 บลก
+    //
+    // Deliberately narrow:
+    // - TWO-digit codes only
+    // - exact บล / บลก modifiers only
+    // - one SINGLE quantity only
+    // - no inference for direction, generators or quantity pairs
+    //
+    // Prior pending codes are included so:
+    //
+    //   01
+    //   10 บล50
+    //
+    // closes the same block as:
+    //
+    //   01 10=50 บล
+    // --------------------------------------------------------
+    {
+      const naturalModifierQty = line.match(
+        /^((?:\d{2})(?:\s*(?:\/|\s)\s*\d{2})*)\s*(บลก|บล)\s*((?:\d{1,3}(?:,\d{3})+|\d+))$/u
+      );
+
+      if (naturalModifierQty) {
+        const currentCodes =
+          extractTwoDigitCodes(
+            naturalModifierQty[1]
+          );
+
+        const modifier =
+          modifierFromToken(
+            naturalModifierQty[2],
+            cfg
+          );
+
+        const quantitySpec =
+          parseQuantityExpression(
+            naturalModifierQty[3]
+          );
+
+        if (
+          currentCodes.length &&
+          modifier &&
+          quantitySpec?.type === "SINGLE"
+        ) {
+          const allCodes = [
+            ...pendingCodes,
+            ...currentCodes,
+          ];
+
+          emitTwoDigitGroup(
+            acc,
+            allCodes,
+            quantitySpec,
+            modifier
+          );
+
+          pendingCodes = [];
+
+          rules.add(
+            "R_NATURAL_MODIFIER_QUANTITY"
+          );
+
+          if (modifier.reverse) {
+            rules.add("R_REVERSE");
+          }
+
+          continue;
+        }
+      }
     }
 
     // A5 / B5 / บล 15 / บลก 15 after pending codes.
