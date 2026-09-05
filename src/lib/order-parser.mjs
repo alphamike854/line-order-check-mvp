@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.7.13";
+const PARSER_VERSION = "1.7.14";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -2635,6 +2635,31 @@ function parseTwoDigitSegment(segment, cfg, acc, rules, warnings, errors) {
   }
 }
 
+
+// Confirmed production non-order arithmetic:
+//
+//   82,635-35%=53,712
+//   100,000 - 40% = 60,000
+//
+// This is an accounting / percentage calculation, not an
+// order assignment.
+//
+// Keep deliberately narrow:
+// - one numeric amount on the left
+// - minus one percentage
+// - equals one numeric result
+//
+// Do not generalize '-' or '=' handling because both are
+// valid parts of existing order grammar.
+function isNonOrderPercentArithmeticLine(text) {
+  const raw = String(text || "").trim();
+
+  return (
+    /^[\d,]+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?%\s*=\s*[\d,]+(?:\.\d+)?$/u
+  ).test(raw);
+}
+
+
 function isNonOrderSummaryLine(line) {
   const text = String(line || "").trim();
   if (!text) return false;
@@ -3672,6 +3697,7 @@ function parseOrder(inputText, config = {}) {
       isSafeChatMetadataLine(line)
     ) continue;
       if (isNonOrderSummaryLine(line)) continue;
+      if (isNonOrderPercentArithmeticLine(line)) continue;
 
       if (parseOneDigitLine(line, cfg, acc, rules)) {
         continue;
