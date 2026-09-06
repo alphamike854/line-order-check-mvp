@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.7.18";
+const PARSER_VERSION = "1.7.19";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -81,6 +81,64 @@ function normalizeText(text) {
     .replace(/ *\n */g, "\n")
     .trim();
 }
+
+function normalizeTrailingOrderDecoration(text) {
+  const lines = String(text || "").split("\n");
+
+  return lines.map((rawLine) => {
+    const line = String(rawLine || "").trim();
+
+    const decorated = line.match(
+      /^(.*?)(?:\s*🇱🇦)+$/u
+    );
+
+    if (!decorated) return rawLine;
+
+    const body =
+      String(decorated[1] || "").trimEnd();
+
+    if (!body) return rawLine;
+
+    // Strong order evidence only.
+    //
+    // 1) Explicit assignment:
+    //      639=100 โต๊ด
+    //      01=500 บน
+    //      51 95=500x500
+    //
+    // 2) Confirmed 2-digit quantity/modifier header:
+    //      บลก 700x700
+    //
+    // 3) Confirmed direction/quantity header:
+    //      บน400 ล่าง400
+    //
+    // Do not strip decoration from names, monetary metadata,
+    // summary lines or arbitrary chat text.
+    const explicitAssignment =
+      /\d{1,3}\s*=\s*[\d,]+/u.test(body);
+
+    const modifierPairHeader =
+      /^(?:บลก|บล|ล-บ|บ-ล|บน-ล่าง|ล่าง-บน|บนล่าง)\s*[\d,]+\s*[xX*\/]\s*[\d,]+$/u.test(
+        body
+      );
+
+    const directionQuantityHeader =
+      /^บน\s*[\d,]+\s+ล่าง\s*[\d,]+$/u.test(
+        body
+      );
+
+    if (
+      !explicitAssignment &&
+      !modifierPairHeader &&
+      !directionQuantityHeader
+    ) {
+      return rawLine;
+    }
+
+    return body;
+  }).join("\n");
+}
+
 
 function normalizeContextualShortDateMetadata(text) {
   const lines = String(text || "").split("\n");
@@ -594,12 +652,11 @@ function normalizeCollectiveReviewGrammar(text) {
     // Deliberately narrow:
     // - full บน / ล่าง vocabulary only
     // - equal TOP and BOTTOM quantities only
-    // - optional confirmed 🇱🇦 decorative suffix
     // - following lines must be pure 2-digit code lists
     // - no 3-digit inference
     // --------------------------------------------------------
     const symmetricDirectionQtyHeader = line.match(
-      /^บน\s*((?:\d{1,3}(?:,\d{3})+|\d+))\s+ล่าง\s*((?:\d{1,3}(?:,\d{3})+|\d+))(?:\s*🇱🇦)?$/u
+      /^บน\s*((?:\d{1,3}(?:,\d{3})+|\d+))\s+ล่าง\s*((?:\d{1,3}(?:,\d{3})+|\d+))$/u
     );
 
     if (symmetricDirectionQtyHeader) {
@@ -3826,6 +3883,9 @@ function findAmbiguousSameLineOrderSyntax(text) {
 function parseOrder(inputText, config = {}) {
   const cfg = mergeConfig(config);
   const normalized = normalizeText(inputText);
+  const orderNormalized =
+    normalizeTrailingOrderDecoration(normalized);
+
   const parserText = normalizeThreeDigitVocabularyHeaders(
     normalizeReviewA5Grammar(
       normalizeCollectiveReviewGrammar(
@@ -3834,7 +3894,7 @@ function parseOrder(inputText, config = {}) {
             normalizeMixedWidthInlineAssignments(
               normalizeTrailingNaturalMetadataAfterCompletedBlg(
                 normalizeContextualShortDateMetadata(
-                  normalized
+                  orderNormalized
                 )
               )
             )
