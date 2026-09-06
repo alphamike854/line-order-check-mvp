@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.7.15";
+const PARSER_VERSION = "1.7.16";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -3298,7 +3298,7 @@ function normalizeReviewA5Grammar(text) {
     // ...
     // --------------------------------------------------------
     const modifierHeader = line.match(
-      /^(บลก|บล|ล-บ|บ-ล|บน-ล่าง|ล่าง-บน|บนล่าง)\s+(\d+\s*[xX*\/]\s*\d+)$/u
+      /^((?:บลก)|(?:บล|ล-บ|บ-ล|บน-ล่าง|ล่าง-บน|บนล่าง)(?=\s))\s*(\d+\s*[xX*\/]\s*\d+)$/u
     );
 
     const plainPairHeader = line.match(
