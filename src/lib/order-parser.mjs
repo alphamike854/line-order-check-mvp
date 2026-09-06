@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.7.17";
+const PARSER_VERSION = "1.7.18";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -776,6 +776,80 @@ function normalizeCollectiveReviewGrammar(text) {
         }
       }
     }
+
+    // --------------------------------------------------------
+    // R2E1B-4B confirmed symmetric direction/quantity suffix.
+    //
+    //   51
+    //   95
+    //   86
+    //   48
+    //   34
+    //   บน1500xล่าง1500
+    //
+    // becomes:
+    //
+    //   51 95 86 48 34=1500x1500
+    //
+    // normalizeText() has already converted × to x.
+    //
+    // Deliberately narrow:
+    // - full บน / ล่าง vocabulary only
+    // - explicit x separator only
+    // - equal TOP and BOTTOM quantities only
+    // - preceding lines must be pure 2-digit code lists
+    // - require at least TWO codes
+    // - no 3-digit inference
+    // --------------------------------------------------------
+    const symmetricDirectionPairSuffix = line.match(
+      /^บน\s*((?:\d{1,3}(?:,\d{3})+|\d+))\s*x\s*ล่าง\s*((?:\d{1,3}(?:,\d{3})+|\d+))$/u
+    );
+
+    if (symmetricDirectionPairSuffix) {
+      const topQuantity = Number(
+        symmetricDirectionPairSuffix[1].replace(/,/g, "")
+      );
+
+      const bottomQuantity = Number(
+        symmetricDirectionPairSuffix[2].replace(/,/g, "")
+      );
+
+      if (
+        Number.isFinite(topQuantity) &&
+        Number.isFinite(bottomQuantity) &&
+        topQuantity === bottomQuantity
+      ) {
+        const codes = [];
+        let start = out.length;
+
+        while (start > 0) {
+          const candidate =
+            String(out[start - 1] || "").trim();
+
+          const found =
+            extractSafeTwoDigitCodeList(candidate);
+
+          if (!found) break;
+
+          codes.unshift(...found);
+          start--;
+        }
+
+        if (codes.length >= 2) {
+          out.splice(
+            start,
+            out.length - start
+          );
+
+          out.push(
+            `${codes.join(" ")}=${symmetricDirectionPairSuffix[1]}x${symmetricDirectionPairSuffix[2]}`
+          );
+
+          continue;
+        }
+      }
+    }
+
 
     // --------------------------------------------------------
     // Suffix collective:
