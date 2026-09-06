@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.7.16";
+const PARSER_VERSION = "1.7.17";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -580,6 +580,74 @@ function normalizeCollectiveReviewGrammar(text) {
       out.push("");
       continue;
     }
+
+    // --------------------------------------------------------
+    // R2E1B-4A confirmed symmetric direction/quantity header.
+    //
+    //   บน400 ล่าง400🇱🇦
+    //   51-95-86-48-34
+    //
+    // becomes:
+    //
+    //   51 95 86 48 34=400x400
+    //
+    // Deliberately narrow:
+    // - full บน / ล่าง vocabulary only
+    // - equal TOP and BOTTOM quantities only
+    // - optional confirmed 🇱🇦 decorative suffix
+    // - following lines must be pure 2-digit code lists
+    // - no 3-digit inference
+    // --------------------------------------------------------
+    const symmetricDirectionQtyHeader = line.match(
+      /^บน\s*((?:\d{1,3}(?:,\d{3})+|\d+))\s+ล่าง\s*((?:\d{1,3}(?:,\d{3})+|\d+))(?:\s*🇱🇦)?$/u
+    );
+
+    if (symmetricDirectionQtyHeader) {
+      const topQuantity = Number(
+        symmetricDirectionQtyHeader[1].replace(/,/g, "")
+      );
+
+      const bottomQuantity = Number(
+        symmetricDirectionQtyHeader[2].replace(/,/g, "")
+      );
+
+      if (
+        Number.isFinite(topQuantity) &&
+        Number.isFinite(bottomQuantity) &&
+        topQuantity === bottomQuantity
+      ) {
+        const codes = [];
+        let j = i + 1;
+
+        while (j < lines.length) {
+          const candidate =
+            String(lines[j] || "").trim();
+
+          if (!candidate) {
+            j++;
+            continue;
+          }
+
+          const found =
+            extractSafeTwoDigitCodeList(candidate);
+
+          if (!found) break;
+
+          codes.push(...found);
+          j++;
+        }
+
+        if (codes.length) {
+          out.push(
+            `${codes.join(" ")}=${symmetricDirectionQtyHeader[1]}x${symmetricDirectionQtyHeader[2]}`
+          );
+
+          i = j - 1;
+          continue;
+        }
+      }
+    }
+
 
     // --------------------------------------------------------
     // Exact combined-direction aliases:
