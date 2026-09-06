@@ -219,10 +219,6 @@ async function findMessageByWebhookEvent(webhookEventId) {
 async function isExistingMessageComplete(message) {
   if (!message) return false;
 
-  if (message.parse_status === "IGNORE") {
-    return true;
-  }
-
   if (message.parse_status === "PARSED") {
     const { count, error } = await supabase
       .from("order_items")
@@ -236,7 +232,11 @@ async function isExistingMessageComplete(message) {
     return Number(count ?? 0) > 0;
   }
 
-  if (["REVIEW", "PARTIAL"].includes(message.parse_status)) {
+  if (
+    ["REVIEW", "PARTIAL", "IGNORE"].includes(
+      message.parse_status,
+    )
+  ) {
     const { data, error } = await supabase
       .from("review_items")
       .select("id")
@@ -355,10 +355,28 @@ async function persistParsedResult(message, group, result, extraMessageUpdate = 
 
   if (updateError) throw updateError;
 
-  if (["REVIEW", "PARTIAL"].includes(result.status)) {
+  if (
+    ["REVIEW", "PARTIAL", "IGNORE"].includes(
+      result.status,
+    )
+  ) {
+    const reviewErrors =
+      result.status === "IGNORE"
+      && !(result.errors ?? []).length
+        ? [
+            {
+              code:
+                "PARSER_IGNORE_REQUIRES_HUMAN",
+
+              detail:
+                "Parser returned IGNORE for an in-round message; human interpretation is required",
+            },
+          ]
+        : result.errors ?? [];
+
     await saveReview(
       message.id,
-      result.errors ?? [],
+      reviewErrors,
       result.warnings ?? [],
     );
   }
