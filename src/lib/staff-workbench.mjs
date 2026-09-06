@@ -221,6 +221,8 @@ export async function loadStaffWorkbenchReadModel(
     summaryGroupId = null,
     limit = 100,
     offset = 0,
+    verificationLimit = 100,
+    verificationOffset = 0,
   },
 ) {
   if (!client) {
@@ -236,6 +238,7 @@ export async function loadStaffWorkbenchReadModel(
     return {
       summaryRows: [],
       workItems: [],
+      verificationItems: [],
     };
   }
 
@@ -249,9 +252,20 @@ export async function loadStaffWorkbenchReadModel(
       offset,
     );
 
+  const safeVerificationLimit =
+    normalizeWorkbenchLimit(
+      verificationLimit,
+    );
+
+  const safeVerificationOffset =
+    normalizeWorkbenchOffset(
+      verificationOffset,
+    );
+
   const [
     summaryResult,
     reviewResult,
+    verificationResult,
   ] = await Promise.all([
     client.rpc(
       "staff_workbench_summary",
@@ -286,6 +300,29 @@ export async function loadStaffWorkbenchReadModel(
           safeOffset,
       },
     ),
+
+    client.rpc(
+      "staff_workbench_pending_verifications",
+      {
+        p_settlement_session_id:
+          settlementSessionId,
+
+        p_line_group_ids:
+          lineGroupIds,
+
+        p_summary_group_id:
+          summaryGroupId,
+
+        p_sort_mode:
+          "RECENT",
+
+        p_limit:
+          safeVerificationLimit,
+
+        p_offset:
+          safeVerificationOffset,
+      },
+    ),
   ]);
 
   if (summaryResult.error) {
@@ -296,20 +333,24 @@ export async function loadStaffWorkbenchReadModel(
     throw reviewResult.error;
   }
 
+  if (verificationResult.error) {
+    throw verificationResult.error;
+  }
+
   const reviewRows =
     reviewResult.data ?? [];
 
-  if (!reviewRows.length) {
-    return {
-      summaryRows:
-        summaryResult.data ?? [],
-      workItems: [],
-    };
-  }
+  const verificationRows =
+    verificationResult.data ?? [];
 
+  // Review and Verification can reference the same message.
+  // Read shared message claim state once over the union.
   const messageRecordIds = [
     ...new Set(
-      reviewRows
+      [
+        ...reviewRows,
+        ...verificationRows,
+      ]
         .map(
           (row) =>
             row.message_record_id,
@@ -318,21 +359,25 @@ export async function loadStaffWorkbenchReadModel(
     ),
   ];
 
-  const claimResult =
-    await client.rpc(
-      "staff_workbench_claim_state",
-      {
-        p_message_record_ids:
-          messageRecordIds,
-      },
-    );
+  let claimRows = [];
 
-  if (claimResult.error) {
-    throw claimResult.error;
+  if (messageRecordIds.length) {
+    const claimResult =
+      await client.rpc(
+        "staff_workbench_claim_state",
+        {
+          p_message_record_ids:
+            messageRecordIds,
+        },
+      );
+
+    if (claimResult.error) {
+      throw claimResult.error;
+    }
+
+    claimRows =
+      claimResult.data ?? [];
   }
-
-  const claimRows =
-    claimResult.data ?? [];
 
   const claimStaffIds = [
     ...new Set(
@@ -397,18 +442,25 @@ export async function loadStaffWorkbenchReadModel(
         claim_staff_id:
           claim.staff_id
           ?? null,
+
         claim_staff_code:
           staff?.staff_code
+          ?? claim.staff_code
           ?? null,
+
         claim_display_name:
           staff?.display_name
+          ?? claim.staff_display_name
           ?? null,
+
         claimed_at:
           claim.claimed_at
           ?? null,
+
         claim_expires_at:
           claim.claim_expires_at
           ?? null,
+
         lease_version:
           claim.lease_version
           ?? null,
@@ -416,28 +468,40 @@ export async function loadStaffWorkbenchReadModel(
     );
   }
 
+  const unclaimed = {
+    claim_staff_id: null,
+    claim_staff_code: null,
+    claim_display_name: null,
+    claimed_at: null,
+    claim_expires_at: null,
+    lease_version: null,
+  };
+
+  const attachClaim =
+    (row) => ({
+      ...row,
+      ...(
+        claimByMessage.get(
+          row.message_record_id,
+        )
+        ?? unclaimed
+      ),
+    });
+
   return {
     summaryRows:
       summaryResult.data ?? [],
 
+    // Legacy Review feed remains unchanged.
     workItems:
       reviewRows.map(
-        (row) => ({
-          ...row,
-          ...(
-            claimByMessage.get(
-              row.message_record_id,
-            )
-            ?? {
-              claim_staff_id: null,
-              claim_staff_code: null,
-              claim_display_name: null,
-              claimed_at: null,
-              claim_expires_at: null,
-              lease_version: null,
-            }
-          ),
-        }),
+        attachClaim,
+      ),
+
+    // New all-orders Human Verification feed.
+    verificationItems:
+      verificationRows.map(
+        attachClaim,
       ),
   };
 }
@@ -448,8 +512,11 @@ export function buildStaffWorkbenchPayload({
   session,
   summaryRows = [],
   workItems = [],
+  verificationItems = [],
   limit = 100,
   offset = 0,
+  verificationLimit = 100,
+  verificationOffset = 0,
 }) {
   const safeLimit =
     normalizeWorkbenchLimit(
@@ -459,6 +526,16 @@ export function buildStaffWorkbenchPayload({
   const safeOffset =
     normalizeWorkbenchOffset(
       offset,
+    );
+
+  const safeVerificationLimit =
+    normalizeWorkbenchLimit(
+      verificationLimit,
+    );
+
+  const safeVerificationOffset =
+    normalizeWorkbenchOffset(
+      verificationOffset,
     );
 
   const summaryMap =
@@ -669,12 +746,164 @@ export function buildStaffWorkbenchPayload({
       }),
     );
 
+  const safeVerificationItems =
+    verificationItems.map(
+      (row) => ({
+        message_record_id:
+          row.message_record_id,
+
+        review_id:
+          row.review_id
+          ?? null,
+
+        summary_group_id:
+          row.summary_group_id,
+
+        summary_group_name:
+          row.summary_group_name
+          ?? row.summary_group_id,
+
+        line_group_id:
+          row.line_group_id,
+
+        line_group_name:
+          row.line_group_name
+          ?? row.line_group_id,
+
+        summary_group_round_id:
+          row.summary_group_round_id,
+
+        round_no:
+          row.round_no,
+
+        round_status:
+          row.round_status,
+
+        event_timestamp:
+          row.event_timestamp,
+
+        message_created_at:
+          row.message_created_at,
+
+        review_created_at:
+          row.review_created_at
+          ?? null,
+
+        user_id:
+          row.user_id,
+
+        message_type:
+          row.message_type,
+
+        text:
+          row.display_text
+          ?? "",
+
+        raw_text:
+          row.raw_text
+          ?? null,
+
+        normalized_text:
+          row.normalized_text
+          ?? null,
+
+        ocr_text:
+          row.ocr_text
+          ?? null,
+
+        parse_status:
+          row.parse_status,
+
+        parser_version:
+          row.parser_version,
+
+        reason_codes:
+          row.reason_codes
+          ?? [],
+
+        warnings:
+          row.warnings
+          ?? [],
+
+        has_image_evidence:
+          row.has_image_evidence
+          === true,
+
+        message_order_total:
+          numeric(
+            row.message_order_total,
+          ),
+
+        items:
+          Array.isArray(
+            row.items,
+          )
+            ? row.items
+            : [],
+
+        verification_status:
+          row.verification_status
+          ?? "PENDING",
+
+        needs_interpretation:
+          row.needs_interpretation
+          === true,
+
+        claim_state:
+          resolveWorkbenchClaimState({
+            actorStaffId:
+              actor?.staff_id
+              ?? null,
+
+            claimStaffId:
+              row.claim_staff_id
+              ?? null,
+
+            claimExpiresAt:
+              row.claim_expires_at
+              ?? null,
+          }),
+
+        claimed_by_staff_id:
+          row.claim_staff_id
+          ?? null,
+
+        claimed_by_staff_code:
+          row.claim_staff_code
+          ?? null,
+
+        claimed_by_display_name:
+          row.claim_display_name
+          ?? null,
+
+        claimed_at:
+          row.claimed_at
+          ?? null,
+
+        claim_expires_at:
+          row.claim_expires_at
+          ?? null,
+
+        lease_version:
+          row.lease_version
+          ?? null,
+      }),
+    );
+
+
   const returned =
     safeWorkItems.length;
 
   const nextOffset =
     safeOffset
     + returned;
+
+  const verificationReturned =
+    safeVerificationItems.length;
+
+  const verificationNextOffset =
+    safeVerificationOffset
+    + verificationReturned;
 
   return {
     actor: {
@@ -720,6 +949,7 @@ export function buildStaffWorkbenchPayload({
     work_items:
       safeWorkItems,
 
+    // Legacy Review pagination contract.
     pagination: {
       limit:
         safeLimit,
@@ -735,6 +965,32 @@ export function buildStaffWorkbenchPayload({
 
       next_offset:
         nextOffset,
+    },
+
+    verification_items:
+      safeVerificationItems,
+
+    // The Verification RPC does not expose an exact total.
+    // A full page means another bounded read may exist.
+    verification_pagination: {
+      sort_mode:
+        "RECENT",
+
+      limit:
+        safeVerificationLimit,
+
+      offset:
+        safeVerificationOffset,
+
+      returned:
+        verificationReturned,
+
+      has_more:
+        verificationReturned
+        === safeVerificationLimit,
+
+      next_offset:
+        verificationNextOffset,
     },
   };
 }

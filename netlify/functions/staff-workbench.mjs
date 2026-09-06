@@ -60,6 +60,7 @@ export default async function handler(req) {
         ),
       );
 
+    // Legacy Review pagination.
     const limit =
       normalizeWorkbenchLimit(
         url.searchParams.get(
@@ -71,6 +72,21 @@ export default async function handler(req) {
       normalizeWorkbenchOffset(
         url.searchParams.get(
           "offset",
+        ),
+      );
+
+    // Additive Human Verification pagination.
+    const verificationLimit =
+      normalizeWorkbenchLimit(
+        url.searchParams.get(
+          "verification_limit",
+        ),
+      );
+
+    const verificationOffset =
+      normalizeWorkbenchOffset(
+        url.searchParams.get(
+          "verification_offset",
         ),
       );
 
@@ -94,8 +110,14 @@ export default async function handler(req) {
           workItems:
             [],
 
+          verificationItems:
+            [],
+
           limit,
           offset,
+
+          verificationLimit,
+          verificationOffset,
         }),
       });
     }
@@ -110,6 +132,7 @@ export default async function handler(req) {
     const {
       summaryRows,
       workItems,
+      verificationItems,
     } =
       await loadStaffWorkbenchReadModel(
         supabase,
@@ -123,6 +146,9 @@ export default async function handler(req) {
 
           limit,
           offset,
+
+          verificationLimit,
+          verificationOffset,
         },
       );
 
@@ -137,9 +163,13 @@ export default async function handler(req) {
 
         summaryRows,
         workItems,
+        verificationItems,
 
         limit,
         offset,
+
+        verificationLimit,
+        verificationOffset,
       }),
     });
   } catch (error) {
