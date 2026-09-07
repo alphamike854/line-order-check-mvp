@@ -223,6 +223,10 @@ export async function loadStaffWorkbenchReadModel(
     offset = 0,
     verificationLimit = 100,
     verificationOffset = 0,
+    attentionLimit = 100,
+    attentionOffset = 0,
+    highTotalLimit = 100,
+    highTotalOffset = 0,
   },
 ) {
   if (!client) {
@@ -239,6 +243,8 @@ export async function loadStaffWorkbenchReadModel(
       summaryRows: [],
       workItems: [],
       verificationItems: [],
+      attentionItems: [],
+      highTotalItems: [],
     };
   }
 
@@ -262,10 +268,32 @@ export async function loadStaffWorkbenchReadModel(
       verificationOffset,
     );
 
+  const safeAttentionLimit =
+    normalizeWorkbenchLimit(
+      attentionLimit,
+    );
+
+  const safeAttentionOffset =
+    normalizeWorkbenchOffset(
+      attentionOffset,
+    );
+
+  const safeHighTotalLimit =
+    normalizeWorkbenchLimit(
+      highTotalLimit,
+    );
+
+  const safeHighTotalOffset =
+    normalizeWorkbenchOffset(
+      highTotalOffset,
+    );
+
   const [
     summaryResult,
     reviewResult,
     verificationResult,
+    attentionResult,
+    highTotalResult,
   ] = await Promise.all([
     client.rpc(
       "staff_workbench_summary",
@@ -323,6 +351,52 @@ export async function loadStaffWorkbenchReadModel(
           safeVerificationOffset,
       },
     ),
+
+    client.rpc(
+      "staff_workbench_pending_verifications",
+      {
+        p_settlement_session_id:
+          settlementSessionId,
+
+        p_line_group_ids:
+          lineGroupIds,
+
+        p_summary_group_id:
+          summaryGroupId,
+
+        p_sort_mode:
+          "PRIORITY",
+
+        p_limit:
+          safeAttentionLimit,
+
+        p_offset:
+          safeAttentionOffset,
+      },
+    ),
+
+    client.rpc(
+      "staff_workbench_pending_verifications",
+      {
+        p_settlement_session_id:
+          settlementSessionId,
+
+        p_line_group_ids:
+          lineGroupIds,
+
+        p_summary_group_id:
+          summaryGroupId,
+
+        p_sort_mode:
+          "HIGH_TOTAL",
+
+        p_limit:
+          safeHighTotalLimit,
+
+        p_offset:
+          safeHighTotalOffset,
+      },
+    ),
   ]);
 
   if (summaryResult.error) {
@@ -337,19 +411,36 @@ export async function loadStaffWorkbenchReadModel(
     throw verificationResult.error;
   }
 
+  if (attentionResult.error) {
+    throw attentionResult.error;
+  }
+
+  if (highTotalResult.error) {
+    throw highTotalResult.error;
+  }
+
   const reviewRows =
     reviewResult.data ?? [];
 
   const verificationRows =
     verificationResult.data ?? [];
 
-  // Review and Verification can reference the same message.
+  const attentionRows =
+    attentionResult.data ?? [];
+
+  const highTotalRows =
+    highTotalResult.data ?? [];
+
+  // Review and all Verification views can reference
+  // the same message. Shared claim state is read once.
   // Read shared message claim state once over the union.
   const messageRecordIds = [
     ...new Set(
       [
         ...reviewRows,
         ...verificationRows,
+        ...attentionRows,
+        ...highTotalRows,
       ]
         .map(
           (row) =>
@@ -503,6 +594,16 @@ export async function loadStaffWorkbenchReadModel(
       verificationRows.map(
         attachClaim,
       ),
+
+    attentionItems:
+      attentionRows.map(
+        attachClaim,
+      ),
+
+    highTotalItems:
+      highTotalRows.map(
+        attachClaim,
+      ),
   };
 }
 
@@ -513,10 +614,16 @@ export function buildStaffWorkbenchPayload({
   summaryRows = [],
   workItems = [],
   verificationItems = [],
+  attentionItems = [],
+  highTotalItems = [],
   limit = 100,
   offset = 0,
   verificationLimit = 100,
   verificationOffset = 0,
+  attentionLimit = 100,
+  attentionOffset = 0,
+  highTotalLimit = 100,
+  highTotalOffset = 0,
 }) {
   const safeLimit =
     normalizeWorkbenchLimit(
@@ -536,6 +643,26 @@ export function buildStaffWorkbenchPayload({
   const safeVerificationOffset =
     normalizeWorkbenchOffset(
       verificationOffset,
+    );
+
+  const safeAttentionLimit =
+    normalizeWorkbenchLimit(
+      attentionLimit,
+    );
+
+  const safeAttentionOffset =
+    normalizeWorkbenchOffset(
+      attentionOffset,
+    );
+
+  const safeHighTotalLimit =
+    normalizeWorkbenchLimit(
+      highTotalLimit,
+    );
+
+  const safeHighTotalOffset =
+    normalizeWorkbenchOffset(
+      highTotalOffset,
     );
 
   const summaryMap =
@@ -746,8 +873,8 @@ export function buildStaffWorkbenchPayload({
       }),
     );
 
-  const safeVerificationItems =
-    verificationItems.map(
+  const mapVerificationItems =
+    (rows) => rows.map(
       (row) => ({
         message_record_id:
           row.message_record_id,
@@ -891,6 +1018,22 @@ export function buildStaffWorkbenchPayload({
     );
 
 
+  const safeVerificationItems =
+    mapVerificationItems(
+      verificationItems,
+    );
+
+  const safeAttentionItems =
+    mapVerificationItems(
+      attentionItems,
+    );
+
+  const safeHighTotalItems =
+    mapVerificationItems(
+      highTotalItems,
+    );
+
+
   const returned =
     safeWorkItems.length;
 
@@ -904,6 +1047,20 @@ export function buildStaffWorkbenchPayload({
   const verificationNextOffset =
     safeVerificationOffset
     + verificationReturned;
+
+  const attentionReturned =
+    safeAttentionItems.length;
+
+  const attentionNextOffset =
+    safeAttentionOffset
+    + attentionReturned;
+
+  const highTotalReturned =
+    safeHighTotalItems.length;
+
+  const highTotalNextOffset =
+    safeHighTotalOffset
+    + highTotalReturned;
 
   return {
     actor: {
@@ -991,6 +1148,54 @@ export function buildStaffWorkbenchPayload({
 
       next_offset:
         verificationNextOffset,
+    },
+
+    attention_items:
+      safeAttentionItems,
+
+    attention_pagination: {
+      sort_mode:
+        "PRIORITY",
+
+      limit:
+        safeAttentionLimit,
+
+      offset:
+        safeAttentionOffset,
+
+      returned:
+        attentionReturned,
+
+      has_more:
+        attentionReturned
+        === safeAttentionLimit,
+
+      next_offset:
+        attentionNextOffset,
+    },
+
+    high_total_items:
+      safeHighTotalItems,
+
+    high_total_pagination: {
+      sort_mode:
+        "HIGH_TOTAL",
+
+      limit:
+        safeHighTotalLimit,
+
+      offset:
+        safeHighTotalOffset,
+
+      returned:
+        highTotalReturned,
+
+      has_more:
+        highTotalReturned
+        === safeHighTotalLimit,
+
+      next_offset:
+        highTotalNextOffset,
     },
   };
 }

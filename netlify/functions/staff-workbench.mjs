@@ -75,7 +75,7 @@ export default async function handler(req) {
         ),
       );
 
-    // Additive Human Verification pagination.
+    // RECENT Human Verification pagination.
     const verificationLimit =
       normalizeWorkbenchLimit(
         url.searchParams.get(
@@ -87,6 +87,36 @@ export default async function handler(req) {
       normalizeWorkbenchOffset(
         url.searchParams.get(
           "verification_offset",
+        ),
+      );
+
+    // PRIORITY / Attention pagination.
+    const attentionLimit =
+      normalizeWorkbenchLimit(
+        url.searchParams.get(
+          "attention_limit",
+        ),
+      );
+
+    const attentionOffset =
+      normalizeWorkbenchOffset(
+        url.searchParams.get(
+          "attention_offset",
+        ),
+      );
+
+    // HIGH_TOTAL pagination.
+    const highTotalLimit =
+      normalizeWorkbenchLimit(
+        url.searchParams.get(
+          "high_total_limit",
+        ),
+      );
+
+    const highTotalOffset =
+      normalizeWorkbenchOffset(
+        url.searchParams.get(
+          "high_total_offset",
         ),
       );
 
@@ -113,11 +143,23 @@ export default async function handler(req) {
           verificationItems:
             [],
 
+          attentionItems:
+            [],
+
+          highTotalItems:
+            [],
+
           limit,
           offset,
 
           verificationLimit,
           verificationOffset,
+
+          attentionLimit,
+          attentionOffset,
+
+          highTotalLimit,
+          highTotalOffset,
         }),
       });
     }
@@ -133,6 +175,8 @@ export default async function handler(req) {
       summaryRows,
       workItems,
       verificationItems,
+      attentionItems,
+      highTotalItems,
     } =
       await loadStaffWorkbenchReadModel(
         supabase,
@@ -149,6 +193,12 @@ export default async function handler(req) {
 
           verificationLimit,
           verificationOffset,
+
+          attentionLimit,
+          attentionOffset,
+
+          highTotalLimit,
+          highTotalOffset,
         },
       );
 
@@ -163,13 +213,22 @@ export default async function handler(req) {
 
         summaryRows,
         workItems,
+
         verificationItems,
+        attentionItems,
+        highTotalItems,
 
         limit,
         offset,
 
         verificationLimit,
         verificationOffset,
+
+        attentionLimit,
+        attentionOffset,
+
+        highTotalLimit,
+        highTotalOffset,
       }),
     });
   } catch (error) {
