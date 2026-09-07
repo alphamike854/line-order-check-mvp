@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.7.20";
+const PARSER_VERSION = "1.7.21";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -2217,6 +2217,415 @@ function isKnownGeneratorOrderLikeLine(text) {
 }
 
 
+
+function normalizeRealChatSweepGrammar(text) {
+  const lines = String(text || "").split("\n");
+  const out = [];
+
+  const standaloneExcludeDouble =
+    /^(?:\(\s*)?(?:ไม่เอาเบิ้ล|ไม่เบิ้ล)(?:\s*\))?(?:ค่ะ|ครับ|คะ|จ้า|จ้ะ|นะคะ|นะครับ)?$/u;
+
+  const inlineExcludeDouble =
+    /(?:\(\s*)?(?:ไม่เอาเบิ้ล|ไม่เบิ้ล)(?:\s*\))?(?:ค่ะ|ครับ|คะ|จ้า|จ้ะ|นะคะ|นะครับ)?/giu;
+
+  const modifierOnly =
+    /^(?:บลก|บนล่างกลับ|บ-ล|บล|บนล่าง|บน|บ|ล่าง|ล)$/u;
+
+  const quantityOnly =
+    /^\d+(?:\s*[xX*\/]\s*\d+)?(?:\s*(?:บาท|฿))?$/u;
+
+  function nextNonEmptyIndex(from) {
+    for (let i = from; i < lines.length; i += 1) {
+      if (String(lines[i] || "").trim()) return i;
+    }
+    return -1;
+  }
+
+  function cleanQuantity(value) {
+    return String(value || "")
+      .replace(/\s*(?:บาท|฿)\s*$/u, "")
+      .replace(/\s+/g, "");
+  }
+
+  function canonicalSweepModifier(value) {
+    const raw = String(value || "")
+      .replace(/\s+/g, "")
+      .trim();
+
+    if (/^(?:บน|บ)$/u.test(raw)) {
+      return "A";
+    }
+
+    if (/^(?:ล่าง|ล)$/u.test(raw)) {
+      return "B";
+    }
+
+    if (/^(?:บล|บ-ล|บนล่าง)$/u.test(raw)) {
+      return "AB";
+    }
+
+    if (/^(?:บลก|บนล่างกลับ)$/u.test(raw)) {
+      return "ABC";
+    }
+
+    return raw;
+  }
+
+  function appendExclude(canonicalLines, excludeDoubles) {
+    if (!excludeDoubles) return canonicalLines;
+    return canonicalLines.map(
+      (line) => `${line} (ไม่เอาเบิ้ล)`
+    );
+  }
+
+  function expandSeedList(
+    seedText,
+    quantity,
+    modifier,
+    excludeDoubles
+  ) {
+    const seeds = String(seedText || "")
+      .split(/\s*[,/]\s*/u)
+      .map((x) => x.trim())
+      .filter(Boolean);
+
+    if (
+      seeds.length < 2 ||
+      seeds.some((seed) => !/^[0-9]$/u.test(seed))
+    ) {
+      return null;
+    }
+
+    const qty = cleanQuantity(quantity);
+    const canonicalModifier =
+      canonicalSweepModifier(modifier);
+
+    return appendExclude(
+      seeds.map(
+        (seed) =>
+          `รูด ${seed}=${qty}${
+            canonicalModifier
+              ? ` ${canonicalModifier}`
+              : ""
+          }`
+      ),
+      excludeDoubles
+    );
+  }
+
+  function canonicalizeLine(
+    source,
+    excludeDoubles = false
+  ) {
+    const clean = String(source || "")
+      .replace(inlineExcludeDouble, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (!clean) return null;
+
+    let m;
+
+    // ----------------------------------------------------------
+    // DOUBLE
+    // ----------------------------------------------------------
+
+    // รูดเบิ้ล 00 ถึง 99=50*50
+    m = clean.match(
+      /^รูดเบิ้ล\s+00\s*ถึง\s*99\s*=\s*(\d+(?:\s*[xX*\/]\s*\d+)?)\s*(?:บาท|฿)?$/u
+    );
+
+    if (m) {
+      return appendExclude(
+        [`รูดเบิ้ล ${cleanQuantity(m[1])}`],
+        excludeDoubles
+      );
+    }
+
+    // รูดเบิ้ล บล 500-500
+    m = clean.match(
+      /^รูดเบิ้ล\s*(บลก|บนล่างกลับ|บ-ล|บล|บนล่าง|บน|บ|ล่าง|ล)\s*(\d+)\s*-\s*(\d+)\s*(?:บาท|฿)?$/u
+    );
+
+    if (m) {
+      return appendExclude(
+        [
+          `รูดเบิ้ล ${m[2]}x${m[3]} ${canonicalSweepModifier(m[1])}`
+        ],
+        excludeDoubles
+      );
+    }
+
+    // รูดเบิ้ลบล 300
+    // รูดเบิ้ล บล 2000x2000
+    m = clean.match(
+      /^รูดเบิ้ล\s*(บลก|บนล่างกลับ|บ-ล|บล|บนล่าง|บน|บ|ล่าง|ล)\s*[-=]?\s*(\d+(?:\s*[xX*\/]\s*\d+)?)\s*(?:บาท|฿)?$/u
+    );
+
+    if (m) {
+      return appendExclude(
+        [
+          `รูดเบิ้ล ${cleanQuantity(m[2])} ${canonicalSweepModifier(m[1])}`
+        ],
+        excludeDoubles
+      );
+    }
+
+    // ----------------------------------------------------------
+    // MULTI-SWEEP — comma / slash are unambiguous seed lists.
+    // ----------------------------------------------------------
+
+    // รูด 4,8 บลก 200x200
+    // รูด 9/4 ล่าง5฿
+    m = clean.match(
+      /^รูด\s*([0-9](?:\s*[,/]\s*[0-9])+)\s*(บลก|บนล่างกลับ|บ-ล|บล|บนล่าง|บน|บ|ล่าง|ล)\s*=?\s*(\d+(?:\s*[xX*\/]\s*\d+)?)\s*(?:บาท|฿)?$/u
+    );
+
+    if (m) {
+      return expandSeedList(
+        m[1],
+        m[3],
+        m[2],
+        excludeDoubles
+      );
+    }
+
+    // รูด 0,7=500*500
+    // รูด 0,7=500*500 บล
+    m = clean.match(
+      /^รูด\s*([0-9](?:\s*[,/]\s*[0-9])+)\s*=\s*(\d+(?:\s*[xX*\/]\s*\d+)?)(?:\s*(บลก|บนล่างกลับ|บ-ล|บล|บนล่าง|บน|บ|ล่าง|ล))?\s*(?:บาท|฿)?$/u
+    );
+
+    if (m) {
+      return expandSeedList(
+        m[1],
+        m[2],
+        m[3] || "",
+        excludeDoubles
+      );
+    }
+
+    // ----------------------------------------------------------
+    // MULTI-SWEEP — hyphen only when a separate modifier +
+    // quantity follows.
+    //
+    // This deliberately does NOT consume:
+    //
+    //   รูด 8-5 บล
+    //
+    // because that remains the established single-sweep
+    // quantity shorthand.
+    // ----------------------------------------------------------
+
+    m = clean.match(
+      /^รูด\s*([0-9])\s*-\s*([0-9])\s*(บลก|บนล่างกลับ|บ-ล|บล|บนล่าง|บน|บ|ล่าง|ล)\s*=?\s*(\d+(?:\s*[xX*\/]\s*\d+)?)\s*(?:บาท|฿)?$/u
+    );
+
+    if (m) {
+      return appendExclude(
+        [
+          `รูด ${m[1]}=${cleanQuantity(m[4])} ${canonicalSweepModifier(m[3])}`,
+          `รูด ${m[2]}=${cleanQuantity(m[4])} ${canonicalSweepModifier(m[3])}`
+        ],
+        excludeDoubles
+      );
+    }
+
+    // ----------------------------------------------------------
+    // Single sweep with modifier before quantity.
+    //
+    // รูด 4 บล = 500 บาท
+    // รูด 7 บลก 20
+    // ----------------------------------------------------------
+
+    m = clean.match(
+      /^รูด\s*([0-9])\s*(บลก|บนล่างกลับ|บ-ล|บล|บนล่าง|บน|บ|ล่าง|ล)\s*=?\s*(\d+(?:\s*[xX*\/]\s*\d+)?)\s*(?:บาท|฿)?$/u
+    );
+
+    if (m) {
+      return appendExclude(
+        [
+          `รูด ${m[1]}=${cleanQuantity(m[3])} ${canonicalSweepModifier(m[2])}`
+        ],
+        excludeDoubles
+      );
+    }
+
+    return null;
+  }
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const original = String(lines[i] || "");
+    const trimmed = original.trim();
+
+    if (
+      !/^(?:รูดเบิ้ล(?=$|\s|[-=0-9]|บลก|บล|บ-ล|บนล่าง|บน|บ|ล่าง|ล)|รูด(?=$|\s|[-=0-9]))/u.test(
+        trimmed
+      )
+    ) {
+      out.push(original);
+      continue;
+    }
+
+    const inlineExclude =
+      inlineExcludeDouble.test(trimmed);
+
+    inlineExcludeDouble.lastIndex = 0;
+
+    // Standalone "ไม่เอาเบิ้ล" immediately after the sweep,
+    // allowing blank lines between them.
+    const nextIndex =
+      nextNonEmptyIndex(i + 1);
+
+    const standaloneExclude =
+      nextIndex >= 0 &&
+      standaloneExcludeDouble.test(
+        String(lines[nextIndex] || "").trim()
+      );
+
+    // ----------------------------------------------------------
+    // Multiline DOUBLE:
+    //
+    // รูดเบิ้ล
+    // บล 2000x2000
+    // ----------------------------------------------------------
+
+    if (/^รูดเบิ้ล$/u.test(trimmed)) {
+      const j = nextNonEmptyIndex(i + 1);
+
+      if (j >= 0) {
+        const next = String(lines[j] || "")
+          .trim();
+
+        const m = next.match(
+          /^(บลก|บนล่างกลับ|บ-ล|บล|บนล่าง|บน|บ|ล่าง|ล)\s*(\d+(?:\s*[xX*\/]\s*\d+)?)\s*(?:บาท|฿)?$/u
+        );
+
+        if (m) {
+          out.push(
+            ...appendExclude(
+              [
+                `รูดเบิ้ล ${cleanQuantity(m[2])} ${canonicalSweepModifier(m[1])}`
+              ],
+              inlineExclude
+            )
+          );
+
+          i = j;
+          continue;
+        }
+      }
+    }
+
+    // ----------------------------------------------------------
+    // Multiline multi-sweep:
+    //
+    // รูด 2,3
+    // บลก
+    // 1000x1000
+    // ----------------------------------------------------------
+
+    const seedOnly = trimmed.match(
+      /^รูด\s*([0-9](?:\s*[,/]\s*[0-9])+)$/u
+    );
+
+    if (seedOnly) {
+      const j = nextNonEmptyIndex(i + 1);
+
+      if (j >= 0) {
+        const next = String(lines[j] || "")
+          .trim();
+
+        // Modifier on its own line, quantity on next line.
+        if (modifierOnly.test(next)) {
+          const k = nextNonEmptyIndex(j + 1);
+
+          if (
+            k >= 0 &&
+            quantityOnly.test(
+              String(lines[k] || "").trim()
+            )
+          ) {
+            const expanded =
+              expandSeedList(
+                seedOnly[1],
+                String(lines[k] || "").trim(),
+                next,
+                inlineExclude
+              );
+
+            if (expanded) {
+              out.push(...expanded);
+              i = k;
+              continue;
+            }
+          }
+        }
+
+        // Modifier + quantity on one following line.
+        const combined = next.match(
+          /^(บลก|บนล่างกลับ|บ-ล|บล|บนล่าง|บน|บ|ล่าง|ล)\s*(\d+(?:\s*[xX*\/]\s*\d+)?)\s*(?:บาท|฿)?$/u
+        );
+
+        if (combined) {
+          const expanded =
+            expandSeedList(
+              seedOnly[1],
+              combined[2],
+              combined[1],
+              inlineExclude
+            );
+
+          if (expanded) {
+            out.push(...expanded);
+            i = j;
+            continue;
+          }
+        }
+      }
+    }
+
+    const canonical =
+      canonicalizeLine(
+        original,
+        inlineExclude || standaloneExclude
+      );
+
+    if (canonical) {
+      out.push(...canonical);
+
+      if (standaloneExclude) {
+        i = nextIndex;
+      }
+
+      continue;
+    }
+
+    // Existing supported sweep syntax with a following
+    // standalone "ไม่เอาเบิ้ล":
+    //
+    // รูด 8 - 1000 บล
+    //
+    // ไม่เอาเบิ้ลค่ะ
+    //
+    // Keep the established grammar intact and attach only the
+    // exclusion modifier.
+    if (standaloneExclude) {
+      out.push(
+        `${trimmed} (ไม่เอาเบิ้ล)`
+      );
+
+      i = nextIndex;
+      continue;
+    }
+
+    out.push(original);
+  }
+
+  return out.join("\n");
+}
+
+
 function parseSweepTwoDigitLine(line, cfg, acc, rules) {
   const t = stripPoliteWords(normalizeLatin(line.trim()));
 
@@ -3864,8 +4273,10 @@ function parseOrder(inputText, config = {}) {
           normalizeStandaloneThreeDigitDashPairAssignments(
             normalizeMixedWidthInlineAssignments(
               normalizeTrailingNaturalMetadataAfterCompletedBlg(
-                normalizeContextualShortDateMetadata(
-                  orderNormalized
+                normalizeRealChatSweepGrammar(
+                  normalizeContextualShortDateMetadata(
+                    orderNormalized
+                  )
                 )
               )
             )
