@@ -6574,11 +6574,6 @@ async function applyStaffVerificationCorrection(
     await reloadStaffVerificationQueue(
       root,
     );
-
-    await loadDashboard({
-      silent: true,
-      preserveReviewWorkbench: true,
-    });
   } catch (error) {
     const code =
       staffVerificationErrorCode(

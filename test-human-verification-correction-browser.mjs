@@ -284,11 +284,16 @@ assert.match(
 
 assert.match(
   applyFlow,
+  /reloadStaffVerificationQueue/,
+);
+
+assert.doesNotMatch(
+  applyFlow,
   /loadDashboard/,
 );
 
 console.log(
-  "PASS C3B3-12: successful Apply reports mutation mode and refreshes dashboard",
+  "PASS C3B3-12: successful Apply reports mutation mode and refreshes Staff queue only",
 );
 
 
