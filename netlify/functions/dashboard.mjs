@@ -13,6 +13,43 @@ import { buildRiskDistributionPlan } from "../../src/lib/risk-engine.mjs";
 function sum(rows, key) { return rows.reduce((total, row) => total + Number(row[key] ?? 0), 0); }
 const RISK_POOL_CATEGORIES = Object.freeze({ MAIN:new Set(["A","B","E","F","G"]), H:new Set(["H"]), L:new Set(["L"]) });
 
+const LINE_GROUP_CODE_PAGE_SIZE=1000;
+const LINE_GROUP_CODE_SELECT="settlement_session_id,line_group_id,summary_group_id,category,code,order_total,confirmed_cut,retained_quantity,effective_multiplier,retention_limit,recommended_cut,projected_retained,recommended_point_reduction,retention_status,confirmed_cut_exceeds_order_total";
+
+async function fetchAllLineGroupCodeRetentionRows(settlementSessionId,summaryGroupId){
+  const rows=[];
+
+  for(let from=0;;from+=LINE_GROUP_CODE_PAGE_SIZE){
+    let query=supabase
+      .from("session_line_group_code_retention_state")
+      .select(LINE_GROUP_CODE_SELECT)
+      .eq("settlement_session_id",settlementSessionId)
+      .order("summary_group_id",{ascending:true})
+      .order("line_group_id",{ascending:true})
+      .order("category",{ascending:true})
+      .order("code",{ascending:true})
+      .range(from,from+LINE_GROUP_CODE_PAGE_SIZE-1);
+
+    if(summaryGroupId){
+      query=query.eq("summary_group_id",summaryGroupId);
+    }
+
+    const result=await query;
+
+    if(result.error){
+      return result;
+    }
+
+    const page=result.data??[];
+    rows.push(...page);
+
+    if(page.length<LINE_GROUP_CODE_PAGE_SIZE){
+      return {data:rows,error:null};
+    }
+  }
+}
+
+
 export default async (req) => {
   if (req.method !== "GET") return json({ ok:false,error:"METHOD_NOT_ALLOWED" },405);
   const denied=requireDashboardAccess(req); if(denied)return denied;
@@ -34,10 +71,11 @@ export default async (req) => {
       .select("settlement_session_id,business_date,line_group_id,line_group_name,summary_group_id,reduction_pct,enabled,gross_received,calculation_band,risk_budget_pct,risk_budget,amount_to_next_band,calculation_status,multiplier_configured,risk_calculation_ready,risk_status,cut_required,risk_model,over_limit_code_count,recommended_cut_total,recommended_point_reduction,confirmed_cut_total,retained_total,over_cut_code_count")
       .eq("settlement_session_id",session.id);
 
-    let lineGroupCodeQuery=supabase
-      .from("session_line_group_code_retention_state")
-      .select("settlement_session_id,line_group_id,summary_group_id,category,code,order_total,confirmed_cut,retained_quantity,effective_multiplier,retention_limit,recommended_cut,projected_retained,recommended_point_reduction,retention_status,confirmed_cut_exceeds_order_total")
-      .eq("settlement_session_id",session.id);
+    const lineGroupCodeQuery=
+      fetchAllLineGroupCodeRetentionRows(
+        session.id,
+        summaryGroupId
+      );
 
     let messagesQuery=supabase.from("messages").select("parse_status,event_timestamp").eq("settlement_session_id",session.id).order("event_timestamp",{ascending:false}).limit(10000);
     if(summaryGroupId){
@@ -46,7 +84,6 @@ export default async (req) => {
       overallQuery=overallQuery.eq("summary_group_id",summaryGroupId);
       poolQuery=poolQuery.eq("summary_group_id",summaryGroupId);
       lineGroupRiskQuery=lineGroupRiskQuery.eq("summary_group_id",summaryGroupId);
-      lineGroupCodeQuery=lineGroupCodeQuery.eq("summary_group_id",summaryGroupId);
       messagesQuery=messagesQuery.eq("summary_group_id",summaryGroupId);
     }
 

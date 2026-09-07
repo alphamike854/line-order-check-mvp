@@ -64,7 +64,7 @@ assert.match(
 
 assert.match(
   dashboard,
-  /lineGroupCodeQuery=lineGroupCodeQuery\.eq\("summary_group_id",summaryGroupId\)/,
+  /query=query\.eq\("summary_group_id",summaryGroupId\)/,
 );
 
 
