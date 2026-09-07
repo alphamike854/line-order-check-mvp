@@ -8842,29 +8842,11 @@ async function loadReviews() {
           <div class="review-meta">
             <span>
               <strong>
-                Review #${escapeHtml(item.id)}
+                ${escapeHtml(
+                  item.line_group_name
+                  || "ไม่ระบุกลุ่ม",
+                )}
               </strong>
-            </span>
-
-            <span>
-              ${escapeHtml(
-                item.parse_status
-                || "ไม่ระบุสถานะ",
-              )}
-            </span>
-
-            <span>Parser เดิม ${escapeHtml(item.parser_version || "ไม่ระบุ")}</span>
-
-            <span>
-              ${escapeHtml(
-                item.line_group_name,
-              )}
-            </span>
-
-            <span>
-              ${escapeHtml(
-                item.message_type,
-              )}
             </span>
 
             <span>
@@ -8874,25 +8856,24 @@ async function loadReviews() {
                 ),
               )}
             </span>
-
-            <span>
-              ${escapeHtml(
-                item.user_id
-                || "ไม่ทราบผู้ส่ง",
-              )}
-            </span>
           </div>
 
           <div class="review-claim-state"></div>
 
           ${reviewImageEvidenceHtml(item)}
 
-          <div class="reason">
-            ${reviewReasonsHtml(item)}
+          <div class="reason live-review-reason">
+            <strong>
+              เหตุผลที่ต้องตรวจ
+            </strong>
+
+            <div class="live-review-reason-body">
+              ${reviewReasonsHtml(item)}
+            </div>
           </div>
 
-          <label class="editor-label">
-            ข้อความสำหรับ Parse
+          <label class="editor-label live-review-editor-label">
+            ข้อความที่ต้องตรวจ
 
             <textarea
               class="review-editor"
@@ -8905,7 +8886,7 @@ async function loadReviews() {
             <button
               class="button primary small preview-review"
             >
-              ตรวจผล
+              ตรวจผลที่แก้ไข
             </button>
 
             <button
@@ -8916,6 +8897,46 @@ async function loadReviews() {
           </div>
 
           <div class="review-preview"></div>
+
+          <details class="live-review-technical">
+            <summary>
+              รายละเอียดระบบ
+            </summary>
+
+            <div class="muted small-text live-review-technical-body">
+              <div>
+                Review #${escapeHtml(item.id)}
+              </div>
+
+              <div>
+                สถานะ
+                ${escapeHtml(
+                  item.parse_status
+                  || "ไม่ระบุสถานะ",
+                )}
+              </div>
+
+              <div>
+                Parser เดิม ${escapeHtml(item.parser_version || "ไม่ระบุ")}
+              </div>
+
+              <div>
+                ประเภทข้อความ
+                ${escapeHtml(
+                  item.message_type
+                  || "ไม่ระบุ",
+                )}
+              </div>
+
+              <div>
+                ผู้ส่ง
+                ${escapeHtml(
+                  item.user_id
+                  || "ไม่ทราบผู้ส่ง",
+                )}
+              </div>
+            </div>
+          </details>
         </article>
       `,
         )

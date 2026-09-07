@@ -1567,3 +1567,49 @@ body{background:#f3f6fa}
 #staffVerificationQueue {
   order: -1;
 }
+
+/* Live Review operator card */
+#staffLiveReviewQueue .review-card {
+  background: #fff;
+}
+
+.live-review-reason {
+  margin-top: 12px;
+}
+
+.live-review-reason-body {
+  margin-top: 5px;
+}
+
+.live-review-editor-label {
+  display: block;
+  margin-top: 12px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.live-review-editor-label
+  .review-editor {
+  margin-top: 6px;
+  font-weight: 400;
+}
+
+.live-review-technical {
+  margin-top: 12px;
+  border: 1px solid #e1e7ef;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.live-review-technical > summary {
+  cursor: pointer;
+  padding: 10px 12px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.live-review-technical-body {
+  display: grid;
+  gap: 4px;
+  padding: 0 12px 12px;
+}
