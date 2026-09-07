@@ -14,7 +14,44 @@ assert.match(
 
 assert.match(
   sql,
-  /message_record_id uuid primary key[\s\S]*references public\.messages\(id\)[\s\S]*on delete cascade/i,
+  /message_record_id uuid primary key/i,
+);
+
+const durableVerificationSql =
+  fs.readFileSync(
+    "supabase/migrations/20260907100000_add_message_verification_correction_foundation.sql",
+    "utf8",
+  );
+
+assert.match(
+  durableVerificationSql,
+  /drop constraint if exists[\s\S]*message_verifications_message_record_id_fkey/i,
+);
+
+assert.match(
+  durableVerificationSql,
+  /message_record_id remains the immutable historical source identity[\s\S]*detached from public\.messages/i,
+);
+
+for (const column of [
+  "settlement_session_id",
+  "summary_group_id",
+  "summary_group_round_id",
+  "line_group_id",
+  "business_date",
+]) {
+  assert.match(
+    durableVerificationSql,
+    new RegExp(
+      `alter column ${column}\\s+set not null`,
+      "i",
+    ),
+  );
+}
+
+assert.match(
+  durableVerificationSql,
+  /populate_message_verification_durable_context/i,
 );
 
 assert.match(
