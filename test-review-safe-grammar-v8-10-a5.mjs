@@ -316,24 +316,33 @@ check("P2K-01 single 3-digit dash pair means E/F", () => {
 // ============================================================
 // SAFETY-02
 //
-// Existing permutation ambiguity.
+// v9.30: TWO-value 3-digit quantity pair without
+// explicit permutation vocabulary is E/F.
 // ============================================================
-check("SAFETY-02 historical permutation ambiguity remains", () => {
+check("SAFETY-02 natural low-value 3-digit pair means E/F", () => {
   const result = parseOrder("249 5*5");
 
-  assert.ok(
-    result.status === "REVIEW" ||
-    result.status === "PARTIAL"
+  assert.equal(
+    result.status,
+    "PARSED"
   );
 
-  assert.equal(result.items.length, 0);
+  assert.deepEqual(
+    result.items
+      .map(
+        (item) =>
+          `${item.category}${item.code}=${item.quantity}`
+      )
+      .sort(),
+    [
+      "E249=5",
+      "F249=5",
+    ]
+  );
 
-  assert.ok(
-    result.errors.some(
-      (error) =>
-        error.code ===
-        "AMBIGUOUS_3DIGIT_NATURAL_PAIR"
-    )
+  assert.equal(
+    result.errors.length,
+    0
   );
 });
 

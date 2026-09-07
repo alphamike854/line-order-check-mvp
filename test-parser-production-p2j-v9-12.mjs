@@ -1,24 +1,19 @@
 import assert from "node:assert/strict";
+
 import {
   parseOrder,
 } from "./src/lib/order-parser.mjs";
 
+
 function canonical(result) {
   return (result.items || [])
     .map(
-      x =>
-        `${x.category}${x.code}=${Number(x.quantity)}`
+      (item) =>
+        `${item.category}${item.code}=${Number(item.quantity)}`
     )
     .sort();
 }
 
-function total(result) {
-  return (result.items || []).reduce(
-    (sum, x) =>
-      sum + Number(x.quantity || 0),
-    0
-  );
-}
 
 const expected229 = [
   "E229=50",
@@ -26,256 +21,147 @@ const expected229 = [
   "E922=50",
 ].sort();
 
-const expected122 = [
-  "E122=50",
-  "E212=50",
-  "E221=50",
-].sort();
 
-// ------------------------------------------------------------
-// P2J-01
-// Production repeated-* shorthand.
-// ------------------------------------------------------------
-{
-  const result = parseOrder(
-    "229=50*50*50"
-  );
-
-  assert.equal(result.status, "PARSED");
-  assert.equal(result.items.length, 3);
-  assert.equal(total(result), 150);
-
-  assert.deepEqual(
-    canonical(result),
-    expected229
-  );
-
-  assert.equal(
-    result.rule_ids.includes(
-      "R_3DIGIT_REPEATED_PERMUTATION"
-    ),
-    true
-  );
-
-  assert.equal(result.errors.length, 0);
-  assert.equal(result.warnings.length, 0);
-
-  console.log(
-    "PASS P2J-01 repeated star permutation"
-  );
-}
-
-// ------------------------------------------------------------
-// P2J-02
-// Another 3-permutation code.
-// ------------------------------------------------------------
-{
-  const result = parseOrder(
-    "122=50*50*50"
-  );
-
-  assert.equal(result.status, "PARSED");
-  assert.equal(result.items.length, 3);
-  assert.equal(total(result), 150);
-
-  assert.deepEqual(
-    canonical(result),
-    expected122
-  );
-
-  console.log(
-    "PASS P2J-02 repeated star 122"
-  );
-}
-
-// ------------------------------------------------------------
-// P2J-03
-// 3กลับ is an explicit synonym for 3 permutations.
-// ------------------------------------------------------------
-for (const text of [
-  "229=50 3กลับ",
-  "229=50 3 กลับ",
-]) {
-  const result = parseOrder(text);
+function expectUnmarkedReview(text) {
+  const result =
+    parseOrder(text);
 
   assert.equal(
     result.status,
-    "PARSED",
-    text
+    "REVIEW",
+    text,
   );
 
   assert.equal(
     result.items.length,
-    3,
-    text
+    0,
+    text,
   );
 
-  assert.equal(
-    total(result),
-    150,
-    text
+  assert.ok(
+    result.errors.some(
+      (error) =>
+        error.code ===
+        "UNSUPPORTED_QUANTITY_EXPRESSION"
+    ),
+    text,
   );
 
-  assert.deepEqual(
-    canonical(result),
-    expected229,
-    text
+  assert.ok(
+    result.rule_ids.includes(
+      "R_3DIGIT_UNMARKED_QUANTITY_CHAIN"
+    ),
+    text,
   );
 }
 
-console.log(
-  "PASS P2J-03 3กลับ aliases"
-);
 
 // ------------------------------------------------------------
-// P2J-SAFETY-01
-// Existing x spelling remains identical.
+// P2J-01
+// Historical repeated-* shorthand is no longer permutation.
 // ------------------------------------------------------------
 for (const text of [
+  "229=50*50*50",
+  "122=50*50*50",
   "229=50x50x50",
   "229=50×50×50",
+  "229=50*40*50",
+  "123=50*50*50",
 ]) {
-  const result = parseOrder(text);
-
-  assert.equal(
-    result.status,
-    "PARSED",
-    text
-  );
-
-  assert.deepEqual(
-    canonical(result),
-    expected229,
-    text
-  );
+  expectUnmarkedReview(text);
 }
 
 console.log(
-  "PASS P2J-SAFETY-01 x variants unchanged"
+  "PASS P2J-01 unmarked quantity chains fail closed"
 );
 
+
 // ------------------------------------------------------------
-// P2J-SAFETY-02
-// Existing explicit permutation spellings remain identical.
+// P2J-02
+// Explicit permutation vocabulary remains supported.
 // ------------------------------------------------------------
 for (const text of [
+  "229=50 3กลับ",
+  "229=50 3 กลับ",
   "229=50*3ก",
   "229=50 3ประตู",
   "229=50 3ปต",
 ]) {
-  const result = parseOrder(text);
+  const result =
+    parseOrder(text);
 
   assert.equal(
     result.status,
     "PARSED",
-    text
+    text,
   );
 
   assert.deepEqual(
     canonical(result),
     expected229,
-    text
+    text,
   );
 }
 
 console.log(
-  "PASS P2J-SAFETY-02 explicit aliases unchanged"
+  "PASS P2J-02 explicit permutation aliases unchanged"
 );
 
-// ------------------------------------------------------------
-// P2J-SAFETY-03
-// Unequal repeated quantities remain invalid.
-// ------------------------------------------------------------
-{
-  const result = parseOrder(
-    "229=50*40*50"
-  );
-
-  assert.equal(result.status, "REVIEW");
-  assert.equal(result.items.length, 0);
-
-  assert.equal(
-    result.errors.some(
-      x =>
-        x.code ===
-        "REPEATED_PERMUTATION_QUANTITY_MISMATCH"
-    ),
-    true
-  );
-
-  console.log(
-    "PASS P2J-SAFETY-03 unequal quantities rejected"
-  );
-}
 
 // ------------------------------------------------------------
-// P2J-SAFETY-04
-// Number of repeated values must match unique permutations.
+// P2J-SAFETY-01
+// Explicit count still validates unique permutations.
+// 123 has six unique permutations, therefore 3กลับ is invalid.
 // ------------------------------------------------------------
 {
-  const result = parseOrder(
-    "123=50*50*50"
-  );
-
-  assert.equal(result.status, "REVIEW");
-  assert.equal(result.items.length, 0);
+  const result =
+    parseOrder(
+      "123=50 3กลับ"
+    );
 
   assert.equal(
+    result.status,
+    "REVIEW"
+  );
+
+  assert.equal(
+    result.items.length,
+    0
+  );
+
+  assert.ok(
     result.errors.some(
-      x =>
-        x.code ===
+      (error) =>
+        error.code ===
         "PERMUTATION_COUNT_MISMATCH"
-    ),
-    true
-  );
-
-  console.log(
-    "PASS P2J-SAFETY-04 permutation count validated"
+    )
   );
 }
 
-// ------------------------------------------------------------
-// P2J-SAFETY-05
-// "3กลับ" carries an explicit count of three. A code with six
-// unique permutations must therefore remain REVIEW.
-// ------------------------------------------------------------
-{
-  const result = parseOrder(
-    "123=50 3กลับ"
-  );
+console.log(
+  "PASS P2J-SAFETY-01 explicit permutation count validated"
+);
 
-  assert.equal(result.status, "REVIEW");
-  assert.equal(result.items.length, 0);
-
-  assert.equal(
-    result.errors.some(
-      x =>
-        x.code ===
-        "PERMUTATION_COUNT_MISMATCH"
-    ),
-    true
-  );
-
-  console.log(
-    "PASS P2J-SAFETY-05 3กลับ count validated"
-  );
-}
 
 // ------------------------------------------------------------
-// P2J-04
-// Exact formerly unresolved production message.
+// P2J-03
+// Exact historical production message:
+// valid two-digit pairs remain canonical,
+// unmarked 3-value chain causes PARTIAL.
 // ------------------------------------------------------------
 {
-  const result = parseOrder(
-    `229=50*50*50
+  const result =
+    parseOrder(
+      `229=50*50*50
 
 29=100*100
 92=100*100`
-  );
+    );
 
-  assert.equal(result.status, "PARSED");
-  assert.equal(result.items.length, 7);
-  assert.equal(total(result), 550);
+  assert.equal(
+    result.status,
+    "PARTIAL"
+  );
 
   assert.deepEqual(
     canonical(result),
@@ -284,18 +170,23 @@ console.log(
       "A92=100",
       "B29=100",
       "B92=100",
-      ...expected229,
     ].sort()
   );
 
-  assert.equal(result.errors.length, 0);
-  assert.equal(result.warnings.length, 0);
+  assert.ok(
+    result.errors.some(
+      (error) =>
+        error.code ===
+        "UNSUPPORTED_QUANTITY_EXPRESSION"
+    )
+  );
 
   console.log(
-    "PASS P2J-04 full production message"
+    "PASS P2J-03 production message keeps valid items and reviews unmarked chain"
   );
 }
 
+
 console.log(
-  "PASS: production parser P2J repeated permutation regression v9.12"
+  "PASS: production parser P2J explicit permutation contract v9.12"
 );

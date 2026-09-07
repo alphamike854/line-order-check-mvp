@@ -11,7 +11,7 @@ function byKey(result) {
 }
 
 assert.ok(
-  ["1.7.0", "1.7.1", "1.7.2", "1.7.3", "1.7.4", "1.7.5", "1.7.6", "1.7.7", "1.7.8", "1.7.9", "1.7.10", "1.7.11", "1.7.12", "1.7.13", "1.7.14", "1.7.15", "1.7.16", "1.7.17", "1.7.18", "1.7.19"].includes(PARSER_VERSION),
+  ["1.7.0", "1.7.1", "1.7.2", "1.7.3", "1.7.4", "1.7.5", "1.7.6", "1.7.7", "1.7.8", "1.7.9", "1.7.10", "1.7.11", "1.7.12", "1.7.13", "1.7.14", "1.7.15", "1.7.16", "1.7.17", "1.7.18", "1.7.19", "1.7.20"].includes(PARSER_VERSION),
 );
 
 // ------------------------------------------------------------
@@ -163,36 +163,45 @@ assert.ok(
   );
 }
 
-// Existing permutation ambiguity remains untouched.
+// Business rule v9.30:
 //
-// 249=5*5 currently has historical permutation semantics.
-// A3 must not silently reinterpret the whitespace equivalent
-// as E/F.
+// A two-value 3-digit quantity pair without an explicit
+// permutation marker is an E/F order.
 {
   const result = parseOrder("249 5*5");
 
-  assert.ok(
-    result.status === "REVIEW" ||
-    result.status === "PARTIAL",
-    "249 5*5 must stay Review-safe"
+  assert.equal(
+    result.status,
+    "PARSED"
   );
 
-  assert.equal(
-    result.items.length,
-    0,
-    "A3 must not manufacture E/F items for 249 5*5"
+  assert.deepEqual(
+    byKey(result),
+    {
+      E249: 5,
+      F249: 5,
+    }
   );
 }
 
-// Explicit historical counted permutation shorthand must not
-// be rewritten by natural-space normalization.
+// Business rule v9.30:
+//
+// The value 3 or 6 has no permutation meaning by itself.
+// Without ก / กลับ / permutation vocabulary this is E/F.
 {
   const result = parseOrder("123 20*6");
 
-  assert.ok(
-    result.status === "REVIEW" ||
-    result.status === "PARTIAL",
-    "123 20*6 remains outside A3 natural-space grammar"
+  assert.equal(
+    result.status,
+    "PARSED"
+  );
+
+  assert.deepEqual(
+    byKey(result),
+    {
+      E123: 20,
+      F123: 6,
+    }
   );
 }
 

@@ -186,38 +186,41 @@ const expectedLower = [
 
 // ------------------------------------------------------------
 // P2H-SAFETY-04
-// Repeated-permutation shorthand must still validate that the
-// stated number of quantities matches the unique permutations.
-//
-// 123 has 6 unique permutations, so three repeated quantities
-// must remain REVIEW.
-// ------------------------------------------------------------
+// Unmarked quantity chains have no implicit permutation meaning.
+// 123=50*50*50 must therefore fail closed.
 {
   const result = parseOrder(
     "123=50*50*50"
   );
 
-  assert.equal(result.status, "REVIEW");
-  assert.equal(result.items.length, 0);
+  assert.equal(
+    result.status,
+    "REVIEW"
+  );
+
+  assert.equal(
+    result.items.length,
+    0
+  );
 
   assert.equal(
     result.errors.some(
-      x =>
-        x.code ===
-        "PERMUTATION_COUNT_MISMATCH"
+      (error) =>
+        error.code ===
+        "UNSUPPORTED_QUANTITY_EXPRESSION"
     ),
     true
   );
 
   assert.equal(
     result.rule_ids.includes(
-      "R_3DIGIT_REPEATED_PERMUTATION"
+      "R_3DIGIT_UNMARKED_QUANTITY_CHAIN"
     ),
     true
   );
 
   console.log(
-    "PASS P2H-SAFETY-04 repeated permutation count remains validated"
+    "PASS P2H-SAFETY-04 unmarked quantity chain fails closed"
   );
 }
 

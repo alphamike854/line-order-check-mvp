@@ -40,9 +40,27 @@ assert.equal(allSame.status, "PARSED");
 assert.equal(allSame.items.length, 1);
 assert.equal(total(allSame), 100);
 
-// Existing compact count syntax remains intact.
-assert.equal(total(parseOrder("123=20x6")), 120);
-assert.equal(total(parseOrder("122=20x3")), 60);
+// Business rule v9.30:
+// A TWO-value quantity pair has E/F semantics unless an
+// explicit permutation marker is present.
+//
+//   123=20x6 => E123=20, F123=6
+//   122=20x3 => E122=20, F122=3
+assert.deepEqual(
+  itemMap(parseOrder("123=20x6")),
+  {
+    E123: 20,
+    F123: 6,
+  }
+);
+
+assert.deepEqual(
+  itemMap(parseOrder("122=20x3")),
+  {
+    E122: 20,
+    F122: 3,
+  }
+);
 
 // Existing multi-code E/F quantity pair must not be reinterpreted as permutations.
 const pair = parseOrder("920,202,707,101=500x500");

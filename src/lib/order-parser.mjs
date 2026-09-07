@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.7.19";
+const PARSER_VERSION = "1.7.20";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -1676,20 +1676,22 @@ function parseThreeDigitRhs(right, cfg) {
     return { kind: "COUNTED_PERMUTE", quantity: Number(m[1]), statedCount: Number(m[2]) };
   }
 
-  // Repeated equal quantities are another spelling of "ทุกกลับ / ประตู".
-  // Example: 998=100x100x100 => 3 unique permutations at 100 each.
-  //          093=100x100x100x100x100x100 => 6 unique permutations at 100 each.
-  // This is intentionally different from the existing TWO-value E/F pair
-  // grammar such as 920=500x500.
-  m = raw.match(/^\d+(?:\s*[xX*]\s*\d+){2,5}$/u);
+  // Business rule v9.30:
+  // A chain of THREE OR MORE quantities does not imply permutation.
+  //
+  //   229=50*50*50
+  //   229=50x50x50
+  //   229=50×50×50
+  //
+  // Without explicit permutation vocabulary such as
+  // ก / กลับ / ทุกกลับ / ประตู / ปต, the parser must fail closed.
+  //
+  // Exactly TWO quantities remain ordinary E/F pair grammar.
+  m = raw.match(/^\d+(?:\s*[xX*×]\s*\d+){2,}$/u);
   if (m) {
-    const values =
-      raw.split(/\s*[xX*]\s*/u).map(Number);
-    const first = values[0];
-    if (values.every((value) => value === first)) {
-      return { kind: "REPEATED_PERMUTE", quantity: first, statedCount: values.length };
-    }
-    return { kind: "INVALID_REPEATED_QUANTITIES", values };
+    return {
+      kind: "UNMARKED_QUANTITY_CHAIN",
+    };
   }
 
   // v7.2 briefly accepted x* inside a quantity chain. That interpretation was
@@ -1808,17 +1810,16 @@ function parseThreeDigitLine(line, cfg, acc, rules, errors) {
     const first = Number(naturalPair[2]);
     const second = Number(naturalPair[3]);
 
-    if (second <= 6) {
-      errors.push({
-        code: "AMBIGUOUS_3DIGIT_NATURAL_PAIR",
-        detail:
-          `${line} — ค่าตัวที่สอง ${second} อาจเป็นจำนวน permutation`,
-      });
-
-      rules.add("R_3DIGIT_NATURAL_SPACE_PAIR_AMBIGUOUS");
-      return true;
-    }
-
+    // Business rule v9.30:
+    // A TWO-value quantity expression without an explicit
+    // permutation marker is always an E/F order pair.
+    //
+    //   123 5*5  => E123=5,  F123=5
+    //   123 20*3 => E123=20, F123=3
+    //   123 20*6 => E123=20, F123=6
+    //
+    // Permutation requires explicit vocabulary such as
+    // ก / กลับ / ประตู / ปต.
     acc.add("E", code, first);
     acc.add("F", code, second);
 
@@ -2060,41 +2061,19 @@ function parseThreeDigitLine(line, cfg, acc, rules, errors) {
   if (rhs.kind === "INVALID_XSTAR_PERMUTATION") {
     errors.push({
       code: "INVALID_XSTAR_PERMUTATION",
-      detail: `${line} — ใช้รูปแบบจำนวนซ้ำ เช่น 998=100x100x100`
+      detail: `${line} — รูปแบบ x* ไม่รองรับ; หากต้องการกลับเลขให้ระบุ ก/กลับ/ทุกกลับ/ประตู/ปต`
     });
-    rules.add("R_3DIGIT_REPEATED_PERMUTATION");
+    rules.add("R_3DIGIT_INVALID_XSTAR_PERMUTATION");
     return true;
   }
 
-  if (rhs.kind === "INVALID_REPEATED_QUANTITIES") {
+  if (rhs.kind === "UNMARKED_QUANTITY_CHAIN") {
     errors.push({
-      code: "REPEATED_PERMUTATION_QUANTITY_MISMATCH",
-      detail: `${line} — จำนวนแต่ละประตูต้องเท่ากัน`
+      code: "UNSUPPORTED_QUANTITY_EXPRESSION",
+      detail:
+        `${line} — ชุดจำนวน 3 ค่าขึ้นไปต้องระบุ ก/กลับ/ทุกกลับ/ประตู/ปต หากต้องการกลับเลข`
     });
-    rules.add("R_3DIGIT_REPEATED_PERMUTATION");
-    return true;
-  }
-
-  if (rhs.kind === "REPEATED_PERMUTE") {
-    if (explicitCategory || codes.length !== 1) {
-      errors.push({ code: "UNSUPPORTED_REPEATED_PERMUTATION", detail: line });
-      rules.add("R_3DIGIT_REPEATED_PERMUTATION");
-      return true;
-    }
-    const code = codes[0];
-    const perms = uniquePermutations(code);
-    if (perms.length !== rhs.statedCount) {
-      errors.push({
-        code: "PERMUTATION_COUNT_MISMATCH",
-        detail: `${code} มี unique permutations ${perms.length} แบบ แต่ระบุจำนวนซ้ำ ${rhs.statedCount} ค่า`
-      });
-      rules.add("R_3DIGIT_REPEATED_PERMUTATION");
-      return true;
-    }
-    const category = contextualDirection === "BOTTOM" ? "G" : threeDigitDestinationCategory(prefix);
-    for (const permutation of perms) acc.add(category, permutation, rhs.quantity);
-    if (contextualDirection) rules.add(`R_3DIGIT_CONTEXT_${contextualDirection}`);
-    rules.add("R_3DIGIT_REPEATED_PERMUTATION");
+    rules.add("R_3DIGIT_UNMARKED_QUANTITY_CHAIN");
     return true;
   }
 
@@ -2168,23 +2147,15 @@ function parseThreeDigitLine(line, cfg, acc, rules, errors) {
   const q1 = quantitySpec.first;
   const q2 = quantitySpec.second;
 
-  // Permutation syntax is only valid for ONE 3-digit code. A list such as
-  // 920,202,707,101=500x500 is always an E/F quantity pair for every code.
-  if (codes.length === 1 && !prefix && q2 <= 6) {
-    const code = codes[0];
-    const perms = uniquePermutations(code);
-    if (perms.length !== q2) {
-      errors.push({
-        code: "PERMUTATION_COUNT_MISMATCH",
-        detail: `${code} มี unique permutations ${perms.length} แบบ แต่ระบุ x${q2}`
-      });
-      rules.add("R_3DIGIT_PERMUTATION_VALIDATION");
-      return true;
-    }
-    for (const p of perms) acc.add("E", p, q1);
-    rules.add("R_3DIGIT_PERMUTATION");
-    return true;
-  }
+  // Business rule v9.30:
+  // TWO-value quantity pairs never imply permutation by number alone.
+  //
+  //   123=5x5  => E123=5,  F123=5
+  //   123=20x3 => E123=20, F123=3
+  //   123=20x6 => E123=20, F123=6
+  //
+  // Permutation is handled earlier only when explicit vocabulary
+  // such as ก / กลับ / ประตู / ปต is present.
 
   // No category or A/E input + quantity pair => E/F pair.
   for (const code of codes) {
@@ -4032,14 +4003,13 @@ function parseOrder(inputText, config = {}) {
     }
   }
 
-  // A 3-digit '*' quantity chain is unmistakably order-like but is
-  // intentionally not assigned semantics here.
-  //
-  // Existing x/x/x repeated-permutation grammar remains untouched.
+  // A 3-digit quantity chain with 3+ values is unmistakably
+  // order-like but has no implicit permutation semantics.
   //
   //   522=20*20*20
   //
-  // must therefore go to Review instead of disappearing as IGNORE.
+  // Without explicit permutation vocabulary it must go to Review
+  // instead of disappearing as IGNORE.
   for (const line of normalizedLines) {
     if (
       /^\d{3}(?:[\s,/:.]+\d{3})*\s*=\s*\d+(?:\s*\*\s*\d+){6,}$/u.test(

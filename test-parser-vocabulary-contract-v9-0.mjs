@@ -396,38 +396,42 @@ check("THREE-DASH-01 standalone 3-digit dash pair means E/F", () => {
   );
 });
 
-check("SAFETY-02 ambiguous natural 3-digit pair remains Review-safe", () => {
-  const r = parseOrder("249 5*5");
-
-  assert.equal(r.status, "REVIEW");
-  assert.equal(r.items.length, 0);
+check("THREE-EF-02 natural low-value 3-digit pair means E/F", () => {
+  expectItems(
+    "249 5*5",
+    [
+      "E249=5",
+      "F249=5",
+    ]
+  );
 });
 
-check("THREE-PERM-05 repeated star quantities mean repeated permutations", () => {
+check("THREE-SAFETY-05 unmarked 3-value chain remains Review-safe", () => {
   const r = parseOrder(
     "522=20*20*20"
   );
 
-  assert.equal(r.status, "PARSED");
-  assert.equal(r.items.length, 3);
+  assert.equal(
+    r.status,
+    "REVIEW"
+  );
 
-  assert.deepEqual(
-    r.items
-      .map(
-        item =>
-          `${item.category}${item.code}=${item.quantity}`
-      )
-      .sort(),
-    [
-      "E225=20",
-      "E252=20",
-      "E522=20",
-    ].sort()
+  assert.equal(
+    r.items.length,
+    0
+  );
+
+  assert.ok(
+    r.errors.some(
+      (error) =>
+        error.code ===
+        "UNSUPPORTED_QUANTITY_EXPRESSION"
+    )
   );
 
   assert.equal(
     r.rule_ids.includes(
-      "R_3DIGIT_REPEATED_PERMUTATION"
+      "R_3DIGIT_UNMARKED_QUANTITY_CHAIN"
     ),
     true
   );

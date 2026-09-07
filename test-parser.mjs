@@ -11,7 +11,10 @@ assert.deepEqual(itemMap(parseOrder("01=20")), { A01: 20 });
 assert.deepEqual(itemMap(parseOrder("AB\n01\n02\n03=20")), {
   A01:20,A02:20,A03:20,B01:20,B02:20,B03:20
 });
-assert.equal(parseOrder("123=20x4").status, "REVIEW");
+assert.deepEqual(
+  itemMap(parseOrder("123=20x4")),
+  { E123: 20, F123: 4 }
+);
 assert.equal(calculateAllocation(210, 100, 0).shouldTransfer, 100);
 assert.equal(calculateAllocation(320, 100, 100).transferNow, 100);
 

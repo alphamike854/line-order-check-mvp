@@ -64,39 +64,24 @@ console.log(
 
   assert.equal(
     result.status,
-    "PARSED",
-    "mixed valid block with repeated permutation must fully parse"
+    "PARTIAL",
+    "mixed valid block with unmarked quantity chain must be PARTIAL"
   );
-
-  assert.equal(
-    result.errors.length,
-    0,
-    "valid repeated permutation must not produce parser errors"
-  );
-
-  for (const code of [
-    "225",
-    "252",
-    "522",
-  ]) {
-    assert.equal(
-      result.items.some(
-        item =>
-          item.category === "E" &&
-          item.code === code &&
-          Number(item.quantity) === 50
-      ),
-      true,
-      `expected E${code}=50 from 522 repeated permutation`
-    );
-  }
 
   assert.ok(
+    result.errors.some(
+      (error) =>
+        error.code ===
+        "UNSUPPORTED_QUANTITY_EXPRESSION"
+    ),
+    "unmarked 3-value chain must produce Review-safe parser error"
+  );
+assert.ok(
     result.items.length > 3,
     "surrounding high-confidence items must remain preserved"
   );
 
   console.log(
-    "PASS FRAGMENT-04 mixed valid block accepts repeated permutation"
+    "PASS FRAGMENT-04 mixed valid block keeps unmarked chain Review-safe"
   );
 }

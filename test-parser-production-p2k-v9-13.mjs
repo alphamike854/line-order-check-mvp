@@ -26,7 +26,7 @@ function total(result) {
 
 assert.equal(
   PARSER_VERSION,
-  "1.7.19"
+  "1.7.20"
 );
 
 
@@ -289,13 +289,49 @@ console.log(
 
 // ============================================================
 // P2K-SAFETY-03
-// Existing low-second-value ambiguity stays fail-closed.
+// v9.30: a TWO-value 3-digit pair without permutation
+// vocabulary is always an E/F quantity pair.
 // ============================================================
 {
   const result =
     parseOrder(
       "249 5*5"
     );
+
+  assert.equal(
+    result.status,
+    "PARSED"
+  );
+
+  assert.deepEqual(
+    canonical(result),
+    [
+      "E249=5",
+      "F249=5",
+    ]
+  );
+
+  assert.equal(
+    result.errors.length,
+    0
+  );
+
+  console.log(
+    "PASS P2K-SAFETY-03 natural low-value pair is E/F"
+  );
+}
+
+
+// ============================================================
+// P2K-SAFETY-04
+// v9.30: 3+ quantities have no implicit permutation semantics.
+// ============================================================
+for (const text of [
+  "229=50*50*50",
+  "229=50x50x50",
+]) {
+  const result =
+    parseOrder(text);
 
   assert.equal(
     result.status,
@@ -311,44 +347,19 @@ console.log(
     result.errors.some(
       (error) =>
         error.code ===
-        "AMBIGUOUS_3DIGIT_NATURAL_PAIR"
+        "UNSUPPORTED_QUANTITY_EXPRESSION"
     )
   );
 
-  console.log(
-    "PASS P2K-SAFETY-03 ambiguous natural pair remains REVIEW"
-  );
-}
-
-
-// ============================================================
-// P2K-SAFETY-04
-// Existing repeated-permutation grammar stays unchanged.
-// ============================================================
-for (const text of [
-  "229=50*50*50",
-  "229=50x50x50",
-]) {
-  const result =
-    parseOrder(text);
-
-  assert.equal(
-    result.status,
-    "PARSED"
-  );
-
-  assert.deepEqual(
-    canonical(result),
-    [
-      "E229=50",
-      "E292=50",
-      "E922=50",
-    ]
+  assert.ok(
+    result.rule_ids.includes(
+      "R_3DIGIT_UNMARKED_QUANTITY_CHAIN"
+    )
   );
 }
 
 console.log(
-  "PASS P2K-SAFETY-04 repeated permutation unchanged"
+  "PASS P2K-SAFETY-04 unmarked quantity chains fail closed"
 );
 
 
