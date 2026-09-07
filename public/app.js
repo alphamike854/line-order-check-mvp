@@ -6773,7 +6773,7 @@ function appendStaffVerificationQueue(
   }
 
   list.insertAdjacentHTML(
-    "beforeend",
+    "afterbegin",
     `
       <section
         id="staffVerificationQueue"
@@ -8651,50 +8651,37 @@ async function appendStaffPostCloseReviewQueue(
     return;
   }
 
-  if (
-    list.querySelector(
-      ".review-card",
-    )
-  ) {
-    list.insertAdjacentHTML(
-      "afterbegin",
-      `
-        <div class="preview-heading staff-live-review-heading">
-          งานรอบปัจจุบัน
-          <span class="muted">
-            ต้อง Claim ก่อนแก้ไขหรือข้าม
-          </span>
-        </div>
-      `,
-    );
-  }
-
   list.insertAdjacentHTML(
     "beforeend",
     `
       <section
         id="postCloseReviewQueue"
-        class="preview-box"
+        class="staff-history-section"
       >
-        <div class="preview-heading">
-          งานย้อนหลังหลังปิดรอบ
-          <span class="muted">
-            รับงานก่อนดำเนินการ
-          </span>
-        </div>
+        <details class="preview-box staff-history-details">
+          <summary class="staff-history-summary">
+            <span>
+              งานย้อนหลัง
+            </span>
+            <span class="muted">
+              หลังปิดรอบ · เปิดดูเมื่อจำเป็น
+            </span>
+          </summary>
 
-        <div class="muted small-text">
-          รายการนี้มาจากหลักฐานที่เก็บไว้หลังปิดรอบ
-          สามารถรับรายการ ต่อเวลา คืนรายการ
-          และเปิดดูภาพหลักฐานได้
-          เมื่อรับรายการแล้วสามารถตรวจผล แก้ไข หรือข้ามได้
-        </div>
+          <div class="staff-history-body">
+            <div class="muted small-text">
+              รายการจากรอบที่ปิดแล้ว
+              ประวัติยังคงอยู่ครบและสามารถรับงาน
+              ตรวจ แก้ไข หรือข้ามได้ตามสิทธิ์เดิม
+            </div>
 
-        <div class="post-close-review-items">
-        </div>
+            <div class="post-close-review-items">
+            </div>
 
-        <div class="post-close-review-footer">
-        </div>
+            <div class="post-close-review-footer">
+            </div>
+          </div>
+        </details>
       </section>
     `,
   );
@@ -8807,7 +8794,25 @@ async function loadReviews() {
     if (!items.length) {
       list.innerHTML =
         state.authMode === "STAFF"
-          ? `<div class="empty">ไม่มีรายการ Review ของรอบปัจจุบัน</div>`
+          ? `
+              <section
+                id="staffLiveReviewQueue"
+                class="preview-box staff-live-review-section"
+              >
+                <div class="preview-heading">
+                  รายการที่ต้องตรวจแก้
+                </div>
+
+                <div class="muted small-text">
+                  ข้อความที่ระบบยังอ่านไม่สมบูรณ์
+                  หรือจำเป็นต้องให้เจ้าหน้าที่ตีความ
+                </div>
+
+                <div class="empty compact">
+                  ไม่มีรายการ Review ของรอบปัจจุบัน
+                </div>
+              </section>
+            `
           : `<div class="empty">ไม่มีรายการ Review ที่เปิดอยู่</div>`;
 
       if (
@@ -8915,6 +8920,34 @@ async function loadReviews() {
       `,
         )
         .join("");
+
+    if (
+      state.authMode === "STAFF"
+    ) {
+      const liveReviewCardsHtml =
+        list.innerHTML;
+
+      list.innerHTML = `
+        <section
+          id="staffLiveReviewQueue"
+          class="preview-box staff-live-review-section"
+        >
+          <div class="preview-heading">
+            รายการที่ต้องตรวจแก้
+          </div>
+
+          <div class="muted small-text">
+            ข้อความที่ระบบยังอ่านไม่สมบูรณ์
+            หรือจำเป็นต้องให้เจ้าหน้าที่ตีความ
+            ต้องรับรายการก่อนแก้ไขหรือข้าม
+          </div>
+
+          <div class="staff-live-review-items">
+            ${liveReviewCardsHtml}
+          </div>
+        </section>
+      `;
+    }
 
     const itemById =
       new Map(

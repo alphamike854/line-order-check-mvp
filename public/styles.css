@@ -1505,3 +1505,65 @@ body{background:#f3f6fa}
   display: block;
   margin-top: 10px;
 }
+
+/* Staff Review operator shell */
+.staff-live-review-section {
+  background: #fff;
+}
+
+.staff-live-review-items {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.staff-history-section {
+  margin-top: 4px;
+}
+
+.staff-history-details {
+  padding: 0;
+  overflow: hidden;
+  background: #f8fafc;
+}
+
+.staff-history-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  padding: 12px 14px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.staff-history-summary::-webkit-details-marker {
+  display: none;
+}
+
+.staff-history-summary::after {
+  content: "▾";
+  margin-left: auto;
+  color: #64748b;
+  transition: transform .15s ease;
+}
+
+.staff-history-details[open]
+  > .staff-history-summary::after {
+  transform: rotate(180deg);
+}
+
+.staff-history-body {
+  padding: 0 12px 12px;
+  border-top: 1px solid #e1e7ef;
+}
+
+.staff-history-body
+  > .muted.small-text {
+  padding-top: 10px;
+}
+
+#staffVerificationQueue {
+  order: -1;
+}
