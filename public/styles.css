@@ -1448,3 +1448,60 @@ body{background:#f3f6fa}
     font-size:7px;
   }
 }
+
+/* Human Verification operator UI */
+.staff-verification-card {
+  background: #fff;
+}
+
+.staff-verification-meta {
+  align-items: center;
+}
+
+.staff-verification-source,
+.staff-verification-result {
+  margin-top: 12px;
+}
+
+.staff-verification-source-text {
+  margin-top: 6px;
+  white-space: pre-wrap;
+  line-height: 1.55;
+  color: #253247;
+}
+
+.staff-verification-primary-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e1e7ef;
+}
+
+.staff-verification-correction-panel,
+.staff-verification-technical {
+  margin-top: 10px;
+  border: 1px solid #e1e7ef;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.staff-verification-correction-panel > summary,
+.staff-verification-technical > summary {
+  cursor: pointer;
+  padding: 10px 12px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.staff-verification-correction-body,
+.staff-verification-technical-body {
+  padding: 0 12px 12px;
+}
+
+.staff-verification-correction-body .editor-label {
+  display: block;
+  margin-top: 10px;
+}

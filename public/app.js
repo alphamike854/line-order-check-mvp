@@ -5310,52 +5310,60 @@ function staffVerificationResolutionHtml(
         );
 
   return `
-    <div class="review-editor-wrap staff-verification-resolution">
-      <div class="review-evidence-heading">
-        Human Verification
-      </div>
-
-      <div class="muted small-text">
-        หากผล Parser เดิมถูกต้อง ให้ยืนยันตามผลเดิมได้ทันที
-        หากต้องแก้ไข ให้แก้ข้อความและตรวจผลก่อนยืนยัน
-      </div>
-
-      <div class="review-actions">
+    <div class="staff-verification-resolution">
+      <div class="staff-verification-primary-action">
         <button
           type="button"
-          class="button ghost small confirm-staff-verification"
+          class="button primary small confirm-staff-verification"
         >
-          ยืนยันตามผลเดิม
+          ยืนยันถูกต้อง
         </button>
+
+        <span class="muted small-text">
+          ใช้เมื่อรหัสและยอดที่ระบบอ่านตรงกับข้อความต้นทาง
+        </span>
       </div>
 
-      <label class="editor-label">
-        ข้อความที่ถูกต้อง
+      <details class="staff-verification-correction-panel">
+        <summary>
+          แก้ไขออเดอร์
+        </summary>
 
-        <textarea
-          class="review-editor staff-verification-correction"
-          rows="4"
-        >${escapeHtml(initialText)}</textarea>
-      </label>
+        <div class="staff-verification-correction-body">
+          <div class="muted small-text">
+            ใช้เมื่อระบบอ่านรหัสหรือยอดไม่ถูกต้อง
+            แก้ข้อความให้ถูกต้อง แล้วตรวจผลก่อนยืนยัน
+          </div>
 
-      <div class="review-actions">
-        <button
-          type="button"
-          class="button ghost small preview-staff-verification-correction"
-        >
-          ตรวจผล
-        </button>
+          <label class="editor-label">
+            ข้อความที่ถูกต้อง
 
-        <button
-          type="button"
-          class="button primary small apply-staff-verification-correction"
-          disabled
-        >
-          ยืนยันแก้ไข
-        </button>
-      </div>
+            <textarea
+              class="review-editor staff-verification-correction"
+              rows="4"
+            >${escapeHtml(initialText)}</textarea>
+          </label>
 
-      <div class="staff-verification-preview"></div>
+          <div class="review-actions">
+            <button
+              type="button"
+              class="button ghost small preview-staff-verification-correction"
+            >
+              ตรวจผลที่แก้ไข
+            </button>
+
+            <button
+              type="button"
+              class="button primary small apply-staff-verification-correction"
+              disabled
+            >
+              ยืนยันการแก้ไข
+            </button>
+          </div>
+
+          <div class="staff-verification-preview"></div>
+        </div>
+      </details>
     </div>
   `;
 }
@@ -5397,10 +5405,14 @@ function staffVerificationCardHtml(
         messageRecordId,
       )}"
     >
-      <div class="review-meta">
+      <div class="review-meta staff-verification-meta">
         <span>
           <strong>
-            ตรวจยืนยันออเดอร์
+            ${escapeHtml(
+              item?.line_group_name
+              || item?.line_group_id
+              || "ไม่ระบุกลุ่ม",
+            )}
           </strong>
         </span>
 
@@ -5413,56 +5425,33 @@ function staffVerificationCardHtml(
         </span>
 
         <span>
-          ${escapeHtml(
-            item?.line_group_name
-            || item?.line_group_id
-            || "-",
-          )}
-        </span>
-
-        <span>
-          ${escapeHtml(
-            roundLabel,
-          )}
-        </span>
-
-        <span>
-          ${escapeHtml(
-            item?.parse_status
-            || "ไม่ระบุสถานะ",
-          )}
-        </span>
-
-        <span>
-          Parser
-          ${escapeHtml(
-            item?.parser_version
-            || "ไม่ระบุ",
-          )}
+          ${escapeHtml(roundLabel)}
         </span>
 
         ${
           eventTime
             ? `
-              <span>
-                ${escapeHtml(
-                  formatBangkokTime(
-                    eventTime,
-                  ),
-                )}
-              </span>
-            `
+                <span>
+                  ${escapeHtml(
+                    formatBangkokTime(
+                      eventTime,
+                    ),
+                  )}
+                </span>
+              `
             : ""
         }
 
         <span>
           ยอด
-          ${formatNumber(
-            Number(
-              item?.message_order_total
-              ?? 0,
-            ),
-          )}
+          <strong>
+            ${formatNumber(
+              Number(
+                item?.message_order_total
+                ?? 0,
+              ),
+            )}
+          </strong>
         </span>
       </div>
 
@@ -5472,21 +5461,19 @@ function staffVerificationCardHtml(
         )}
       </div>
 
-      <div class="reason">
+      <div class="reason staff-verification-source">
         <strong>
           ข้อความต้นทาง
         </strong>
 
-        <div class="muted small-text">
-          ${escapeHtml(
-            sourceText,
-          )}
+        <div class="staff-verification-source-text">
+          ${escapeHtml(sourceText)}
         </div>
       </div>
 
-      <div class="reason">
+      <div class="reason staff-verification-result">
         <strong>
-          ผล Parser ปัจจุบัน
+          ระบบอ่านเป็น
         </strong>
 
         ${staffVerificationItemsHtml(
@@ -5500,6 +5487,25 @@ function staffVerificationCardHtml(
           item,
         )}
       </div>
+
+      <details class="staff-verification-technical">
+        <summary>
+          รายละเอียดระบบ
+        </summary>
+
+        <div class="muted small-text staff-verification-technical-body">
+          สถานะ:
+          ${escapeHtml(
+            item?.parse_status
+            || "ไม่ระบุ",
+          )}
+          · Parser:
+          ${escapeHtml(
+            item?.parser_version
+            || "ไม่ระบุ",
+          )}
+        </div>
+      </details>
     </article>
   `;
 }
@@ -6774,15 +6780,12 @@ function appendStaffVerificationQueue(
         class="preview-box"
       >
         <div class="preview-heading">
-          ตรวจยืนยันออเดอร์
-          <span class="muted">
-            Human Verification
-          </span>
+          งานที่ต้องตรวจตอนนี้
         </div>
 
         <div class="muted small-text">
-          ออเดอร์ที่ Parser อ่านได้แล้วแต่ยังรอเจ้าหน้าที่ตรวจยืนยัน
-          ต้องรับรายการก่อนยืนยันหรือแก้ไข
+          ตรวจออเดอร์ที่ระบบอ่านได้แล้ว
+          รับรายการก่อนยืนยันหรือแก้ไข
         </div>
 
         <div class="staff-verification-items">
@@ -6813,22 +6816,18 @@ function appendStaffVerificationQueue(
       items:
         workbenchPayload?.verification_items
         ?? [],
-
       pagination:
         workbenchPayload?.verification_pagination
         ?? {},
-
       actor:
         workbenchPayload?.actor
         ?? null,
-
       append: false,
     },
   );
 }
 
 
-// ============================================================
 // R2D3B-2 Staff-scoped Post-close Review Queue
 //
 // Presentation only:
