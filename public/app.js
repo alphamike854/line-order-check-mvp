@@ -5010,6 +5010,1829 @@ async function ignoreReview(event) {
 }
 
 
+
+// ============================================================
+// C3B-3 Human Verification Correction Browser
+//
+// This lifecycle is independent from live Review and
+// post-close Review.
+//
+// Browser-controlled inputs are intentionally limited to:
+// - message_record_id
+// - exact observed lease_version
+// - corrected_text
+// - signed preview_token on correction Apply
+//
+// Confirm-as-is additionally echoes the exact source parser
+// snapshot already returned by the authoritative Workbench.
+//
+// Staff identity, LINE Group scope, Settlement identity,
+// corrected parser result and first_order_code stay server-side.
+// ============================================================
+
+
+function staffVerificationQueueQuery(
+  {
+    offset = 0,
+    limit = 50,
+  } = {},
+) {
+  const params =
+    new URLSearchParams(
+      reviewWorkbenchQuery(),
+    );
+
+  params.set(
+    "verification_limit",
+    String(limit),
+  );
+
+  params.set(
+    "verification_offset",
+    String(offset),
+  );
+
+  return params.toString();
+}
+
+
+function staffVerificationMessageRecordId(
+  card,
+) {
+  return String(
+    card?.dataset?.messageRecordId
+    ?? card?._staffVerificationItem
+      ?.message_record_id
+    ?? "",
+  ).trim();
+}
+
+
+function staffVerificationLeaseVersion(
+  card,
+) {
+  const value =
+    Number(
+      card?.dataset?.leaseVersion
+      ?? card?._staffVerificationItem
+        ?.lease_version
+      ?? 0,
+    );
+
+  if (
+    !Number.isSafeInteger(value)
+    || value <= 0
+  ) {
+    return null;
+  }
+
+  return value;
+}
+
+
+function staffVerificationCanMutate(
+  card,
+) {
+  return Boolean(
+    state.authMode === "STAFF"
+    && card?._staffVerificationActor
+      ?.staff_id
+    && card?._staffVerificationItem
+      ?.claim_state === "MINE"
+    && staffVerificationLeaseVersion(
+      card,
+    ),
+  );
+}
+
+
+function staffVerificationIssueText(
+  issue,
+) {
+  if (
+    typeof issue === "string"
+  ) {
+    return issue;
+  }
+
+  if (
+    issue
+    && typeof issue === "object"
+  ) {
+    return String(
+      issue.reason
+      ?? issue.code
+      ?? issue.message
+      ?? "รายละเอียดเพิ่มเติม",
+    );
+  }
+
+  return String(
+    issue
+    ?? "",
+  );
+}
+
+
+function staffVerificationItemsHtml(
+  items = [],
+) {
+  if (
+    !Array.isArray(items)
+    || !items.length
+  ) {
+    return `
+      <div class="muted small-text">
+        ไม่มีรายการรหัส
+      </div>
+    `;
+  }
+
+  return `
+    <div class="item-chips">
+      ${items
+        .map(
+          (item) => `
+            <span class="chip">
+              ${escapeHtml(
+                `${item?.category ?? ""}${item?.code ?? ""}`,
+              )}
+              =
+              ${formatNumber(
+                Number(
+                  item?.quantity
+                  ?? 0,
+                ),
+              )}
+            </span>
+          `,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+
+function staffVerificationClaimStatusHtml(
+  item,
+) {
+  const claimState =
+    item?.claim_state
+    ?? "AVAILABLE";
+
+  if (claimState === "MINE") {
+    return `
+      <div class="reason">
+        <strong>
+          คุณกำลังตรวจยืนยันรายการนี้
+        </strong>
+
+        ${
+          item?.claim_expires_at
+            ? `
+              <span class="muted">
+                · สิทธิ์ถึง
+                ${escapeHtml(
+                  formatBangkokTime(
+                    item.claim_expires_at,
+                  ),
+                )}
+              </span>
+            `
+            : ""
+        }
+
+        <span class="review-claim-actions staff-verification-claim-actions">
+          <button
+            type="button"
+            class="button ghost small renew-staff-verification"
+          >
+            ต่อเวลา
+          </button>
+
+          <button
+            type="button"
+            class="button ghost small release-staff-verification"
+          >
+            คืนรายการ
+          </button>
+        </span>
+      </div>
+    `;
+  }
+
+  if (
+    claimState === "AVAILABLE"
+    || claimState === "EXPIRED"
+  ) {
+    return `
+      <div class="reason">
+        <strong>
+          รายการพร้อมรับตรวจยืนยัน
+        </strong>
+
+        <span class="review-claim-actions staff-verification-claim-actions">
+          <button
+            type="button"
+            class="button primary small claim-staff-verification"
+          >
+            รับรายการ
+          </button>
+        </span>
+      </div>
+    `;
+  }
+
+  if (
+    claimState === "CLAIMED_BY_OTHER"
+    || claimState === "OTHER"
+  ) {
+    const holder =
+      item?.claimed_by_display_name
+      || item?.claimed_by_staff_code
+      || "เจ้าหน้าที่อื่น";
+
+    return `
+      <div class="reason">
+        <strong>
+          กำลังตรวจโดย
+          ${escapeHtml(holder)}
+        </strong>
+
+        ${
+          item?.claim_expires_at
+            ? `
+              <span class="muted">
+                · ถึง
+                ${escapeHtml(
+                  formatBangkokTime(
+                    item.claim_expires_at,
+                  ),
+                )}
+              </span>
+            `
+            : ""
+        }
+      </div>
+    `;
+  }
+
+  return `
+    <div class="reason">
+      <strong>
+        ไม่สามารถระบุสถานะการรับรายการได้
+      </strong>
+    </div>
+  `;
+}
+
+
+function staffVerificationResolutionHtml(
+  item,
+  correctedText = null,
+) {
+  if (
+    item?.claim_state !== "MINE"
+  ) {
+    return "";
+  }
+
+  const initialText =
+    correctedText == null
+      ? String(
+          item?.text
+          ?? item?.display_text
+          ?? item?.normalized_text
+          ?? "",
+        )
+      : String(
+          correctedText,
+        );
+
+  return `
+    <div class="review-editor-wrap staff-verification-resolution">
+      <div class="review-evidence-heading">
+        Human Verification
+      </div>
+
+      <div class="muted small-text">
+        หากผล Parser เดิมถูกต้อง ให้ยืนยันตามผลเดิมได้ทันที
+        หากต้องแก้ไข ให้แก้ข้อความและตรวจผลก่อนยืนยัน
+      </div>
+
+      <div class="review-actions">
+        <button
+          type="button"
+          class="button ghost small confirm-staff-verification"
+        >
+          ยืนยันตามผลเดิม
+        </button>
+      </div>
+
+      <label class="editor-label">
+        ข้อความที่ถูกต้อง
+
+        <textarea
+          class="review-editor staff-verification-correction"
+          rows="4"
+        >${escapeHtml(initialText)}</textarea>
+      </label>
+
+      <div class="review-actions">
+        <button
+          type="button"
+          class="button ghost small preview-staff-verification-correction"
+        >
+          ตรวจผล
+        </button>
+
+        <button
+          type="button"
+          class="button primary small apply-staff-verification-correction"
+          disabled
+        >
+          ยืนยันแก้ไข
+        </button>
+      </div>
+
+      <div class="staff-verification-preview"></div>
+    </div>
+  `;
+}
+
+
+function staffVerificationCardHtml(
+  item,
+) {
+  const messageRecordId =
+    String(
+      item?.message_record_id
+      ?? "",
+    );
+
+  const roundLabel =
+    item?.round_no == null
+      ? "ไม่ระบุรอบ"
+      : `รอบ ${formatNumber(
+          item.round_no,
+        )}`;
+
+  const eventTime =
+    item?.event_timestamp
+    || item?.message_created_at
+    || item?.review_created_at
+    || null;
+
+  const sourceText =
+    item?.text
+    ?? item?.display_text
+    ?? item?.raw_text
+    ?? item?.normalized_text
+    ?? "";
+
+  return `
+    <article
+      class="review-card staff-verification-card"
+      data-message-record-id="${escapeHtml(
+        messageRecordId,
+      )}"
+    >
+      <div class="review-meta">
+        <span>
+          <strong>
+            ตรวจยืนยันออเดอร์
+          </strong>
+        </span>
+
+        <span>
+          ${escapeHtml(
+            item?.summary_group_name
+            || item?.summary_group_id
+            || "-",
+          )}
+        </span>
+
+        <span>
+          ${escapeHtml(
+            item?.line_group_name
+            || item?.line_group_id
+            || "-",
+          )}
+        </span>
+
+        <span>
+          ${escapeHtml(
+            roundLabel,
+          )}
+        </span>
+
+        <span>
+          ${escapeHtml(
+            item?.parse_status
+            || "ไม่ระบุสถานะ",
+          )}
+        </span>
+
+        <span>
+          Parser
+          ${escapeHtml(
+            item?.parser_version
+            || "ไม่ระบุ",
+          )}
+        </span>
+
+        ${
+          eventTime
+            ? `
+              <span>
+                ${escapeHtml(
+                  formatBangkokTime(
+                    eventTime,
+                  ),
+                )}
+              </span>
+            `
+            : ""
+        }
+
+        <span>
+          ยอด
+          ${formatNumber(
+            Number(
+              item?.message_order_total
+              ?? 0,
+            ),
+          )}
+        </span>
+      </div>
+
+      <div class="staff-verification-claim-state">
+        ${staffVerificationClaimStatusHtml(
+          item,
+        )}
+      </div>
+
+      <div class="reason">
+        <strong>
+          ข้อความต้นทาง
+        </strong>
+
+        <div class="muted small-text">
+          ${escapeHtml(
+            sourceText,
+          )}
+        </div>
+      </div>
+
+      <div class="reason">
+        <strong>
+          ผล Parser ปัจจุบัน
+        </strong>
+
+        ${staffVerificationItemsHtml(
+          item?.items
+          ?? [],
+        )}
+      </div>
+
+      <div class="staff-verification-resolution-root">
+        ${staffVerificationResolutionHtml(
+          item,
+        )}
+      </div>
+    </article>
+  `;
+}
+
+
+function hydrateStaffVerificationCards(
+  root,
+  items = [],
+  actor = null,
+) {
+  if (!root) {
+    return;
+  }
+
+  root._staffVerificationActor =
+    actor
+    ?? root._staffVerificationActor
+    ?? null;
+
+  const itemByMessageId =
+    new Map(
+      (items ?? [])
+        .map(
+          (item) => [
+            String(
+              item?.message_record_id
+              ?? "",
+            ),
+            item,
+          ],
+        )
+        .filter(
+          ([messageRecordId]) =>
+            Boolean(messageRecordId),
+        ),
+    );
+
+  root
+    .querySelectorAll(
+      ".staff-verification-card",
+    )
+    .forEach(
+      (card) => {
+        const messageRecordId =
+          String(
+            card.dataset
+              .messageRecordId
+            ?? "",
+          );
+
+        const item =
+          itemByMessageId.get(
+            messageRecordId,
+          );
+
+        if (!item) {
+          return;
+        }
+
+        card._staffVerificationItem =
+          item;
+
+        card._staffVerificationActor =
+          actor
+          ?? root._staffVerificationActor
+          ?? null;
+
+        const leaseVersion =
+          Number(
+            item?.lease_version,
+          );
+
+        if (
+          Number.isSafeInteger(
+            leaseVersion,
+          )
+          && leaseVersion > 0
+        ) {
+          card.dataset.leaseVersion =
+            String(
+              leaseVersion,
+            );
+        } else {
+          delete card.dataset
+            .leaseVersion;
+        }
+      },
+    );
+}
+
+
+function staffVerificationPreviewHtml(
+  preview = {},
+) {
+  const warnings =
+    Array.isArray(
+      preview?.warnings,
+    )
+      ? preview.warnings
+      : [];
+
+  const errors =
+    Array.isArray(
+      preview?.errors,
+    )
+      ? preview.errors
+      : [];
+
+  const lifecycleMessage =
+    preview?.round_status === "CLOSED"
+      ? `
+        <div class="reason">
+          <strong>
+            รอบนี้ปิดแล้ว
+          </strong>
+          <span class="muted">
+            การยืนยันแก้ไขจะบันทึก Human Truth
+            แต่จะไม่แก้ canonical order rows ของรอบที่ปิดแล้ว
+          </span>
+        </div>
+      `
+      : `
+        <div class="reason">
+          <strong>
+            รอบปัจจุบันยังเปิดอยู่
+          </strong>
+          <span class="muted">
+            หากยืนยัน ระบบสามารถปรับ canonical order rows
+            ตาม Human Truth ได้
+          </span>
+        </div>
+      `;
+
+  return `
+    <div class="preview-box">
+      <div class="preview-heading">
+        ผลตรวจ
+        <span class="muted">
+          ${escapeHtml(
+            preview?.status
+            ?? "ไม่ระบุสถานะ",
+          )}
+        </span>
+      </div>
+
+      <div class="muted small-text">
+        Parser:
+        ${escapeHtml(
+          preview?.parser_version
+          ?? "-",
+        )}
+        · รหัสแรก:
+        ${escapeHtml(
+          preview?.first_order_code
+          ?? "-",
+        )}
+      </div>
+
+      ${staffVerificationItemsHtml(
+        preview?.items
+        ?? [],
+      )}
+
+      ${
+        warnings.length
+          ? `
+            <div class="reason">
+              <strong>คำเตือน</strong>
+              ${warnings
+                .map(
+                  (warning) => `
+                    <div class="muted small-text">
+                      ${escapeHtml(
+                        staffVerificationIssueText(
+                          warning,
+                        ),
+                      )}
+                    </div>
+                  `,
+                )
+                .join("")}
+            </div>
+          `
+          : ""
+      }
+
+      ${
+        errors.length
+          ? `
+            <div class="reason">
+              <strong>ข้อผิดพลาด</strong>
+              ${errors
+                .map(
+                  (error) => `
+                    <div class="muted small-text">
+                      ${escapeHtml(
+                        staffVerificationIssueText(
+                          error,
+                        ),
+                      )}
+                    </div>
+                  `,
+                )
+                .join("")}
+            </div>
+          `
+          : ""
+      }
+
+      ${lifecycleMessage}
+
+      ${
+        preview?.can_apply
+          ? `
+            <div class="muted small-text">
+              ผลตรวจพร้อมยืนยัน
+            </div>
+          `
+          : `
+            <div class="muted small-text">
+              ยังยืนยันไม่ได้ กรุณาแก้ข้อความแล้วตรวจอีกครั้ง
+            </div>
+          `
+      }
+    </div>
+  `;
+}
+
+
+function clearStaffVerificationPreview(
+  card,
+  message = "",
+) {
+  if (!card) {
+    return;
+  }
+
+  card._staffVerificationPreview =
+    null;
+
+  const previewArea =
+    card.querySelector(
+      ".staff-verification-preview",
+    );
+
+  if (previewArea) {
+    previewArea.innerHTML =
+      message
+        ? `
+          <div class="muted small-text">
+            ${escapeHtml(message)}
+          </div>
+        `
+        : "";
+  }
+
+  const applyButton =
+    card.querySelector(
+      ".apply-staff-verification-correction",
+    );
+
+  if (applyButton) {
+    applyButton.disabled =
+      true;
+  }
+}
+
+
+function staffVerificationErrorCode(
+  error,
+) {
+  return String(
+    error?.payload?.error
+    ?? error?.message
+    ?? "",
+  );
+}
+
+
+const STAFF_VERIFICATION_STATE_CONFLICTS =
+  new Set([
+    "MESSAGE_NOT_FOUND",
+    "MESSAGE_ALREADY_VERIFIED",
+    "MESSAGE_ALREADY_UNSENT",
+    "MESSAGE_NOT_READY_FOR_VERIFICATION",
+    "MESSAGE_HAS_NO_ORDER_ITEMS",
+    "MESSAGE_OUTSIDE_STAFF_SCOPE",
+    "MESSAGE_OUTSIDE_CURRENT_SETTLEMENT",
+    "MESSAGE_ROUND_NOT_CURRENT",
+    "MESSAGE_LINE_GROUP_CONFIG_MISMATCH",
+    "VERIFICATION_SOURCE_CHANGED",
+    "CLAIM_REQUIRED",
+    "CLAIM_EXPIRED",
+    "CLAIM_OWNED_BY_OTHER",
+    "STALE_CLAIM_VERSION",
+    "CLAIM_RELEASE_FAILED",
+    "SETTLEMENT_NOT_OPEN",
+    "NO_OPEN_SETTLEMENT",
+    "STAFF_NOT_ACTIVE",
+  ]);
+
+
+const STAFF_VERIFICATION_PREVIEW_ERRORS =
+  new Set([
+    "VERIFICATION_PREVIEW_REQUIRED",
+    "VERIFICATION_PREVIEW_EXPIRED",
+    "VERIFICATION_PREVIEW_STALE",
+    "VERIFICATION_PREVIEW_TOKEN_INVALID",
+  ]);
+
+
+function isStaffVerificationStateConflict(
+  error,
+) {
+  return STAFF_VERIFICATION_STATE_CONFLICTS
+    .has(
+      staffVerificationErrorCode(
+        error,
+      ),
+    );
+}
+
+
+function renderStaffVerificationPage(
+  root,
+  {
+    items = [],
+    pagination = {},
+    actor = null,
+    append = false,
+  } = {},
+) {
+  if (!root) {
+    return;
+  }
+
+  root._staffVerificationActor =
+    actor
+    ?? root._staffVerificationActor
+    ?? null;
+
+  const itemsRoot =
+    root.querySelector(
+      ".staff-verification-items",
+    );
+
+  const footer =
+    root.querySelector(
+      ".staff-verification-footer",
+    );
+
+  if (
+    !itemsRoot
+    || !footer
+  ) {
+    return;
+  }
+
+  const cardsHtml =
+    (items ?? [])
+      .map(
+        staffVerificationCardHtml,
+      )
+      .join("");
+
+  if (append) {
+    itemsRoot.insertAdjacentHTML(
+      "beforeend",
+      cardsHtml,
+    );
+  } else {
+    itemsRoot.innerHTML =
+      cardsHtml
+      || `
+        <div class="empty compact">
+          ไม่มีออเดอร์ที่รอตรวจยืนยัน
+        </div>
+      `;
+  }
+
+  hydrateStaffVerificationCards(
+    root,
+    items,
+    actor,
+  );
+
+  const total =
+    Number(
+      pagination?.total
+      ?? 0,
+    );
+
+  const returned =
+    Number(
+      pagination?.returned
+      ?? items.length,
+    );
+
+  const resolvedOffset =
+    Number(
+      pagination?.offset
+      ?? 0,
+    );
+
+  const loaded =
+    itemsRoot.querySelectorAll(
+      ".staff-verification-card",
+    ).length;
+
+  const nextOffset =
+    resolvedOffset
+    + returned;
+
+  footer.innerHTML = `
+    <div class="muted small-text">
+      แสดง
+      ${formatNumber(loaded)}
+      จาก
+      ${formatNumber(total)}
+      รายการ
+    </div>
+
+    ${
+      pagination?.has_more
+        ? `
+          <button
+            type="button"
+            class="button ghost small load-more-staff-verifications"
+            data-next-offset="${escapeHtml(
+              nextOffset,
+            )}"
+          >
+            โหลดเพิ่ม
+          </button>
+        `
+        : ""
+    }
+  `;
+
+  const loadMore =
+    footer.querySelector(
+      ".load-more-staff-verifications",
+    );
+
+  if (loadMore) {
+    loadMore.addEventListener(
+      "click",
+      async (event) => {
+        const next =
+          Number(
+            event.currentTarget
+              .dataset.nextOffset
+            || 0,
+          );
+
+        event.currentTarget.disabled =
+          true;
+
+        await loadStaffVerificationPage(
+          root,
+          {
+            offset:
+              next,
+
+            append:
+              true,
+          },
+        );
+      },
+    );
+  }
+}
+
+
+async function loadStaffVerificationPage(
+  root,
+  {
+    offset = 0,
+    append = false,
+  } = {},
+) {
+  if (
+    !root
+    || state.authMode !== "STAFF"
+  ) {
+    return;
+  }
+
+  const payload =
+    await api(
+      `/api/staff-workbench?${staffVerificationQueueQuery(
+        {
+          offset,
+          limit: 50,
+        },
+      )}`,
+    );
+
+  renderStaffVerificationPage(
+    root,
+    {
+      items:
+        payload.verification_items
+        ?? [],
+
+      pagination:
+        payload.verification_pagination
+        ?? {},
+
+      actor:
+        payload.actor
+        ?? null,
+
+      append,
+    },
+  );
+}
+
+
+async function reloadStaffVerificationQueue(
+  root,
+) {
+  await loadStaffVerificationPage(
+    root,
+    {
+      offset: 0,
+      append: false,
+    },
+  );
+}
+
+
+async function mutateStaffVerificationClaim(
+  card,
+  action,
+) {
+  const root =
+    card?.closest(
+      "#staffVerificationQueue",
+    );
+
+  const messageRecordId =
+    staffVerificationMessageRecordId(
+      card,
+    );
+
+  if (
+    !root
+    || !messageRecordId
+    || state.authMode !== "STAFF"
+  ) {
+    return;
+  }
+
+  const body = {
+    action,
+
+    message_record_id:
+      messageRecordId,
+  };
+
+  if (action === "CLAIM") {
+    body.lease_seconds =
+      300;
+  } else {
+    const leaseVersion =
+      staffVerificationLeaseVersion(
+        card,
+      );
+
+    if (!leaseVersion) {
+      toast(
+        "ไม่พบ lease version ปัจจุบัน",
+        true,
+      );
+
+      await reloadStaffVerificationQueue(
+        root,
+      );
+
+      return;
+    }
+
+    body.lease_version =
+      leaseVersion;
+  }
+
+  const buttons = [
+    ...card.querySelectorAll(
+      ".staff-verification-claim-actions button",
+    ),
+  ];
+
+  buttons.forEach(
+    (button) => {
+      button.disabled = true;
+    },
+  );
+
+  try {
+    const payload =
+      await api(
+        "/api/staff-verification-claim",
+        {
+          method: "POST",
+
+          body:
+            JSON.stringify(
+              body,
+            ),
+        },
+      );
+
+    toast(
+      action === "CLAIM"
+        ? payload?.claim?.status === "RENEWED"
+          ? "ต่อเวลารายการตรวจยืนยันแล้ว"
+          : "รับรายการตรวจยืนยันแล้ว"
+        : "คืนรายการตรวจยืนยันแล้ว",
+    );
+
+    await reloadStaffVerificationQueue(
+      root,
+    );
+  } catch (error) {
+    try {
+      await reloadStaffVerificationQueue(
+        root,
+      );
+    } catch (refreshError) {
+      console.warn(
+        "refresh Human Verification claim failed",
+        refreshError,
+      );
+    }
+
+    toast(
+      `${
+        action === "CLAIM"
+          ? "รับ/ต่อเวลารายการตรวจยืนยัน"
+          : "คืนรายการตรวจยืนยัน"
+      } ไม่สำเร็จ: ${
+        staffVerificationErrorCode(
+          error,
+        )
+      }`,
+      true,
+    );
+  } finally {
+    if (card.isConnected) {
+      buttons.forEach(
+        (button) => {
+          button.disabled = false;
+        },
+      );
+    }
+  }
+}
+
+
+async function confirmStaffVerification(
+  card,
+  button,
+) {
+  if (
+    !staffVerificationCanMutate(
+      card,
+    )
+  ) {
+    return;
+  }
+
+  const root =
+    card.closest(
+      "#staffVerificationQueue",
+    );
+
+  const item =
+    card._staffVerificationItem;
+
+  const messageRecordId =
+    staffVerificationMessageRecordId(
+      card,
+    );
+
+  const leaseVersion =
+    staffVerificationLeaseVersion(
+      card,
+    );
+
+  if (
+    !root
+    || !messageRecordId
+    || !leaseVersion
+  ) {
+    return;
+  }
+
+  if (
+    !window.confirm(
+      "ยืนยันว่าออเดอร์นี้ถูกต้องตามผล Parser ปัจจุบัน?",
+    )
+  ) {
+    return;
+  }
+
+  button.disabled = true;
+
+  try {
+    await api(
+      "/api/staff-verification-verify",
+      {
+        method: "POST",
+
+        body:
+          JSON.stringify({
+            message_record_id:
+              messageRecordId,
+
+            lease_version:
+              leaseVersion,
+
+            parser_version:
+              item?.parser_version,
+
+            normalized_text:
+              item?.normalized_text,
+
+            items:
+              item?.items,
+          }),
+      },
+    );
+
+    toast(
+      "ยืนยันออเดอร์แล้ว",
+    );
+
+    await reloadStaffVerificationQueue(
+      root,
+    );
+  } catch (error) {
+    if (
+      isStaffVerificationStateConflict(
+        error,
+      )
+    ) {
+      try {
+        await reloadStaffVerificationQueue(
+          root,
+        );
+      } catch (refreshError) {
+        console.warn(
+          "refresh Human Verification after confirm conflict failed",
+          refreshError,
+        );
+      }
+    }
+
+    toast(
+      `ยืนยันออเดอร์ไม่สำเร็จ: ${
+        staffVerificationErrorCode(
+          error,
+        )
+      }`,
+      true,
+    );
+  } finally {
+    if (button.isConnected) {
+      button.disabled = false;
+    }
+  }
+}
+
+
+async function previewStaffVerificationCorrection(
+  card,
+  button,
+) {
+  if (
+    !staffVerificationCanMutate(
+      card,
+    )
+  ) {
+    return;
+  }
+
+  const root =
+    card.closest(
+      "#staffVerificationQueue",
+    );
+
+  const messageRecordId =
+    staffVerificationMessageRecordId(
+      card,
+    );
+
+  const leaseVersion =
+    staffVerificationLeaseVersion(
+      card,
+    );
+
+  const editor =
+    card.querySelector(
+      ".staff-verification-correction",
+    );
+
+  const previewArea =
+    card.querySelector(
+      ".staff-verification-preview",
+    );
+
+  const correctedText =
+    String(
+      editor?.value
+      ?? "",
+    );
+
+  if (
+    !root
+    || !messageRecordId
+    || !leaseVersion
+    || !editor
+    || !previewArea
+  ) {
+    return;
+  }
+
+  if (!correctedText.trim()) {
+    toast(
+      "กรุณาระบุข้อความที่ถูกต้อง",
+      true,
+    );
+
+    return;
+  }
+
+  clearStaffVerificationPreview(
+    card,
+  );
+
+  button.disabled = true;
+
+  previewArea.innerHTML = `
+    <div class="empty compact">
+      กำลังตรวจผล...
+    </div>
+  `;
+
+  try {
+    const payload =
+      await api(
+        "/api/staff-verification-correction-preview",
+        {
+          method: "POST",
+
+          body:
+            JSON.stringify({
+              message_record_id:
+                messageRecordId,
+
+              lease_version:
+                leaseVersion,
+
+              corrected_text:
+                correctedText,
+            }),
+        },
+      );
+
+    const preview =
+      payload?.preview
+      ?? {};
+
+    if (
+      preview?.can_apply
+      && payload?.preview_token
+    ) {
+      card._staffVerificationPreview = {
+        token:
+          payload.preview_token,
+
+        correctedText,
+
+        leaseVersion,
+
+        roundStatus:
+          preview.round_status
+          ?? null,
+      };
+    }
+
+    previewArea.innerHTML =
+      staffVerificationPreviewHtml(
+        preview,
+      );
+
+    const applyButton =
+      card.querySelector(
+        ".apply-staff-verification-correction",
+      );
+
+    if (applyButton) {
+      applyButton.disabled =
+        !(
+          preview?.can_apply
+          && payload?.preview_token
+        );
+    }
+  } catch (error) {
+    clearStaffVerificationPreview(
+      card,
+      `ตรวจผลไม่สำเร็จ: ${
+        staffVerificationErrorCode(
+          error,
+        )
+      }`,
+    );
+
+    if (
+      isStaffVerificationStateConflict(
+        error,
+      )
+    ) {
+      try {
+        await reloadStaffVerificationQueue(
+          root,
+        );
+      } catch (refreshError) {
+        console.warn(
+          "refresh Human Verification after Preview conflict failed",
+          refreshError,
+        );
+      }
+    }
+  } finally {
+    if (button.isConnected) {
+      button.disabled = false;
+    }
+  }
+}
+
+
+async function applyStaffVerificationCorrection(
+  card,
+  button,
+) {
+  if (
+    !staffVerificationCanMutate(
+      card,
+    )
+  ) {
+    return;
+  }
+
+  const root =
+    card.closest(
+      "#staffVerificationQueue",
+    );
+
+  const messageRecordId =
+    staffVerificationMessageRecordId(
+      card,
+    );
+
+  const leaseVersion =
+    staffVerificationLeaseVersion(
+      card,
+    );
+
+  const editor =
+    card.querySelector(
+      ".staff-verification-correction",
+    );
+
+  const correctedText =
+    String(
+      editor?.value
+      ?? "",
+    );
+
+  const preview =
+    card._staffVerificationPreview;
+
+  if (
+    !root
+    || !messageRecordId
+    || !leaseVersion
+    || !editor
+  ) {
+    return;
+  }
+
+  if (
+    !preview
+    || preview.correctedText
+      !== correctedText
+    || preview.leaseVersion
+      !== leaseVersion
+  ) {
+    clearStaffVerificationPreview(
+      card,
+      "ผลตรวจไม่ตรงกับข้อความหรือสิทธิ์ปัจจุบัน กรุณาตรวจผลใหม่",
+    );
+
+    toast(
+      "กรุณาตรวจผลใหม่ก่อนยืนยัน",
+      true,
+    );
+
+    return;
+  }
+
+  const confirmation =
+    preview.roundStatus === "CLOSED"
+      ? (
+        "ยืนยันบันทึก Human Truth สำหรับรอบที่ปิดแล้ว?\n\n"
+        + "ข้อมูล canonical ของรอบที่ปิดแล้วจะไม่ถูกแก้ไข"
+      )
+      : (
+        "ยืนยันแก้ไขออเดอร์ตามผลที่ตรวจแล้ว?"
+      );
+
+  if (
+    !window.confirm(
+      confirmation,
+    )
+  ) {
+    return;
+  }
+
+  button.disabled = true;
+
+  try {
+    const payload =
+      await api(
+        "/api/staff-verification-correct",
+        {
+          method: "POST",
+
+          body:
+            JSON.stringify({
+              message_record_id:
+                messageRecordId,
+
+              lease_version:
+                leaseVersion,
+
+              corrected_text:
+                correctedText,
+
+              preview_token:
+                preview.token,
+            }),
+        },
+      );
+
+    const result =
+      payload?.verification
+      ?? {};
+
+    clearStaffVerificationPreview(
+      card,
+    );
+
+    toast(
+      result?.canonical_mutation_applied
+        ? "แก้ Human Truth และอัปเดตออเดอร์รอบปัจจุบันแล้ว"
+        : "บันทึก Human Truth แล้ว โดยไม่แก้ canonical ของรอบที่ปิดแล้ว",
+    );
+
+    await reloadStaffVerificationQueue(
+      root,
+    );
+
+    await loadDashboard({
+      silent: true,
+      preserveReviewWorkbench: true,
+    });
+  } catch (error) {
+    const code =
+      staffVerificationErrorCode(
+        error,
+      );
+
+    if (
+      STAFF_VERIFICATION_PREVIEW_ERRORS
+        .has(code)
+    ) {
+      clearStaffVerificationPreview(
+        card,
+        "ผลตรวจหมดอายุหรือไม่ตรงกับข้อมูลล่าสุด กรุณาตรวจผลใหม่",
+      );
+    }
+
+    if (
+      isStaffVerificationStateConflict(
+        error,
+      )
+    ) {
+      try {
+        await reloadStaffVerificationQueue(
+          root,
+        );
+      } catch (refreshError) {
+        console.warn(
+          "refresh Human Verification after correction conflict failed",
+          refreshError,
+        );
+      }
+    }
+
+    toast(
+      `ยืนยันแก้ไขไม่สำเร็จ: ${code}`,
+      true,
+    );
+  } finally {
+    if (button.isConnected) {
+      button.disabled = false;
+    }
+  }
+}
+
+
+function bindStaffVerificationActions(
+  root,
+) {
+  if (!root) {
+    return;
+  }
+
+  root.addEventListener(
+    "click",
+    (event) => {
+      const button =
+        event.target.closest(
+          [
+            ".claim-staff-verification",
+            ".renew-staff-verification",
+            ".release-staff-verification",
+            ".confirm-staff-verification",
+            ".preview-staff-verification-correction",
+            ".apply-staff-verification-correction",
+          ].join(","),
+        );
+
+      if (
+        !button
+        || !root.contains(button)
+      ) {
+        return;
+      }
+
+      const card =
+        button.closest(
+          ".staff-verification-card",
+        );
+
+      if (!card) {
+        return;
+      }
+
+      if (
+        button.classList.contains(
+          "release-staff-verification",
+        )
+      ) {
+        void mutateStaffVerificationClaim(
+          card,
+          "RELEASE",
+        );
+
+        return;
+      }
+
+      if (
+        button.classList.contains(
+          "claim-staff-verification",
+        )
+        || button.classList.contains(
+          "renew-staff-verification",
+        )
+      ) {
+        void mutateStaffVerificationClaim(
+          card,
+          "CLAIM",
+        );
+
+        return;
+      }
+
+      if (
+        button.classList.contains(
+          "confirm-staff-verification",
+        )
+      ) {
+        void confirmStaffVerification(
+          card,
+          button,
+        );
+
+        return;
+      }
+
+      if (
+        button.classList.contains(
+          "preview-staff-verification-correction",
+        )
+      ) {
+        void previewStaffVerificationCorrection(
+          card,
+          button,
+        );
+
+        return;
+      }
+
+      void applyStaffVerificationCorrection(
+        card,
+        button,
+      );
+    },
+  );
+
+  root.addEventListener(
+    "input",
+    (event) => {
+      const editor =
+        event.target.closest(
+          ".staff-verification-correction",
+        );
+
+      if (
+        !editor
+        || !root.contains(editor)
+      ) {
+        return;
+      }
+
+      const card =
+        editor.closest(
+          ".staff-verification-card",
+        );
+
+      if (
+        !card
+        || !card._staffVerificationPreview
+      ) {
+        return;
+      }
+
+      clearStaffVerificationPreview(
+        card,
+        "ข้อความถูกแก้หลังจากตรวจผลแล้ว กรุณากด “ตรวจผล” ใหม่",
+      );
+    },
+  );
+}
+
+
+function appendStaffVerificationQueue(
+  list,
+  workbenchPayload,
+) {
+  if (
+    state.authMode !== "STAFF"
+    || !list
+  ) {
+    return;
+  }
+
+  list.insertAdjacentHTML(
+    "beforeend",
+    `
+      <section
+        id="staffVerificationQueue"
+        class="preview-box"
+      >
+        <div class="preview-heading">
+          ตรวจยืนยันออเดอร์
+          <span class="muted">
+            Human Verification
+          </span>
+        </div>
+
+        <div class="muted small-text">
+          ออเดอร์ที่ Parser อ่านได้แล้วแต่ยังรอเจ้าหน้าที่ตรวจยืนยัน
+          ต้องรับรายการก่อนยืนยันหรือแก้ไข
+        </div>
+
+        <div class="staff-verification-items">
+        </div>
+
+        <div class="staff-verification-footer">
+        </div>
+      </section>
+    `,
+  );
+
+  const root =
+    list.querySelector(
+      "#staffVerificationQueue",
+    );
+
+  if (!root) {
+    return;
+  }
+
+  bindStaffVerificationActions(
+    root,
+  );
+
+  renderStaffVerificationPage(
+    root,
+    {
+      items:
+        workbenchPayload?.verification_items
+        ?? [],
+
+      pagination:
+        workbenchPayload?.verification_pagination
+        ?? {},
+
+      actor:
+        workbenchPayload?.actor
+        ?? null,
+
+      append: false,
+    },
+  );
+}
+
+
 // ============================================================
 // R2D3B-2 Staff-scoped Post-close Review Queue
 //
@@ -6996,6 +8819,11 @@ async function loadReviews() {
       if (
         state.authMode === "STAFF"
       ) {
+        appendStaffVerificationQueue(
+          list,
+          workbenchPayload,
+        );
+
         await appendStaffPostCloseReviewQueue(
           list,
         );
@@ -7156,6 +8984,11 @@ async function loadReviews() {
     if (
       state.authMode === "STAFF"
     ) {
+      appendStaffVerificationQueue(
+        list,
+        workbenchPayload,
+      );
+
       await appendStaffPostCloseReviewQueue(
         list,
       );
