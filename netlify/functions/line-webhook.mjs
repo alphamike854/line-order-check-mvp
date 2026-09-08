@@ -5,6 +5,7 @@ import { firstLedgerCode } from "../../src/lib/report-ledger.mjs";
 import {
   downloadLineImage,
   isRetryableGeminiOcrError,
+  shouldReviewOcrParseResult,
   transcribeOrderImage,
 } from "../../src/lib/image-ocr.mjs";
 
@@ -715,11 +716,38 @@ async function handleImageMessage(
   const config = await loadParserConfig();
   const result = parseOrder(ocr.text, config);
 
+  const ocrParseNeedsHumanReview =
+    shouldReviewOcrParseResult(
+      ocr.text,
+      result,
+    );
+
+  const effectiveResult =
+    ocrParseNeedsHumanReview
+      ? {
+          ...result,
+          status: "REVIEW",
+          items: [],
+          errors: [
+            ...(result.errors ?? []),
+            {
+              code:
+                "OCR_PARSE_LOW_CONFIDENCE",
+              detail:
+                "OCR structure is more complex than the deterministic parse result; inspect the original image",
+            },
+          ],
+        }
+      : result;
+
   const parserNeedsHumanReview =
-    ["REVIEW", "PARTIAL"].includes(result.status)
+    ocrParseNeedsHumanReview
+    || ["REVIEW", "PARTIAL"].includes(
+      effectiveResult.status,
+    )
     || (
-      result.status === "PARSED"
-      && !(result.items ?? []).length
+      effectiveResult.status === "PARSED"
+      && !(effectiveResult.items ?? []).length
     );
 
   if (parserNeedsHumanReview) {
@@ -735,11 +763,11 @@ async function handleImageMessage(
   return persistParsedResult(
     message,
     effectiveGroup,
-    result,
+    effectiveResult,
     {
       ...baseUpdate,
       first_order_code:
-        firstLedgerCode(result.items, ocr.text) || null,
+        firstLedgerCode(effectiveResult.items, ocr.text) || null,
     },
   );
 

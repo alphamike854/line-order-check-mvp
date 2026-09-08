@@ -281,12 +281,12 @@ console.log(
 
 assert.match(
   imageHandler,
-  /const parserNeedsHumanReview =[\s\S]*?\["REVIEW", "PARTIAL"\]\.includes\(result\.status\)/,
+  /const parserNeedsHumanReview =[\s\S]*?\["REVIEW", "PARTIAL"\]\.includes\([\s\S]*?effectiveResult\.status/,
 );
 
 assert.match(
   imageHandler,
-  /result\.status === "PARSED"[\s\S]*?!\(result\.items \?\? \[\]\)\.length/,
+  /effectiveResult\.status === "PARSED"[\s\S]*?!\(effectiveResult\.items \?\? \[\]\)\.length/,
 );
 
 const parserGuardIndex =

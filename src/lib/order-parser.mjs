@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.7.23";
+const PARSER_VERSION = "1.7.24";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -2376,6 +2376,25 @@ function normalizeRealChatSweepGrammar(text) {
     // DOUBLE
     // ----------------------------------------------------------
 
+
+    // R10B production:
+    // รูดเบิ้ล 200x200 บ-ล
+    //
+    // Normalize quantity-before-modifier into the
+    // established DOUBLE generator grammar.
+    m = clean.match(
+      /^รูดเบิ้ล\s*(\d+(?:\s*[xX*\/]\s*\d+)?)\s*(บลก|บนล่างกลับ|บ-ล|บล|บนล่าง|บน|บ|ล่าง|ล)\s*(?:บาท|฿)?$/u
+    );
+
+    if (m) {
+      return appendExclude(
+        [
+          `รูดเบิ้ล ${cleanQuantity(m[1])} ${canonicalSweepModifier(m[2])}`
+        ],
+        excludeDoubles
+      );
+    }
+
     // รูดเบิ้ล 00 ถึง 99=50*50
     m = clean.match(
       /^รูดเบิ้ล\s+00\s*ถึง\s*99\s*=\s*(\d+(?:\s*[xX*\/]\s*\d+)?)\s*(?:บาท|฿)?$/u
@@ -2503,6 +2522,51 @@ function normalizeRealChatSweepGrammar(text) {
   for (let i = 0; i < lines.length; i += 1) {
     const original = String(lines[i] || "");
     const trimmed = original.trim();
+
+
+    // R10B production:
+    // รูดตั้งแต่00-99เลขเบิ้ล=1200*1200
+    // บล
+    //
+    // 00-99 เลขเบิ้ล means all ten doubles,
+    // not only the endpoints 00 and 99.
+    const explicitDoubleRange = trimmed.match(
+      /^รูดตั้งแต่\s*00\s*-\s*99\s*เลขเบิ้ล\s*=\s*(\d+(?:\s*[xX*\/]\s*\d+)?)(?:\s*(บลก|บนล่างกลับ|บ-ล|บล|บนล่าง|บน|บ|ล่าง|ล))?\s*(?:บาท|฿)?$/u
+    );
+
+    if (explicitDoubleRange) {
+      let modifier = String(
+        explicitDoubleRange[2] || ""
+      ).trim();
+
+      let consumedIndex = i;
+
+      if (!modifier) {
+        const j = nextNonEmptyIndex(i + 1);
+
+        if (j >= 0) {
+          const next = String(lines[j] || "").trim();
+
+          if (modifierOnly.test(next)) {
+            modifier = next;
+            consumedIndex = j;
+          }
+        }
+      }
+
+      const suffix = (
+        modifier
+          ? ` ${canonicalSweepModifier(modifier)}`
+          : ""
+      );
+
+      out.push(
+        `รูดเบิ้ล ${cleanQuantity(explicitDoubleRange[1])}${suffix}`
+      );
+
+      i = consumedIndex;
+      continue;
+    }
 
     if (
       !/^(?:รูดเบิ้ล(?=$|\s|[-=0-9]|บลก|บล|บ-ล|บนล่าง|บน|บ|ล่าง|ล)|รูด(?=$|\s|[-=0-9]))/u.test(
@@ -3447,6 +3511,156 @@ function isA5TwoDigitCodeListLine(line) {
   return residue ? null : parts;
 }
 
+
+function normalizeStandaloneBlgPairBlocks(text) {
+  const lines = String(text || "").split("\n");
+  const out = [];
+
+  const nextNonBlankIndex = (start) => {
+    let index = start;
+
+    while (
+      index < lines.length
+      && !String(lines[index] || "").trim()
+    ) {
+      index += 1;
+    }
+
+    return index;
+  };
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const raw = String(lines[i] || "");
+    const line = raw.trim();
+
+    if (!/^บลก\s*[.]?$/u.test(line)) {
+      out.push(raw);
+      continue;
+    }
+
+    const codes = [];
+    let codeLineCount = 0;
+    let j = nextNonBlankIndex(i + 1);
+
+    while (j < lines.length) {
+      const candidate = String(lines[j] || "").trim();
+      const found = isA5TwoDigitCodeListLine(candidate);
+
+      if (!found) break;
+
+      codes.push(...found);
+      codeLineCount += 1;
+      j = nextNonBlankIndex(j + 1);
+    }
+
+    const terminal = (
+      j < lines.length
+        ? String(lines[j] || "").trim().match(
+            /^=\s*(\d+(?:\s*[xX*\/]\s*\d+)?)$/u
+          )
+        : null
+    );
+
+    if (
+      terminal
+      && codeLineCount >= 1
+      && codes.length >= 2
+    ) {
+      const quantity = String(terminal[1] || "").replace(/\s+/g, "");
+
+      out.push(
+        `${codes.join(" ")}=${quantity} บลก`
+      );
+
+      i = j;
+      continue;
+    }
+
+    out.push(raw);
+  }
+
+  return out.join("\n");
+}
+
+
+function normalizeTrailingTwoDigitDirectionQuantityBlocks(text) {
+  const lines = String(text || "").split("\n");
+  const out = [];
+
+  const nextNonBlankIndex = (start) => {
+    let index = start;
+
+    while (
+      index < lines.length
+      && !String(lines[index] || "").trim()
+    ) {
+      index += 1;
+    }
+
+    return index;
+  };
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const raw = String(lines[i] || "");
+    const line = raw.trim();
+    const firstCodes = isA5TwoDigitCodeListLine(line);
+
+    if (!firstCodes) {
+      out.push(raw);
+      continue;
+    }
+
+    const codes = [...firstCodes];
+    let codeLineCount = 1;
+    let j = nextNonBlankIndex(i + 1);
+
+    while (j < lines.length) {
+      const candidate = String(lines[j] || "").trim();
+      const moreCodes = isA5TwoDigitCodeListLine(candidate);
+
+      if (!moreCodes) break;
+
+      codes.push(...moreCodes);
+      codeLineCount += 1;
+      j = nextNonBlankIndex(j + 1);
+    }
+
+    const terminal = (
+      j < lines.length
+        ? String(lines[j] || "").trim().match(
+            /^([\d,]+)\s*(บน|บ|ล่าง|ล)$/u
+          )
+        : null
+    );
+
+    if (
+      terminal
+      && codeLineCount >= 2
+      && codes.length >= 4
+    ) {
+      const quantity = String(terminal[1] || "").replace(/,/g, "");
+
+      const category = (
+        /^(?:บน|บ)$/u.test(terminal[2])
+          ? "A"
+          : "B"
+      );
+
+      out.push(
+        `${codes.join(" ")}=${quantity} ${category}`
+      );
+
+      i = j;
+      continue;
+    }
+
+    out.push(raw);
+  }
+
+  return out.join("\n");
+}
+
+
 function isA5ThreeDigitCodeListLine(line) {
   const raw = String(line || "").trim();
   if (!raw) return null;
@@ -4350,8 +4564,12 @@ function parseOrder(inputText, config = {}) {
             normalizeMixedWidthInlineAssignments(
               normalizeTrailingNaturalMetadataAfterCompletedBlg(
                 normalizeRealChatSweepGrammar(
-                  normalizeContextualShortDateMetadata(
-                    orderNormalized
+                  normalizeTrailingTwoDigitDirectionQuantityBlocks(
+                    normalizeStandaloneBlgPairBlocks(
+                      normalizeContextualShortDateMetadata(
+                        orderNormalized
+                      )
+                    )
                   )
                 )
               )

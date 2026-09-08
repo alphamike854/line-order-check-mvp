@@ -39,6 +39,59 @@ export function hasOcrUncertainty(text) {
   return value.includes("?") || /\[UNCLEAR\]/i.test(value) || /ไม่ชัด/i.test(value);
 }
 
+export function shouldReviewOcrParseResult(
+  text,
+  result,
+) {
+  if (
+    String(result?.status || "")
+      !== "PARSED"
+  ) {
+    return false;
+  }
+
+  const items =
+    Array.isArray(result?.items)
+      ? result.items
+      : [];
+
+  if (!items.length) {
+    return false;
+  }
+
+  const value =
+    String(text ?? "");
+
+  const quantityPairSignals =
+    value.match(
+      /\d+(?:,\d{3})*\s*[xX*\/×]\s*\d+(?:,\d{3})*/gu,
+    )
+    ?? [];
+
+  /*
+   * OCR fail-closed safety.
+   *
+   * Handwritten OCR can lose separators or merge codes
+   * while still leaving syntactically valid quantity pairs.
+   * parseOrder() may therefore return PARSED even though
+   * only a small fraction of the visible structure survived.
+   *
+   * Require human Review when multiple independent
+   * quantity-pair signals exist but fewer canonical items
+   * were recovered than those signals.
+   */
+  if (
+    quantityPairSignals.length >= 2
+    && items.length
+      < quantityPairSignals.length
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+
 export async function downloadLineImage(messageId, channelAccessToken) {
   if (!messageId) throw new Error("LINE_IMAGE_MESSAGE_ID_MISSING");
   if (!channelAccessToken) throw new Error("LINE_CHANNEL_ACCESS_TOKEN_MISSING");
