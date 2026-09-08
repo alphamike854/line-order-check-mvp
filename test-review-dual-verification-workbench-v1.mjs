@@ -199,6 +199,44 @@ assert.match(
   /เริ่มตรวจ/,
 );
 
+assert.match(
+  app,
+  /function staffVerificationItemsTotal/,
+  "Correction Preview must calculate total from server-returned items",
+);
+
+assert.match(
+  app,
+  /staffVerificationOriginalTotal/,
+  "Correction Preview must retain the original message total",
+);
+
+assert.match(
+  app,
+  /สรุปยอดหลังแก้ไข/,
+);
+
+assert.match(
+  app,
+  /ยอดเดิม:/,
+);
+
+assert.match(
+  app,
+  /ยอดใหม่:/,
+);
+
+assert.match(
+  app,
+  /ผลต่าง:/,
+);
+
+assert.match(
+  app,
+  /staffVerificationPreviewHtml\([\s\S]*card\._staffVerificationItem/,
+  "Preview renderer must compare server Preview with the current Workbench item",
+);
+
 const reviews =
   between(
     "async function loadReviews()",

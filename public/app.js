@@ -5606,8 +5606,58 @@ function hydrateStaffVerificationCards(
 }
 
 
+function staffVerificationItemsTotal(
+  items = [],
+) {
+  if (!Array.isArray(items)) {
+    return 0;
+  }
+
+  return items.reduce(
+    (total, item) => {
+      const quantity =
+        Number(
+          item?.quantity
+          ?? 0,
+        );
+
+      return total + (
+        Number.isFinite(quantity)
+          ? quantity
+          : 0
+      );
+    },
+    0,
+  );
+}
+
+
+function staffVerificationOriginalTotal(
+  item = {},
+) {
+  const messageOrderTotal =
+    Number(
+      item?.message_order_total,
+    );
+
+  if (
+    Number.isFinite(
+      messageOrderTotal,
+    )
+  ) {
+    return messageOrderTotal;
+  }
+
+  return staffVerificationItemsTotal(
+    item?.items
+    ?? [],
+  );
+}
+
+
 function staffVerificationPreviewHtml(
   preview = {},
+  originalItem = {},
 ) {
   const warnings =
     Array.isArray(
@@ -5622,6 +5672,86 @@ function staffVerificationPreviewHtml(
     )
       ? preview.errors
       : [];
+
+  const previewItems =
+    Array.isArray(
+      preview?.items,
+    )
+      ? preview.items
+      : [];
+
+  const originalTotal =
+    staffVerificationOriginalTotal(
+      originalItem,
+    );
+
+  const previewTotal =
+    staffVerificationItemsTotal(
+      previewItems,
+    );
+
+  const hasPreviewTotal =
+    previewItems.length > 0;
+
+  const difference =
+    previewTotal
+    - originalTotal;
+
+  const differenceLabel =
+    difference > 0
+      ? `+${formatNumber(
+          difference,
+        )}`
+      : formatNumber(
+          difference,
+        );
+
+  const totalSummary = `
+    <div class="reason">
+      <strong>
+        สรุปยอดหลังแก้ไข
+      </strong>
+
+      <div class="small-text">
+        ยอดเดิม:
+        <strong>
+          ${formatNumber(
+            originalTotal,
+          )}
+        </strong>
+      </div>
+
+      <div class="small-text">
+        ยอดใหม่:
+        <strong>
+          ${
+            hasPreviewTotal
+              ? formatNumber(
+                  previewTotal,
+                )
+              : "-"
+          }
+        </strong>
+      </div>
+
+      ${
+        hasPreviewTotal
+          ? `
+            <div class="small-text">
+              ผลต่าง:
+              <strong>
+                ${differenceLabel}
+              </strong>
+            </div>
+          `
+          : `
+            <div class="muted small-text">
+              ยังไม่สามารถคำนวณยอดใหม่ได้
+            </div>
+          `
+      }
+    </div>
+  `;
 
   const lifecycleMessage =
     preview?.round_status === "CLOSED"
@@ -5673,9 +5803,10 @@ function staffVerificationPreviewHtml(
         )}
       </div>
 
+      ${totalSummary}
+
       ${staffVerificationItemsHtml(
-        preview?.items
-        ?? [],
+        previewItems,
       )}
 
       ${
@@ -6436,6 +6567,8 @@ async function previewStaffVerificationCorrection(
     previewArea.innerHTML =
       staffVerificationPreviewHtml(
         preview,
+        card._staffVerificationItem
+        ?? {},
       );
 
     const applyButton =
