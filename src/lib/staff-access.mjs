@@ -52,6 +52,65 @@ function dashboardActor(
   };
 }
 
+async function loadDashboardReviewerActor(
+  client,
+  displayName,
+  reviewerStaffCode,
+) {
+  const staffCode =
+    String(
+      reviewerStaffCode ?? "",
+    ).trim();
+
+  if (!staffCode) {
+    return dashboardActor(
+      displayName,
+    );
+  }
+
+  const {
+    data,
+    error,
+  } = await client
+    .from("staff_accounts")
+    .select(
+      "id,staff_code,display_name,role,enabled",
+    )
+    .eq(
+      "staff_code",
+      staffCode,
+    )
+    .eq(
+      "role",
+      "ADMIN",
+    )
+    .eq(
+      "enabled",
+      true,
+    )
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data) {
+    return dashboardActor(
+      displayName,
+    );
+  }
+
+  return {
+    kind: "DASHBOARD",
+    staff_id: data.id,
+    staff_code: data.staff_code,
+    display_name: data.display_name,
+    role: data.role,
+    is_admin: true,
+  };
+}
+
+
 function staffActor(row) {
   return {
     kind: "STAFF",
@@ -73,6 +132,8 @@ export async function authenticateWorkbenchActor(
     dashboardOperatorName =
       process.env.DASHBOARD_OPERATOR_NAME
       || "DASHBOARD",
+    dashboardReviewerStaffCode =
+      process.env.DASHBOARD_REVIEWER_STAFF_CODE,
   } = {},
 ) {
   if (!client) {
@@ -95,9 +156,12 @@ export async function authenticateWorkbenchActor(
   ) {
     return {
       ok: true,
-      actor: dashboardActor(
-        dashboardOperatorName,
-      ),
+      actor:
+        await loadDashboardReviewerActor(
+          client,
+          dashboardOperatorName,
+          dashboardReviewerStaffCode,
+        ),
     };
   }
 
