@@ -19,9 +19,9 @@ assert.match(
 );
 
 assert.ok(
-  source.includes('from("messages")') &&
-  source.includes('from("order_items")'),
-  "both messages and order_items must be fetched through paginated report queries",
+  source.includes('"accounting_effective_order_messages"') &&
+  source.includes('"accounting_effective_order_items"'),
+  "both effective accounting messages and items must be fetched through paginated report queries",
 );
 
 assert.ok(

@@ -151,17 +151,15 @@ export default async (req) => {
     const [messages,items] = await Promise.all([
       fetchAllPages(() =>
         supabase
-          .from("messages")
+          .rpc(
+            "accounting_effective_order_messages",
+            {
+              p_session_id: session.id,
+              p_line_group_ids: lineIds,
+            },
+          )
           .select(
-            "id,line_group_id,event_timestamp,parse_status,message_type,raw_text,normalized_text,ocr_text,first_order_code"
-          )
-          .eq(
-            "settlement_session_id",
-            session.id,
-          )
-          .in(
-            "line_group_id",
-            lineIds,
+            "id,line_group_id,event_timestamp,raw_text,normalized_text,ocr_text,first_order_code,message_truth_source",
           )
           .order(
             "event_timestamp",
@@ -174,20 +172,23 @@ export default async (req) => {
       ),
       fetchAllPages(() =>
         supabase
-          .from("order_items")
-          .select(
-            "id,message_record_id,line_group_id,category,code,quantity"
-          )
-          .eq(
-            "settlement_session_id",
-            session.id,
-          )
-          .in(
-            "line_group_id",
-            lineIds,
+          .rpc(
+            "accounting_effective_order_items",
+            {
+              p_session_id: session.id,
+              p_line_group_ids: lineIds,
+            },
           )
           .order(
-            "id",
+            "message_record_id",
+            { ascending:true },
+          )
+          .order(
+            "category",
+            { ascending:true },
+          )
+          .order(
+            "code",
             { ascending:true },
           )
       ),
