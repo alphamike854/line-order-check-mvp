@@ -105,7 +105,7 @@ console.log(
 
 // ------------------------------------------------------------
 // P2B-SAFETY-02
-// Existing supported decade sweep grammar remains unchanged.
+// Supported decade sweep follows company 19-code rule.
 // ------------------------------------------------------------
 for (const text of [
   "รูด 7 = 500 บล",
@@ -121,7 +121,7 @@ for (const text of [
 
   assert.equal(
     result.items.length,
-    20,
+    38,
     text
   );
 
@@ -141,7 +141,7 @@ for (const text of [
 }
 
 console.log(
-  "PASS P2B-SAFETY-02 supported decade sweep unchanged"
+  "PASS P2B-SAFETY-02 decade sweep uses company 19-code rule"
 );
 
 // ------------------------------------------------------------

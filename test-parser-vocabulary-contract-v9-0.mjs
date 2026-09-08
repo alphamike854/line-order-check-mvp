@@ -174,13 +174,29 @@ check("TWO-04 บลก -> A+B+reverse", () => {
 // D. TWO-DIGIT OPERATORS
 // ============================================================
 
-check("TWO-05 รูด retains existing canonical grammar", () => {
+check("TWO-05 รูด uses company 19-code grammar", () => {
+  const codes = [
+    ...new Set(
+      Array.from(
+        { length: 10 },
+        (_, i) => `7${i}`,
+      ).flatMap(
+        (code) => [
+          code,
+          code.split("").reverse().join(""),
+        ],
+      ),
+    ),
+  ];
+
   expectItems(
     "รูด 7-35 บล",
-    [
-      ...Array.from({ length: 10 }, (_, i) => `A7${i}=35`),
-      ...Array.from({ length: 10 }, (_, i) => `B7${i}=35`),
-    ]
+    codes.flatMap(
+      (code) => [
+        `A${code}=35`,
+        `B${code}=35`,
+      ],
+    ),
   );
 });
 

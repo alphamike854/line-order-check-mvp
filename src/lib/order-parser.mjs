@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.7.21";
+const PARSER_VERSION = "1.7.22";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -2686,9 +2686,33 @@ function parseSweepTwoDigitLine(line, cfg, acc, rules) {
     let modifier = m[2] ? modifierFromExpression(m[2], cfg) : null;
     if (m[2] && !modifier) return false;
     if (!modifier || !(modifier.categories || []).length) {
-      modifier = quantitySpec.type === "PAIR"
-        ? mergeModifiers(modifier, { categories: ["A", "B"], reverse: false })
-        : mergeModifiers(modifier, { categories: [cfg.defaultCategoryByCodeLength[2] || "A"], reverse: false });
+      const isRoodDouble =
+        /^รูดเบิ้ล(?=$|\s|[-=0-9])/u.test(clean);
+
+      if (isRoodDouble) {
+        // Company rule v9.32:
+        // รูดเบิ้ล defaults to A/B.
+        modifier = mergeModifiers(modifier, {
+          categories: ["A", "B"],
+          reverse: false,
+        });
+      } else {
+        // Preserve the established bare "เบิ้ล" contract:
+        // single quantity => default 2-digit category (normally A)
+        // pair quantity   => A/B
+        modifier =
+          quantitySpec.type === "PAIR"
+            ? mergeModifiers(modifier, {
+                categories: ["A", "B"],
+                reverse: false,
+              })
+            : mergeModifiers(modifier, {
+                categories: [
+                  cfg.defaultCategoryByCodeLength[2] || "A",
+                ],
+                reverse: false,
+              });
+      }
     }
     const codes = Array.from({ length: 10 }, (_, i) => `${i}${i}`);
     emitTwoDigitGroup(acc, codes, quantitySpec, modifier, { excludeDoubles: excluded.excludeDoubles });
@@ -2710,10 +2734,16 @@ function parseSweepTwoDigitLine(line, cfg, acc, rules) {
   let modifier = m[3] ? modifierFromExpression(m[3], cfg) : null;
   if (m[3] && !modifier) return false;
   if (!modifier || !(modifier.categories || []).length) {
-    modifier = quantitySpec.type === "PAIR"
-      ? mergeModifiers(modifier, { categories: ["A", "B"], reverse: false })
-      : mergeModifiers(modifier, { categories: [cfg.defaultCategoryByCodeLength[2] || "A"], reverse: false });
-  }
+      modifier = mergeModifiers(modifier, {
+        categories: ["A", "B"],
+        reverse: true,
+      });
+    } else {
+      modifier = mergeModifiers(modifier, {
+        categories: [],
+        reverse: true,
+      });
+    }
 
   const codes = Array.from({ length: 10 }, (_, i) => `${decadeDigit}${i}`);
   emitTwoDigitGroup(acc, codes, quantitySpec, modifier, { excludeDoubles: excluded.excludeDoubles });

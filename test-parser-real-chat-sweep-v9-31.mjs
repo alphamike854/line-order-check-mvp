@@ -7,7 +7,7 @@ import {
 
 assert.equal(
   PARSER_VERSION,
-  "1.7.21",
+  "1.7.22",
 );
 
 function map(result) {
@@ -58,8 +58,8 @@ function parsed(label, text) {
 
   const m = map(r);
 
-  assert.equal(r.items.length, 18);
-  assert.equal(total(r), 18000);
+  assert.equal(r.items.length, 36);
+  assert.equal(total(r), 36000);
 
   assert.equal(m.A80, 1000);
   assert.equal(m.B89, 1000);
@@ -89,8 +89,8 @@ function parsed(label, text) {
 
   const m = map(r);
 
-  assert.equal(r.items.length, 18);
-  assert.equal(total(r), 9000);
+  assert.equal(r.items.length, 36);
+  assert.equal(total(r), 18000);
 
   assert.equal(m.A40, 500);
   assert.equal(m.B49, 500);
@@ -217,27 +217,27 @@ console.log(
 
 // ------------------------------------------------------------
 // GOLD-07
-// Multi-sweep pair without explicit modifier.
+// Multi-sweep pair: A/B quantity pair + inherent รูด reverse.
 // ------------------------------------------------------------
 
 {
   const r = parsed(
-    "GOLD-07 pair defaults to A/B",
+    "GOLD-07 pair defaults to A/B + reverse",
     "รูด 0,7=500*500"
   );
 
   const m = map(r);
 
-  assert.equal(r.items.length, 40);
-  assert.equal(total(r), 20000);
+  assert.equal(r.items.length, 72);
+  assert.equal(total(r), 38000);
 
   assert.equal(m.A00, 500);
   assert.equal(m.B09, 500);
-  assert.equal(m.A70, 500);
+  assert.equal(m.A70, 1000);
   assert.equal(m.B79, 500);
 
   console.log(
-    "PASS GOLD-07 pair defaults to A/B"
+    "PASS GOLD-07 pair defaults to A/B + reverse"
   );
 }
 
@@ -254,11 +254,11 @@ console.log(
 
   const m = map(r);
 
-  assert.equal(r.items.length, 20);
-  assert.equal(total(r), 100);
+  assert.equal(r.items.length, 36);
+  assert.equal(total(r), 190);
 
   assert.equal(m.B90, 5);
-  assert.equal(m.B49, 5);
+  assert.equal(m.B49, 10);
 
   assert.equal(m.A90, undefined);
   assert.equal(m.A49, undefined);
@@ -282,8 +282,8 @@ console.log(
 
   const m = map(r);
 
-  assert.equal(r.items.length, 40);
-  assert.equal(total(r), 4000);
+  assert.equal(r.items.length, 72);
+  assert.equal(total(r), 7600);
 
   assert.equal(m.A70, 100);
   assert.equal(m.B79, 100);
@@ -393,7 +393,7 @@ console.log(
 บลก5`
   );
 
-  assert.equal(total(r), 320);
+  assert.equal(total(r), 500);
 
   console.log(
     "PASS GOLD-13 compact sweep plus block"
@@ -445,8 +445,8 @@ console.log(
 
   const m = map(r);
 
-  assert.equal(r.items.length, 20);
-  assert.equal(total(r), 100);
+  assert.equal(r.items.length, 38);
+  assert.equal(total(r), 190);
 
   assert.equal(m.A80, 5);
   assert.equal(m.B89, 5);
@@ -461,24 +461,24 @@ console.log(
 
 // ------------------------------------------------------------
 // SAFETY-02
-// Established equals pair remains unchanged.
+// Established equals pair now follows company 19-code sweep.
 // ------------------------------------------------------------
 
 {
   const r = parsed(
-    "SAFETY-02 canonical sweep unchanged",
+    "SAFETY-02 canonical sweep company rule",
     "รูด6=300*300"
   );
 
   const m = map(r);
 
-  assert.equal(r.items.length, 20);
-  assert.equal(total(r), 6000);
+  assert.equal(r.items.length, 38);
+  assert.equal(total(r), 11400);
   assert.equal(m.A60, 300);
   assert.equal(m.B69, 300);
 
   console.log(
-    "PASS SAFETY-02 canonical sweep unchanged"
+    "PASS SAFETY-02 canonical sweep company rule"
   );
 }
 

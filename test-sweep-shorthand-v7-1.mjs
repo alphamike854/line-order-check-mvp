@@ -23,15 +23,20 @@ for (const code of ["08", "09", "45", "65", "80", "90", "54", "56"]) {
   assert.equal(map(composite)[`B${code}`], 250);
 }
 
-// รูด 1 => 10..19; บล => both A/B.
+// Company rule v9.32:
+// รูด itself includes reverse; บล selects both A/B.
 const sweep = parseOrder("รูด 1-300 บล");
 assert.equal(sweep.status, "PARSED");
-assert.equal(sweep.items.length, 20);
-assert.equal(total(sweep), 6000);
+assert.equal(sweep.items.length, 38);
+assert.equal(total(sweep), 11400);
 for (let i = 0; i <= 9; i += 1) {
   assert.equal(map(sweep)[`A1${i}`], 300);
   assert.equal(map(sweep)[`B1${i}`], 300);
 }
+
+assert.equal(map(sweep).A01, 300);
+assert.equal(map(sweep).B91, 300);
+assert.ok(sweep.rule_ids.includes("R_REVERSE"));
 
 // Adding ก reverses codes, deduplicating self-reversing 11.
 const sweepReverse = parseOrder("รูด 1-300 บลก");

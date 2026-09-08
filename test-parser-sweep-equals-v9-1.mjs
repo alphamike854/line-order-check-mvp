@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { parseOrder } from "./src/lib/order-parser.mjs";
+
+import {
+  parseOrder,
+  PARSER_VERSION,
+} from "./src/lib/order-parser.mjs";
+
+assert.equal(PARSER_VERSION, "1.7.22");
 
 function canonical(result) {
   return [...result.items]
@@ -8,6 +14,10 @@ function canonical(result) {
         `${item.category}${item.code}=${item.quantity}`,
     )
     .sort();
+}
+
+function reverse2(code) {
+  return code.split("").reverse().join("");
 }
 
 {
@@ -20,12 +30,29 @@ function canonical(result) {
     "supported รูด pair must not be downgraded to PARTIAL",
   );
 
-  const expected = [];
+  const codes = [
+    ...new Set(
+      Array.from(
+        { length: 10 },
+        (_, i) => `6${i}`,
+      ).flatMap(
+        (code) => [
+          code,
+          reverse2(code),
+        ],
+      ),
+    ),
+  ];
 
-  for (let n = 60; n <= 69; n += 1) {
-    expected.push(`A${n}=300`);
-    expected.push(`B${n}=300`);
-  }
+  const expected =
+    codes.flatMap(
+      (code) => [
+        `A${code}=300`,
+        `B${code}=300`,
+      ],
+    );
+
+  assert.equal(result.items.length, 38);
 
   assert.deepEqual(
     canonical(result),
@@ -37,11 +64,16 @@ function canonical(result) {
     [],
   );
 
+  assert.equal(
+    result.rule_ids.includes("R_REVERSE"),
+    true,
+  );
+
   console.log(
-    "PASS SWEEP-01 รูด6=300*300 remains fully PARSED",
+    "PASS SWEEP-01 รูด6=300*300 uses 19-code company rule",
   );
 }
 
 console.log(
-  "PASS: sweep equals regression v9.1",
+  "PASS: sweep equals regression v9.1 / company rule v9.32",
 );
