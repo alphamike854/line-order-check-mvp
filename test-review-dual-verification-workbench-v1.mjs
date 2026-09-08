@@ -93,6 +93,18 @@ assert.doesNotMatch(
   /state\.authMode/,
 );
 
+const claimMutation =
+  between(
+    "async function mutateStaffVerificationClaim(",
+    "async function confirmStaffVerification(",
+  );
+
+assert.doesNotMatch(
+  claimMutation,
+  /state\.authMode/,
+  "named Admin reviewer must be allowed to Claim through the existing server-authorized path",
+);
+
 const workbench =
   between(
     "function staffVerificationQueueBadgeHtml(",

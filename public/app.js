@@ -6091,7 +6091,6 @@ async function mutateStaffVerificationClaim(
   if (
     !root
     || !messageRecordId
-    || state.authMode !== "STAFF"
   ) {
     return;
   }
