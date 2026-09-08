@@ -157,6 +157,18 @@ assert.match(
 
 assert.match(
   workbench,
+  /claimButton\.click\(\)/,
+  "เริ่มตรวจ must trigger the existing Claim handler",
+);
+
+assert.match(
+  workbench,
+  /needs_interpretation[\s\S]*return;/,
+  "interpretation items must stay on legacy Review flow",
+);
+
+assert.match(
+  workbench,
   /load-more-verification-feed/,
 );
 

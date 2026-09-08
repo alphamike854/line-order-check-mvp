@@ -7356,14 +7356,46 @@ function bindStaffVerificationWorkbench(
         );
 
       if (openButton) {
-        selectStaffVerificationWorkbenchItem(
-          workbench,
+        const messageRecordId =
           String(
             openButton.dataset
               .messageRecordId
             ?? "",
-          ),
+          );
+
+        const item =
+          workbench
+            ._verificationWorkbenchItems
+            ?.get(
+              messageRecordId,
+            )
+          ?? null;
+
+        selectStaffVerificationWorkbenchItem(
+          workbench,
+          messageRecordId,
         );
+
+        if (
+          item?.needs_interpretation
+          === true
+        ) {
+          return;
+        }
+
+        const claimButton =
+          workbench
+            .querySelector(
+              "#staffVerificationQueue",
+            )
+            ?.querySelector(
+              ".claim-staff-verification",
+            )
+          ?? null;
+
+        if (claimButton) {
+          claimButton.click();
+        }
 
         return;
       }
