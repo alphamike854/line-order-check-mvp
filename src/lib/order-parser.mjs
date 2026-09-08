@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.7.22";
+const PARSER_VERSION = "1.7.23";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -88,6 +88,21 @@ function normalizeTrailingOrderDecoration(text) {
   return lines.map((rawLine) => {
     const line = String(rawLine || "").trim();
 
+    // v9.33: confirmed Laos flag may decorate the front of a
+    // known sweep generator. Strip only this exact flag and only
+    // when the remaining line starts with an established generator.
+    //
+    // This deliberately does NOT generalize to arbitrary emoji/flags.
+    const leadingSweepDecorated = line.match(
+      /^(?:🇱🇦\s*)+((?:เพิ่ม\s*)?(?:รูดเบิ้ล|รูด|เบิ้ล)(?=$|\s|[-=0-9]).*)$/u
+    );
+
+    if (leadingSweepDecorated) {
+      return String(
+        leadingSweepDecorated[1] || ""
+      ).trimStart();
+    }
+
     const decorated = line.match(
       /^(.*?)(?:\s*🇱🇦)+$/u
     );
@@ -127,10 +142,19 @@ function normalizeTrailingOrderDecoration(text) {
         body
       );
 
+    // v9.33: a known sweep generator is also strong order
+    // evidence. Removing only the confirmed Laos decoration
+    // lets the existing sweep grammar decide PARSED vs REVIEW.
+    const sweepGenerator =
+      /^(?:เพิ่ม\s*)?(?:รูดเบิ้ล|รูด|เบิ้ล)(?=$|\s|[-=0-9])/u.test(
+        body
+      );
+
     if (
       !explicitAssignment &&
       !modifierPairHeader &&
-      !directionQuantityHeader
+      !directionQuantityHeader &&
+      !sweepGenerator
     ) {
       return rawLine;
     }
@@ -156,6 +180,20 @@ function normalizeContextualShortDateMetadata(text) {
   const hasOrderOperator =
     /[=xX*×]/u;
 
+  // v9.33: narrow sender/name + short-date metadata.
+  //
+  // Production example:
+  //   พี่เมย์ 07/09
+  //
+  // Keep this intentionally narrower than arbitrary Thai text:
+  // a known conversational name prefix is required and order
+  // vocabulary is explicitly rejected.
+  const senderShortDate =
+    /^(?:พี่|น้อง|คุณ)[\p{L}\p{M}._-]*(?:\s+[\p{L}\p{M}._-]+)*\s+(?:0?[1-9]|[12]\d|3[01])\/(?:0?[1-9]|1[0-2])$/u;
+
+  const orderVocabulary =
+    /(?:รูด|เบิ้ล|บน|ล่าง|บลก?|โต๊ด|โต้ด|ตรง|กลับ|ประตู|ปะตู|วิ่ง)/u;
+
   const previousNonBlank = (index) => {
     for (let i = index - 1; i >= 0; i--) {
       const candidate =
@@ -173,6 +211,14 @@ function normalizeContextualShortDateMetadata(text) {
 
     if (!line) {
       out.push(raw);
+      continue;
+    }
+
+    if (
+      senderShortDate.test(line) &&
+      !hasOrderOperator.test(line) &&
+      !orderVocabulary.test(line)
+    ) {
       continue;
     }
 

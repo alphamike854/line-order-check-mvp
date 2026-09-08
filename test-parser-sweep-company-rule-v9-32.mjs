@@ -5,7 +5,7 @@ import {
   PARSER_VERSION,
 } from "./src/lib/order-parser.mjs";
 
-assert.equal(PARSER_VERSION, "1.7.22");
+assert.equal(PARSER_VERSION, "1.7.23");
 
 function map(result) {
   return Object.fromEntries(
