@@ -5035,6 +5035,8 @@ function staffVerificationQueueQuery(
   {
     offset = 0,
     limit = 50,
+    highTotalOffset = 0,
+    highTotalLimit = 50,
   } = {},
 ) {
   const params =
@@ -5052,9 +5054,18 @@ function staffVerificationQueueQuery(
     String(offset),
   );
 
+  params.set(
+    "high_total_limit",
+    String(highTotalLimit),
+  );
+
+  params.set(
+    "high_total_offset",
+    String(highTotalOffset),
+  );
+
   return params.toString();
 }
-
 
 function staffVerificationMessageRecordId(
   card,
@@ -5094,8 +5105,7 @@ function staffVerificationCanMutate(
   card,
 ) {
   return Boolean(
-    state.authMode === "STAFF"
-    && card?._staffVerificationActor
+    card?._staffVerificationActor
       ?.staff_id
     && card?._staffVerificationItem
       ?.claim_state === "MINE"
@@ -5104,7 +5114,6 @@ function staffVerificationCanMutate(
     ),
   );
 }
-
 
 function staffVerificationIssueText(
   issue,
@@ -5236,7 +5245,7 @@ function staffVerificationClaimStatusHtml(
             type="button"
             class="button primary small claim-staff-verification"
           >
-            รับรายการ
+            เริ่มตรวจ
           </button>
         </span>
       </div>
@@ -6028,15 +6037,42 @@ async function loadStaffVerificationPage(
 async function reloadStaffVerificationQueue(
   root,
 ) {
-  await loadStaffVerificationPage(
-    root,
-    {
-      offset: 0,
-      append: false,
-    },
-  );
-}
+  const workbench =
+    root?.closest?.(
+      "#staffVerificationWorkbench",
+    )
+    ?? null;
 
+  const selectedMessageRecordId =
+    workbench
+      ?._selectedMessageRecordId
+    ?? null;
+
+  await loadReviews();
+
+  if (!selectedMessageRecordId) {
+    return;
+  }
+
+  const refreshed =
+    $("#staffVerificationWorkbench");
+
+  if (
+    refreshed
+      ?._verificationWorkbenchItems
+      ?.has(
+        selectedMessageRecordId,
+      )
+  ) {
+    selectStaffVerificationWorkbenchItem(
+      refreshed,
+      selectedMessageRecordId,
+      {
+        scroll: false,
+      },
+    );
+  }
+}
 
 async function mutateStaffVerificationClaim(
   card,
@@ -6761,44 +6797,353 @@ function bindStaffVerificationActions(
 }
 
 
-function appendStaffVerificationQueue(
-  list,
-  workbenchPayload,
+function staffVerificationQueueBadgeHtml(
+  item,
+) {
+  const needsInterpretation =
+    item?.needs_interpretation
+    === true;
+
+  return `
+    <span
+      class="verification-queue-badge ${
+        needsInterpretation
+          ? "interpretation"
+          : "system"
+      }"
+    >
+      ${
+        needsInterpretation
+          ? "ต้องตีความ"
+          : "ระบบคำนวณ"
+      }
+    </span>
+  `;
+}
+
+
+function staffVerificationQueueItemHtml(
+  item,
+  feed,
+) {
+  const messageRecordId =
+    String(
+      item?.message_record_id
+      ?? "",
+    );
+
+  const reviewId =
+    String(
+      item?.review_id
+      ?? "",
+    );
+
+  const eventTime =
+    item?.event_timestamp
+    || item?.message_created_at
+    || item?.review_created_at
+    || null;
+
+  const groupName =
+    item?.line_group_name
+    || item?.line_group_id
+    || "ไม่ระบุกลุ่ม";
+
+  const total =
+    Number(
+      item?.message_order_total
+      ?? 0,
+    );
+
+  const actionLabel =
+    item?.needs_interpretation
+      ? "เปิดตรวจแก้"
+      : "เริ่มตรวจ";
+
+  return `
+    <article
+      class="verification-queue-item"
+      data-verification-feed="${escapeHtml(
+        feed,
+      )}"
+      data-message-record-id="${escapeHtml(
+        messageRecordId,
+      )}"
+      data-review-id="${escapeHtml(
+        reviewId,
+      )}"
+    >
+      <div class="verification-queue-item-head">
+        <strong>
+          ${escapeHtml(groupName)}
+        </strong>
+
+        ${staffVerificationQueueBadgeHtml(
+          item,
+        )}
+      </div>
+
+      <div class="verification-queue-item-meta">
+        ${
+          eventTime
+            ? `
+              <span>
+                ${escapeHtml(
+                  formatBangkokTime(
+                    eventTime,
+                  ),
+                )}
+              </span>
+            `
+            : ""
+        }
+
+        <span>
+          ยอด
+          <strong>
+            ${formatNumber(total)}
+          </strong>
+        </span>
+      </div>
+
+      <button
+        type="button"
+        class="button ghost small open-staff-verification-item"
+        data-message-record-id="${escapeHtml(
+          messageRecordId,
+        )}"
+      >
+        ${actionLabel}
+      </button>
+    </article>
+  `;
+}
+
+
+function staffVerificationQueueFooterHtml(
+  feed,
+  pagination,
+  loaded,
+) {
+  const returned =
+    Number(
+      pagination?.returned
+      ?? 0,
+    );
+
+  const offset =
+    Number(
+      pagination?.offset
+      ?? 0,
+    );
+
+  const nextOffset =
+    Number(
+      pagination?.next_offset
+      ?? (
+        offset
+        + returned
+      ),
+    );
+
+  return `
+    <div class="muted small-text">
+      แสดง
+      ${formatNumber(loaded)}
+      รายการ
+    </div>
+
+    ${
+      pagination?.has_more
+        ? `
+          <button
+            type="button"
+            class="button ghost small load-more-verification-feed"
+            data-feed="${escapeHtml(
+              feed,
+            )}"
+            data-next-offset="${escapeHtml(
+              nextOffset,
+            )}"
+          >
+            โหลดเพิ่ม
+          </button>
+        `
+        : ""
+    }
+  `;
+}
+
+
+function staffVerificationQueueColumnHtml(
+  {
+    feed,
+    title,
+    subtitle,
+    items = [],
+    pagination = {},
+  },
+) {
+  const cards =
+    items
+      .map(
+        (item) =>
+          staffVerificationQueueItemHtml(
+            item,
+            feed,
+          ),
+      )
+      .join("");
+
+  return `
+    <section
+      class="verification-queue-column"
+      data-verification-column="${escapeHtml(
+        feed,
+      )}"
+    >
+      <div class="verification-queue-column-head">
+        <div>
+          <strong>
+            ${escapeHtml(title)}
+          </strong>
+
+          <div class="muted small-text">
+            ${escapeHtml(subtitle)}
+          </div>
+        </div>
+      </div>
+
+      <div
+        class="verification-queue-items"
+        data-verification-feed-items="${escapeHtml(
+          feed,
+        )}"
+      >
+        ${
+          cards
+          || `
+            <div class="empty compact">
+              ไม่มีรายการ
+            </div>
+          `
+        }
+      </div>
+
+      <div
+        class="verification-queue-footer"
+        data-verification-feed-footer="${escapeHtml(
+          feed,
+        )}"
+      >
+        ${staffVerificationQueueFooterHtml(
+          feed,
+          pagination,
+          items.length,
+        )}
+      </div>
+    </section>
+  `;
+}
+
+
+function selectStaffVerificationWorkbenchItem(
+  workbench,
+  messageRecordId,
+  {
+    scroll = true,
+  } = {},
 ) {
   if (
-    state.authMode !== "STAFF"
-    || !list
+    !workbench
+    || !messageRecordId
   ) {
     return;
   }
 
-  list.insertAdjacentHTML(
-    "afterbegin",
-    `
-      <section
-        id="staffVerificationQueue"
-        class="preview-box"
-      >
-        <div class="preview-heading">
-          งานที่ต้องตรวจตอนนี้
-        </div>
+  const item =
+    workbench
+      ?._verificationWorkbenchItems
+      ?.get(
+        String(
+          messageRecordId,
+        ),
+      )
+    ?? null;
 
-        <div class="muted small-text">
-          ตรวจออเดอร์ที่ระบบอ่านได้แล้ว
-          รับรายการก่อนยืนยันหรือแก้ไข
-        </div>
+  if (!item) {
+    return;
+  }
 
-        <div class="staff-verification-items">
-        </div>
+  if (
+    item?.needs_interpretation
+    && item?.review_id
+  ) {
+    const legacyCard =
+      Array.from(
+        document.querySelectorAll(
+          ".review-card[data-review-id]",
+        ),
+      ).find(
+        (card) =>
+          String(
+            card.dataset.reviewId
+            ?? "",
+          )
+          === String(
+            item.review_id,
+          ),
+      );
 
-        <div class="staff-verification-footer">
-        </div>
-      </section>
-    `,
-  );
+    if (legacyCard) {
+      legacyCard.classList.add(
+        "review-focus",
+      );
+
+      legacyCard.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+
+      window.setTimeout(
+        () =>
+          legacyCard.classList.remove(
+            "review-focus",
+          ),
+        1600,
+      );
+
+      return;
+    }
+  }
+
+  workbench._selectedMessageRecordId =
+    String(
+      messageRecordId,
+    );
+
+  workbench
+    .querySelectorAll(
+      ".verification-queue-item",
+    )
+    .forEach(
+      (row) => {
+        row.classList.toggle(
+          "selected",
+          String(
+            row.dataset
+              .messageRecordId
+            ?? "",
+          )
+          === String(
+            messageRecordId,
+          ),
+        );
+      },
+    );
 
   const root =
-    list.querySelector(
+    workbench.querySelector(
       "#staffVerificationQueue",
     );
 
@@ -6806,27 +7151,426 @@ function appendStaffVerificationQueue(
     return;
   }
 
-  bindStaffVerificationActions(
+  root._staffVerificationActor =
+    workbench
+      ._verificationWorkbenchActor
+    ?? null;
+
+  const itemsRoot =
+    root.querySelector(
+      ".staff-verification-items",
+    );
+
+  const footer =
+    root.querySelector(
+      ".staff-verification-footer",
+    );
+
+  if (
+    !itemsRoot
+    || !footer
+  ) {
+    return;
+  }
+
+  itemsRoot.innerHTML =
+    staffVerificationCardHtml(
+      item,
+    );
+
+  footer.innerHTML = `
+    <div class="muted small-text">
+      พื้นที่ตรวจรายการเดียวกัน
+      ไม่ว่าคุณจะเปิดจากคิวตามเวลา
+      หรือคิวยอดสูง
+    </div>
+  `;
+
+  hydrateStaffVerificationCards(
     root,
+    [item],
+    workbench
+      ._verificationWorkbenchActor
+      ?? null,
   );
 
-  renderStaffVerificationPage(
-    root,
-    {
-      items:
-        workbenchPayload?.verification_items
-        ?? [],
-      pagination:
-        workbenchPayload?.verification_pagination
-        ?? {},
-      actor:
-        workbenchPayload?.actor
-        ?? null,
-      append: false,
+  if (scroll) {
+    root.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }
+}
+
+
+async function loadMoreStaffVerificationFeed(
+  workbench,
+  feed,
+  nextOffset,
+) {
+  if (!workbench) {
+    return;
+  }
+
+  const isHighTotal =
+    feed === "HIGH_TOTAL";
+
+  const payload =
+    await api(
+      `/api/staff-workbench?${staffVerificationQueueQuery(
+        {
+          offset:
+            isHighTotal
+              ? 0
+              : nextOffset,
+          limit: 50,
+          highTotalOffset:
+            isHighTotal
+              ? nextOffset
+              : 0,
+          highTotalLimit: 50,
+        },
+      )}`,
+    );
+
+  const items =
+    isHighTotal
+      ? (
+          payload.high_total_items
+          ?? []
+        )
+      : (
+          payload.verification_items
+          ?? []
+        );
+
+  const pagination =
+    isHighTotal
+      ? (
+          payload.high_total_pagination
+          ?? {}
+        )
+      : (
+          payload.verification_pagination
+          ?? {}
+        );
+
+  for (const item of items) {
+    const key =
+      String(
+        item?.message_record_id
+        ?? "",
+      );
+
+    if (key) {
+      workbench
+        ._verificationWorkbenchItems
+        .set(
+          key,
+          item,
+        );
+    }
+  }
+
+  const itemsRoot =
+    workbench.querySelector(
+      `[data-verification-feed-items="${feed}"]`,
+    );
+
+  const footer =
+    workbench.querySelector(
+      `[data-verification-feed-footer="${feed}"]`,
+    );
+
+  if (
+    !itemsRoot
+    || !footer
+  ) {
+    return;
+  }
+
+  if (
+    itemsRoot.querySelector(
+      ".empty",
+    )
+  ) {
+    itemsRoot.innerHTML = "";
+  }
+
+  itemsRoot.insertAdjacentHTML(
+    "beforeend",
+    items
+      .map(
+        (item) =>
+          staffVerificationQueueItemHtml(
+            item,
+            feed,
+          ),
+      )
+      .join(""),
+  );
+
+  if (isHighTotal) {
+    workbench._highTotalPagination =
+      pagination;
+  } else {
+    workbench._verificationPagination =
+      pagination;
+  }
+
+  footer.innerHTML =
+    staffVerificationQueueFooterHtml(
+      feed,
+      pagination,
+      itemsRoot.querySelectorAll(
+        ".verification-queue-item",
+      ).length,
+    );
+}
+
+
+function bindStaffVerificationWorkbench(
+  workbench,
+) {
+  if (!workbench) {
+    return;
+  }
+
+  const sharedRoot =
+    workbench.querySelector(
+      "#staffVerificationQueue",
+    );
+
+  if (sharedRoot) {
+    bindStaffVerificationActions(
+      sharedRoot,
+    );
+  }
+
+  workbench.addEventListener(
+    "click",
+    async (event) => {
+      const openButton =
+        event.target.closest(
+          ".open-staff-verification-item",
+        );
+
+      if (openButton) {
+        selectStaffVerificationWorkbenchItem(
+          workbench,
+          String(
+            openButton.dataset
+              .messageRecordId
+            ?? "",
+          ),
+        );
+
+        return;
+      }
+
+      const loadMore =
+        event.target.closest(
+          ".load-more-verification-feed",
+        );
+
+      if (!loadMore) {
+        return;
+      }
+
+      const feed =
+        String(
+          loadMore.dataset.feed
+          ?? "",
+        );
+
+      const nextOffset =
+        Number(
+          loadMore.dataset
+            .nextOffset
+          ?? 0,
+        );
+
+      loadMore.disabled = true;
+
+      try {
+        await loadMoreStaffVerificationFeed(
+          workbench,
+          feed,
+          nextOffset,
+        );
+      } catch (error) {
+        toast(
+          error.message,
+          true,
+        );
+      } finally {
+        loadMore.disabled = false;
+      }
     },
   );
 }
 
+
+function appendStaffVerificationQueue(
+  list,
+  workbenchPayload,
+) {
+  const actor =
+    workbenchPayload?.actor
+    ?? null;
+
+  if (
+    !list
+    || !actor?.staff_id
+  ) {
+    return;
+  }
+
+  const verificationItems =
+    workbenchPayload
+      ?.verification_items
+    ?? [];
+
+  const highTotalItems =
+    workbenchPayload
+      ?.high_total_items
+    ?? [];
+
+  list.insertAdjacentHTML(
+    "afterbegin",
+    `
+      <section
+        id="staffVerificationWorkbench"
+        class="verification-workbench"
+      >
+        <div class="verification-workbench-heading">
+          <div>
+            <div class="preview-heading">
+              งานที่ต้องตรวจตอนนี้
+            </div>
+
+            <div class="muted small-text">
+              ซ้ายเรียงตามเวลาที่เข้า
+              · ขวาเรียงยอดสูงก่อน
+            </div>
+          </div>
+        </div>
+
+        <div class="verification-queue-grid">
+          ${staffVerificationQueueColumnHtml(
+            {
+              feed:
+                "RECENT",
+              title:
+                "คิวตรวจตามเวลา",
+              subtitle:
+                "ใหม่ → เก่า",
+              items:
+                verificationItems,
+              pagination:
+                workbenchPayload
+                  ?.verification_pagination
+                ?? {},
+            },
+          )}
+
+          ${staffVerificationQueueColumnHtml(
+            {
+              feed:
+                "HIGH_TOTAL",
+              title:
+                "🔥 ยอดสูง — ควรทำก่อน",
+              subtitle:
+                "ยอดมาก → น้อย",
+              items:
+                highTotalItems,
+              pagination:
+                workbenchPayload
+                  ?.high_total_pagination
+                ?? {},
+            },
+          )}
+        </div>
+
+        <section
+          id="staffVerificationQueue"
+          class="preview-box verification-shared-workspace"
+        >
+          <div class="preview-heading">
+            พื้นที่ตรวจรายการ
+          </div>
+
+          <div class="muted small-text verification-workspace-hint">
+            เลือกรายการจากคิวด้านบน
+            เพื่อเริ่มตรวจ ยืนยัน
+            หรือแก้ไข
+          </div>
+
+          <div class="staff-verification-items">
+            <div class="empty compact">
+              ยังไม่ได้เลือกรายการ
+            </div>
+          </div>
+
+          <div class="staff-verification-footer">
+          </div>
+        </section>
+      </section>
+    `,
+  );
+
+  const workbench =
+    list.querySelector(
+      "#staffVerificationWorkbench",
+    );
+
+  if (!workbench) {
+    return;
+  }
+
+  workbench._verificationWorkbenchActor =
+    actor;
+
+  workbench._verificationWorkbenchItems =
+    new Map();
+
+  for (
+    const item
+    of [
+      ...verificationItems,
+      ...highTotalItems,
+    ]
+  ) {
+    const key =
+      String(
+        item?.message_record_id
+        ?? "",
+      );
+
+    if (key) {
+      workbench
+        ._verificationWorkbenchItems
+        .set(
+          key,
+          item,
+        );
+    }
+  }
+
+  workbench._verificationPagination =
+    workbenchPayload
+      ?.verification_pagination
+    ?? {};
+
+  workbench._highTotalPagination =
+    workbenchPayload
+      ?.high_total_pagination
+    ?? {};
+
+  bindStaffVerificationWorkbench(
+    workbench,
+  );
+}
 
 // R2D3B-2 Staff-scoped Post-close Review Queue
 //
@@ -8735,7 +9479,7 @@ async function loadReviews() {
       ),
 
       api(
-        `/api/staff-workbench?${reviewWorkbenchQuery()}`,
+        `/api/staff-workbench?${staffVerificationQueueQuery()}`,
       ),
     ]);
 
@@ -8815,17 +9559,23 @@ async function loadReviews() {
             `
           : `<div class="empty">ไม่มีรายการ Review ที่เปิดอยู่</div>`;
 
-      if (
-        state.authMode === "STAFF"
-      ) {
+      if (realStaff) {
+        list.innerHTML = "";
+      }
+
+      if (realStaff) {
         appendStaffVerificationQueue(
           list,
           workbenchPayload,
         );
 
-        await appendStaffPostCloseReviewQueue(
-          list,
-        );
+        if (
+          state.authMode === "STAFF"
+        ) {
+          await appendStaffPostCloseReviewQueue(
+            list,
+          );
+        }
       }
 
       return;
@@ -9029,18 +9779,20 @@ async function loadReviews() {
             onReviewEditorInput,
           ),
       );
-    if (
-      state.authMode === "STAFF"
-    ) {
-      appendStaffVerificationQueue(
-        list,
-        workbenchPayload,
-      );
+    if (realStaff) {
+        appendStaffVerificationQueue(
+          list,
+          workbenchPayload,
+        );
 
-      await appendStaffPostCloseReviewQueue(
-        list,
-      );
-    }
+        if (
+          state.authMode === "STAFF"
+        ) {
+          await appendStaffPostCloseReviewQueue(
+            list,
+          );
+        }
+      }
 
   } catch (error) {
     list.innerHTML =
