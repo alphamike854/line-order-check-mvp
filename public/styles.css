@@ -2224,3 +2224,77 @@ body{background:#f3f6fa}
     justify-content: flex-start;
   }
 }
+
+
+/* Review Split View v1 */
+.verification-split-view {
+  display: grid;
+  grid-template-columns:
+    minmax(320px, 0.92fr)
+    minmax(380px, 1.08fr);
+  gap: 14px;
+  align-items: start;
+  min-width: 0;
+}
+
+.verification-split-view
+  > * {
+  min-width: 0;
+}
+
+.verification-split-view
+  .verification-timeline-items {
+  max-height: 72vh;
+}
+
+.verification-split-inspector {
+  position: sticky;
+  top: 12px;
+  max-height: 76vh;
+  overflow: auto;
+  scroll-margin-top: 12px;
+}
+
+.verification-split-inspector
+  .staff-verification-items {
+  min-width: 0;
+}
+
+.verification-split-inspector
+  .review-card {
+  margin: 0;
+}
+
+.verification-inspector-live-review-card {
+  width: 100%;
+}
+
+/*
+  Live Review remains the authoritative DOM/card lifecycle,
+  but its queue is a staging host for Staff.
+  Selected Review cards are moved into the Inspector.
+*/
+#staffLiveReviewQueue {
+  display: none;
+}
+
+.verification-split-inspector
+  .live-review-technical {
+  display: none !important;
+}
+
+@media(max-width:900px) {
+  .verification-split-view {
+    grid-template-columns: 1fr;
+  }
+
+  .verification-split-inspector {
+    position: static;
+    max-height: none;
+  }
+
+  .verification-split-view
+    .verification-timeline-items {
+    max-height: 52vh;
+  }
+}

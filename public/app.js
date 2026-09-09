@@ -6752,6 +6752,121 @@ async function reloadStaffVerificationQueue(
   }
 }
 
+function staffVerificationApplyLocalClaimState(
+  root,
+  messageRecordId,
+  action,
+  payload,
+) {
+  const workbench =
+    root?.closest?.(
+      "#staffVerificationWorkbench",
+    )
+    ?? null;
+
+  const key =
+    String(
+      messageRecordId
+      ?? "",
+    );
+
+  const item =
+    workbench
+      ?._verificationWorkbenchItems
+      ?.get(key)
+    ?? null;
+
+  if (
+    !workbench
+    || !item
+  ) {
+    return false;
+  }
+
+  const claim =
+    payload?.claim
+    ?? {};
+
+  const actor =
+    workbench
+      ._verificationWorkbenchActor
+    ?? {};
+
+  const isRelease =
+    action === "RELEASE";
+
+  const nextItem =
+    isRelease
+      ? {
+          ...item,
+          claim_state:
+            "AVAILABLE",
+          claimed_by_staff_id:
+            null,
+          claimed_by_staff_code:
+            null,
+          claimed_by_display_name:
+            null,
+          claimed_at:
+            null,
+          claim_expires_at:
+            null,
+          lease_version:
+            null,
+        }
+      : {
+          ...item,
+          claim_state:
+            "MINE",
+          claimed_by_staff_id:
+            actor.staff_id
+            ?? item.claimed_by_staff_id
+            ?? null,
+          claimed_by_staff_code:
+            actor.staff_code
+            ?? item.claimed_by_staff_code
+            ?? null,
+          claimed_by_display_name:
+            actor.display_name
+            ?? item.claimed_by_display_name
+            ?? null,
+          claimed_at:
+            claim.claimed_at
+            ?? item.claimed_at
+            ?? null,
+          claim_expires_at:
+            claim.claim_expires_at
+            ?? item.claim_expires_at
+            ?? null,
+          lease_version:
+            claim.lease_version
+            ?? item.lease_version
+            ?? null,
+        };
+
+  workbench
+    ._verificationWorkbenchItems
+    .set(
+      key,
+      nextItem,
+    );
+
+  staffVerificationRenderTimeline(
+    workbench,
+  );
+
+  selectStaffVerificationWorkbenchItem(
+    workbench,
+    key,
+    {
+      scroll: false,
+    },
+  );
+
+  return true;
+}
+
+
 async function mutateStaffVerificationClaim(
   card,
   action,
@@ -6840,9 +6955,19 @@ async function mutateStaffVerificationClaim(
         : "คืนรายการตรวจยืนยันแล้ว",
     );
 
-    await reloadStaffVerificationQueue(
-      root,
-    );
+    const appliedLocally =
+      staffVerificationApplyLocalClaimState(
+        root,
+        messageRecordId,
+        action,
+        payload,
+      );
+
+    if (!appliedLocally) {
+      await reloadStaffVerificationQueue(
+        root,
+      );
+    }
   } catch (error) {
     try {
       await reloadStaffVerificationQueue(
@@ -8629,6 +8754,9 @@ function staffVerificationRenderTimeline(
       workbench,
     );
 
+  const previousScrollTop =
+    itemsRoot.scrollTop;
+
   itemsRoot.innerHTML =
     items.length
       ? items
@@ -8646,6 +8774,9 @@ function staffVerificationRenderTimeline(
         </div>
       `;
 
+  itemsRoot.scrollTop =
+    previousScrollTop;
+
   footer.innerHTML =
     staffVerificationTimelineFooterHtml(
       workbench,
@@ -8654,6 +8785,107 @@ function staffVerificationRenderTimeline(
   staffVerificationUpdateTimelineControls(
     workbench,
   );
+}
+
+
+/* Review Split View v1 */
+function staffVerificationRestoreLiveReviewInspectorCard(
+  workbench,
+) {
+  if (!workbench) {
+    return;
+  }
+
+  const card =
+    workbench
+      ._verificationInspectorLiveReviewCard
+    ?? null;
+
+  if (!card) {
+    return;
+  }
+
+  const stagingRoot =
+    document.querySelector(
+      "#staffLiveReviewQueue .staff-live-review-items",
+    );
+
+  if (stagingRoot) {
+    card.classList.remove(
+      "verification-inspector-live-review-card",
+    );
+
+    stagingRoot.appendChild(
+      card,
+    );
+  }
+
+  workbench
+    ._verificationInspectorLiveReviewCard =
+    null;
+}
+
+
+function staffVerificationSelectTimelineRow(
+  workbench,
+  messageRecordId,
+) {
+  workbench._selectedMessageRecordId =
+    String(
+      messageRecordId,
+    );
+
+  workbench
+    .querySelectorAll(
+      ".verification-queue-item",
+    )
+    .forEach(
+      (row) => {
+        row.classList.toggle(
+          "selected",
+          String(
+            row.dataset
+              .messageRecordId
+            ?? "",
+          )
+          === String(
+            messageRecordId,
+          ),
+        );
+      },
+    );
+}
+
+
+function staffVerificationShouldScrollInspector() {
+  return Boolean(
+    window.matchMedia
+    && window.matchMedia(
+      "(max-width: 900px)",
+    ).matches,
+  );
+}
+
+
+function staffVerificationRenderInspectorFooter(
+  footer,
+  {
+    liveReview = false,
+  } = {},
+) {
+  if (!footer) {
+    return;
+  }
+
+  footer.innerHTML = `
+    <div class="muted small-text">
+      ${
+        liveReview
+          ? "รายการนี้ต้องให้เจ้าหน้าที่ตรวจหรือแก้ไขก่อนนำไปใช้"
+          : "ตรวจ ยืนยัน หรือแก้ไขรายการนี้จาก Inspector ด้านขวา"
+      }
+    </div>
+  `;
 }
 
 
@@ -8685,6 +8917,41 @@ function selectStaffVerificationWorkbenchItem(
     return;
   }
 
+  staffVerificationSelectTimelineRow(
+    workbench,
+    messageRecordId,
+  );
+
+  const root =
+    workbench.querySelector(
+      "#staffVerificationQueue",
+    );
+
+  if (!root) {
+    return;
+  }
+
+  const itemsRoot =
+    root.querySelector(
+      ".staff-verification-items",
+    );
+
+  const footer =
+    root.querySelector(
+      ".staff-verification-footer",
+    );
+
+  if (
+    !itemsRoot
+    || !footer
+  ) {
+    return;
+  }
+
+  staffVerificationRestoreLiveReviewInspectorCard(
+    workbench,
+  );
+
   if (
     item?.needs_interpretation
     && item?.review_id
@@ -8707,58 +8974,36 @@ function selectStaffVerificationWorkbenchItem(
 
     if (legacyCard) {
       legacyCard.classList.add(
-        "review-focus",
+        "verification-inspector-live-review-card",
       );
 
-      legacyCard.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
-
-      window.setTimeout(
-        () =>
-          legacyCard.classList.remove(
-            "review-focus",
-          ),
-        1600,
+      itemsRoot.replaceChildren(
+        legacyCard,
       );
+
+      workbench
+        ._verificationInspectorLiveReviewCard =
+        legacyCard;
+
+      staffVerificationRenderInspectorFooter(
+        footer,
+        {
+          liveReview: true,
+        },
+      );
+
+      if (
+        scroll
+        && staffVerificationShouldScrollInspector()
+      ) {
+        root.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      }
 
       return;
     }
-  }
-
-  workbench._selectedMessageRecordId =
-    String(
-      messageRecordId,
-    );
-
-  workbench
-    .querySelectorAll(
-      ".verification-queue-item",
-    )
-    .forEach(
-      (row) => {
-        row.classList.toggle(
-          "selected",
-          String(
-            row.dataset
-              .messageRecordId
-            ?? "",
-          )
-          === String(
-            messageRecordId,
-          ),
-        );
-      },
-    );
-
-  const root =
-    workbench.querySelector(
-      "#staffVerificationQueue",
-    );
-
-  if (!root) {
-    return;
   }
 
   root._staffVerificationActor =
@@ -8766,34 +9011,14 @@ function selectStaffVerificationWorkbenchItem(
       ._verificationWorkbenchActor
     ?? null;
 
-  const itemsRoot =
-    root.querySelector(
-      ".staff-verification-items",
-    );
-
-  const footer =
-    root.querySelector(
-      ".staff-verification-footer",
-    );
-
-  if (
-    !itemsRoot
-    || !footer
-  ) {
-    return;
-  }
-
   itemsRoot.innerHTML =
     staffVerificationCardHtml(
       item,
     );
 
-  footer.innerHTML = `
-    <div class="muted small-text">
-      รายการนี้เปิดจาก Timeline เดียวกัน
-      โดยยังคงการตรวจและการยืนยันเดิม
-    </div>
-  `;
+  staffVerificationRenderInspectorFooter(
+    footer,
+  );
 
   hydrateStaffVerificationCards(
     root,
@@ -8803,7 +9028,10 @@ function selectStaffVerificationWorkbenchItem(
       ?? null,
   );
 
-  if (scroll) {
+  if (
+    scroll
+    && staffVerificationShouldScrollInspector()
+  ) {
     root.scrollIntoView({
       behavior: "smooth",
       block: "start",
@@ -9026,39 +9254,10 @@ function bindStaffVerificationWorkbench(
             ?? "",
           );
 
-        const item =
-          workbench
-            ._verificationWorkbenchItems
-            ?.get(
-              messageRecordId,
-            )
-          ?? null;
-
         selectStaffVerificationWorkbenchItem(
           workbench,
           messageRecordId,
         );
-
-        if (
-          item?.needs_interpretation
-          === true
-        ) {
-          return;
-        }
-
-        const claimButton =
-          workbench
-            .querySelector(
-              "#staffVerificationQueue",
-            )
-            ?.querySelector(
-              ".claim-staff-verification",
-            )
-          ?? null;
-
-        if (claimButton) {
-          claimButton.click();
-        }
 
         return;
       }
@@ -9275,41 +9474,42 @@ function appendStaffVerificationQueue(
           </button>
         </div>
 
-        <section class="verification-timeline-shell">
-          <div
-            class="verification-timeline-items"
-            data-verification-timeline-items
-          ></div>
+        <div class="verification-split-view">
+          <section class="verification-timeline-shell">
+            <div
+              class="verification-timeline-items"
+              data-verification-timeline-items
+            ></div>
 
-          <div
-            class="verification-queue-footer verification-timeline-footer"
-            data-verification-timeline-footer
-          ></div>
-        </section>
+            <div
+              class="verification-queue-footer verification-timeline-footer"
+              data-verification-timeline-footer
+            ></div>
+          </section>
 
-        <section
-          id="staffVerificationQueue"
-          class="preview-box verification-shared-workspace"
-        >
-          <div class="preview-heading">
-            รายละเอียดรายการ
-          </div>
-
-          <div class="muted small-text verification-workspace-hint">
-            เลือกรายการจาก Timeline
-            เพื่อเริ่มตรวจ ยืนยัน
-            หรือแก้ไข
-          </div>
-
-          <div class="staff-verification-items">
-            <div class="empty compact">
-              ยังไม่ได้เลือกรายการ
+          <section
+            id="staffVerificationQueue"
+            class="preview-box verification-shared-workspace verification-split-inspector"
+          >
+            <div class="preview-heading">
+              ตรวจ / แก้ไขรายการ
             </div>
-          </div>
 
-          <div class="staff-verification-footer">
-          </div>
-        </section>
+            <div class="muted small-text verification-workspace-hint">
+              เลือกรายการจาก Timeline ด้านซ้าย
+              แล้วจัดการจากพื้นที่นี้
+            </div>
+
+            <div class="staff-verification-items">
+              <div class="empty compact">
+                ยังไม่ได้เลือกรายการ
+              </div>
+            </div>
+
+            <div class="staff-verification-footer">
+            </div>
+          </section>
+        </div>
       </section>
     `,
   );

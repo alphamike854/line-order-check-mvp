@@ -220,16 +220,52 @@ assert.match(
   /open-staff-verification-item/,
 );
 
-assert.match(
+assert.doesNotMatch(
   binding,
   /claimButton\.click\(\)/,
-  "ตรวจรายการ must keep existing Claim behavior",
+  "Timeline selection must not auto-claim; Claim belongs in the Inspector",
 );
 
 assert.match(
+  app,
+  /function staffVerificationApplyLocalClaimState\(/,
+  "Human Verification Claim must support local Inspector refresh",
+);
+
+assert.match(
+  app,
+  /staffVerificationApplyLocalClaimState\([\s\S]*messageRecordId[\s\S]*action[\s\S]*payload/,
+  "successful Claim must apply server-returned state locally",
+);
+
+assert.match(
+  app,
+  /function staffVerificationRestoreLiveReviewInspectorCard\(/,
+  "Split Inspector must preserve the existing Live Review card lifecycle",
+);
+
+assert.match(
+  app,
+  /verificationInspectorLiveReviewCard/,
+  "selected Live Review card must be tracked by the Split Inspector",
+);
+
+assert.doesNotMatch(
   binding,
   /needs_interpretation[\s\S]*return;/,
-  "interpretation items must stay on legacy Review flow",
+  "Timeline handler must not branch interpretation work away from the Inspector",
+);
+
+assert.match(
+  app,
+  /item\?\.needs_interpretation[\s\S]*item\?\.review_id[\s\S]*legacyCard/,
+  "interpretation items must still resolve the authoritative legacy Review card",
+);
+
+assert.match(
+  app,
+  /legacyCard\.classList\.add\([\s\S]*verification-inspector-live-review-card[\s\S]*itemsRoot\.replaceChildren\([\s\S]*legacyCard/,
+  "legacy Review card must be moved into the Split Inspector without replacing its lifecycle",
 );
 
 assert.match(
@@ -273,6 +309,19 @@ assert.match(
   append,
   /data-verification-timeline-items/,
 );
+
+assert.match(
+  append,
+  /verification-split-view/,
+  "Timeline and Inspector must share one desktop split layout",
+);
+
+assert.match(
+  append,
+  /verification-split-inspector/,
+  "right-side Inspector must be part of the unified workbench",
+);
+
 
 assert.match(
   append,
@@ -443,6 +492,28 @@ assert.match(
   styles,
   /Review Timeline v1/,
 );
+
+assert.match(
+  styles,
+  /Review Split View v1/,
+);
+
+assert.match(
+  styles,
+  /\.verification-split-view/,
+);
+
+assert.match(
+  styles,
+  /grid-template-columns/,
+);
+
+assert.match(
+  styles,
+  /#staffLiveReviewQueue[\s\S]*display:\s*none/,
+  "legacy Live Review queue must become a hidden staging host for Staff",
+);
+
 
 assert.match(
   styles,
