@@ -7,15 +7,15 @@ const app =
     "utf8",
   );
 
-const html =
-  fs.readFileSync(
-    "public/index.html",
-    "utf8",
-  );
-
 const styles =
   fs.readFileSync(
     "public/styles.css",
+    "utf8",
+  );
+
+const html =
+  fs.readFileSync(
+    "public/index.html",
     "utf8",
   );
 
@@ -102,28 +102,165 @@ const claimMutation =
 assert.doesNotMatch(
   claimMutation,
   /state\.authMode/,
-  "named Admin reviewer must be allowed to Claim through the existing server-authorized path",
+  "named Admin reviewer must remain allowed through the existing server-authorized path",
 );
 
-const workbench =
+const timeline =
   between(
-    "function staffVerificationQueueBadgeHtml(",
+    "/* Review Timeline v1 */",
+    "function selectStaffVerificationWorkbenchItem(",
+  );
+
+assert.match(
+  timeline,
+  /staffVerificationMergeTimelineItems/,
+);
+
+assert.match(
+  timeline,
+  /staffVerificationTimelineMatchesFilters/,
+);
+
+assert.match(
+  timeline,
+  /staffVerificationRenderTimeline/,
+);
+
+assert.match(
+  timeline,
+  /_verificationHighTotalIds/,
+);
+
+assert.match(
+  timeline,
+  /message_record_id/,
+);
+
+for (const filter of [
+  "NEEDS_FIX",
+  "HIGH_TOTAL",
+  "AUTO",
+  "TEXT",
+  "IMAGE",
+]) {
+  assert.match(
+    timeline,
+    new RegExp(
+      `"${filter}"`,
+    ),
+    `missing Timeline filter ${filter}`,
+  );
+}
+
+assert.match(
+  timeline,
+  /ระบบ Auto/,
+);
+
+assert.match(
+  timeline,
+  /ต้องแก้ไข/,
+);
+
+assert.match(
+  timeline,
+  /ยอดสูง/,
+);
+
+assert.match(
+  timeline,
+  /🖼 รูปภาพ/,
+);
+
+assert.match(
+  timeline,
+  /💬 ข้อความ/,
+);
+
+const loadMore =
+  between(
+    "async function loadMoreStaffVerificationFeed(",
+    "function bindStaffVerificationWorkbench(",
+  );
+
+assert.match(
+  loadMore,
+  /"RECENT"/,
+);
+
+assert.match(
+  loadMore,
+  /"HIGH_TOTAL"/,
+);
+
+assert.match(
+  loadMore,
+  /verification_items/,
+);
+
+assert.match(
+  loadMore,
+  /high_total_items/,
+);
+
+assert.match(
+  loadMore,
+  /Promise\.all/,
+  "one Timeline Load More action must preserve independent backend pagination",
+);
+
+const binding =
+  between(
+    "function bindStaffVerificationWorkbench(",
+    "function appendStaffVerificationQueue(",
+  );
+
+assert.match(
+  binding,
+  /open-staff-verification-item/,
+);
+
+assert.match(
+  binding,
+  /claimButton\.click\(\)/,
+  "ตรวจรายการ must keep existing Claim behavior",
+);
+
+assert.match(
+  binding,
+  /needs_interpretation[\s\S]*return;/,
+  "interpretation items must stay on legacy Review flow",
+);
+
+assert.match(
+  binding,
+  /load-more-verification-timeline/,
+);
+
+assert.match(
+  binding,
+  /verification-timeline-sort/,
+);
+
+const append =
+  between(
+    "function appendStaffVerificationQueue(",
     "// R2D3B-2 Staff-scoped Post-close Review Queue",
   );
 
 assert.match(
-  workbench,
+  append,
   /id="staffVerificationWorkbench"/,
 );
 
 assert.match(
-  workbench,
+  append,
   /id="staffVerificationQueue"/,
 );
 
 assert.equal(
   (
-    workbench.match(
+    append.match(
       /id="staffVerificationQueue"/g,
     )
     ?? []
@@ -133,70 +270,87 @@ assert.equal(
 );
 
 assert.match(
-  workbench,
-  /RECENT/,
+  append,
+  /data-verification-timeline-items/,
 );
 
 assert.match(
-  workbench,
-  /HIGH_TOTAL/,
+  append,
+  /data-verification-timeline-summary/,
 );
 
 assert.match(
-  workbench,
+  append,
+  /data-verification-filter="ALL"/,
+);
+
+assert.match(
+  append,
+  /ล่าสุดก่อน/,
+);
+
+assert.match(
+  append,
+  /เก่าสุดก่อน/,
+);
+
+assert.match(
+  append,
+  /ยอดสูงสุด/,
+);
+
+assert.doesNotMatch(
+  append,
+  /verification-queue-grid/,
+  "presentation must no longer render dual queue columns",
+);
+
+assert.doesNotMatch(
+  append,
+  /คิวตรวจตามเวลา/,
+);
+
+assert.doesNotMatch(
+  append,
+  /ยอดสูง — ควรทำก่อน/,
+);
+
+assert.match(
+  append,
+  /verification_items/,
+);
+
+assert.match(
+  append,
   /high_total_items/,
 );
 
 assert.match(
-  workbench,
-  /message_record_id/,
+  append,
+  /attention_items/,
+  "Timeline must consume server PRIORITY coverage",
 );
 
 assert.match(
-  workbench,
-  /needs_interpretation/,
+  append,
+  /attentionNeedsFixItems[\s\S]*needs_interpretation/,
+  "Timeline must supplement only rows that truly need interpretation",
 );
 
 assert.match(
-  workbench,
-  /review_id/,
+  append,
+  /staffVerificationMergeTimelineItems\([\s\S]*attentionNeedsFixItems[\s\S]*"PRIORITY"/,
+  "PRIORITY needs-fix rows must join the unified Timeline",
 );
 
 assert.match(
-  workbench,
-  /open-staff-verification-item/,
+  append,
+  /staffVerificationMergeTimelineItems\([\s\S]*"RECENT"/,
 );
 
 assert.match(
-  workbench,
-  /claimButton\.click\(\)/,
-  "เริ่มตรวจ must trigger the existing Claim handler",
-);
-
-assert.match(
-  workbench,
-  /needs_interpretation[\s\S]*return;/,
-  "interpretation items must stay on legacy Review flow",
-);
-
-assert.match(
-  workbench,
-  /load-more-verification-feed/,
-);
-
-assert.match(
-  workbench,
-  /selectStaffVerificationWorkbenchItem/,
-);
-
-assert.match(
-  workbench,
-  /เปิดตรวจแก้/,
-);
-
-assert.match(
-  app,
-  /เริ่มตรวจ/,
+  append,
+  /staffVerificationMergeTimelineItems\([\s\S]*"HIGH_TOTAL"/,
 );
 
 assert.match(
@@ -263,29 +417,51 @@ assert.match(
   /state\.authMode === "STAFF"[\s\S]*appendStaffPostCloseReviewQueue/,
 );
 
-assert.match(
-  styles,
-  /\.verification-queue-grid/,
-);
-
-assert.match(
-  styles,
-  /grid-template-columns:minmax\(0,1\.15fr\) minmax\(0,\.85fr\)/,
-);
-
-assert.match(
-  styles,
-  /@media\(max-width:900px\)/,
-);
-
-assert.match(
+assert.doesNotMatch(
   html,
   /ตรวจตามเวลา/,
+  "legacy time-queue shell copy must be removed",
+);
+
+assert.doesNotMatch(
+  html,
+  /พื้นที่ตรวจเดียวกัน/,
+  "legacy shared-workspace shell copy must be removed",
 );
 
 assert.match(
   html,
-  /พื้นที่ตรวจเดียวกัน/,
+  /รายการตรวจ/,
+);
+
+assert.match(
+  html,
+  /Timeline เดียว/,
+);
+
+assert.match(
+  styles,
+  /Review Timeline v1/,
+);
+
+assert.match(
+  styles,
+  /\.verification-timeline-items/,
+);
+
+assert.match(
+  styles,
+  /\.verification-filter-chip/,
+);
+
+assert.match(
+  styles,
+  /\.verification-timeline-sort/,
+);
+
+assert.match(
+  styles,
+  /@media\(max-width:700px\)/,
 );
 
 const standardTest =
@@ -304,10 +480,10 @@ for (
 ) {
   assert.ok(
     standardTest.includes(file),
-    `${file} must be registered in npm test`,
+    `${file} must remain registered in npm test`,
   );
 }
 
 console.log(
-  "PASS: dual RECENT + HIGH_TOTAL Review workbench v1",
+  "PASS: unified Review Timeline over RECENT + HIGH_TOTAL feeds v1",
 );

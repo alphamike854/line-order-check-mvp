@@ -7494,7 +7494,7 @@ function staffVerificationQueueBadgeHtml(
       ${
         needsInterpretation
           ? "ต้องตีความ"
-          : "ระบบคำนวณ"
+          : "ระบบ Auto"
       }
     </span>
   `;
@@ -7726,6 +7726,937 @@ function staffVerificationQueueColumnHtml(
 }
 
 
+/* Review Timeline v1 */
+function staffVerificationTimelineEventTime(
+  item,
+) {
+  return (
+    item?.event_timestamp
+    || item?.message_created_at
+    || item?.review_created_at
+    || null
+  );
+}
+
+
+function staffVerificationTimelineTimestamp(
+  item,
+) {
+  const value =
+    Date.parse(
+      staffVerificationTimelineEventTime(
+        item,
+      )
+      ?? "",
+    );
+
+  return Number.isFinite(value)
+    ? value
+    : 0;
+}
+
+
+function staffVerificationTimelineSourceText(
+  item,
+) {
+  return String(
+    item?.text
+    ?? item?.display_text
+    ?? item?.raw_text
+    ?? item?.normalized_text
+    ?? "",
+  )
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
+
+function staffVerificationTimelineMessageType(
+  item,
+) {
+  return String(
+    item?.message_type
+    ?? "",
+  ).toLowerCase()
+    === "image"
+    ? "IMAGE"
+    : "TEXT";
+}
+
+
+function staffVerificationTimelineIsAuto(
+  item,
+) {
+  return item?.needs_interpretation
+    !== true;
+}
+
+
+function staffVerificationTimelineIssueSummary(
+  item,
+) {
+  const candidates = [
+    ...(
+      Array.isArray(
+        item?.reason_codes,
+      )
+        ? item.reason_codes
+        : []
+    ),
+    ...(
+      Array.isArray(
+        item?.warnings,
+      )
+        ? item.warnings
+        : []
+    ),
+  ];
+
+  for (const candidate of candidates) {
+    const label =
+      String(
+        staffVerificationIssueText(
+          candidate,
+        )
+        ?? "",
+      ).trim();
+
+    if (label) {
+      return label;
+    }
+  }
+
+  return item?.needs_interpretation
+    ? "พบข้อมูลที่ต้องตรวจสอบก่อนนำไปรวมยอด"
+    : "";
+}
+
+
+function staffVerificationTimelineItemSummary(
+  item,
+) {
+  const items =
+    Array.isArray(
+      item?.items,
+    )
+      ? item.items
+      : [];
+
+  if (!items.length) {
+    return "";
+  }
+
+  const visible =
+    items
+      .slice(0, 5)
+      .map(
+        (entry) =>
+          `${staffVerificationItemKey(
+            entry,
+          )} ${formatNumber(
+            Number(
+              entry?.quantity
+              ?? 0,
+            ),
+          )}`,
+      );
+
+  if (items.length > 5) {
+    visible.push(
+      `+${formatNumber(
+        items.length - 5,
+      )} รายการ`,
+    );
+  }
+
+  return visible.join(" · ");
+}
+
+
+function staffVerificationTimelineBadgesHtml(
+  item,
+  {
+    isHighTotal = false,
+  } = {},
+) {
+  const badges = [];
+
+  if (
+    item?.needs_interpretation
+    === true
+  ) {
+    badges.push(`
+      <span class="verification-queue-badge needs-fix">
+        🔴 ต้องแก้ไข
+      </span>
+    `);
+  }
+
+  if (isHighTotal) {
+    badges.push(`
+      <span class="verification-queue-badge high-total">
+        🟠 ยอดสูง
+      </span>
+    `);
+  }
+
+  if (
+    staffVerificationTimelineIsAuto(
+      item,
+    )
+  ) {
+    badges.push(`
+      <span class="verification-queue-badge system">
+        ⚙️ ระบบ Auto
+      </span>
+    `);
+  }
+
+  badges.push(`
+    <span class="verification-queue-badge message-type">
+      ${
+        staffVerificationTimelineMessageType(
+          item,
+        )
+        === "IMAGE"
+          ? "🖼 รูปภาพ"
+          : "💬 ข้อความ"
+      }
+    </span>
+  `);
+
+  return badges.join("");
+}
+
+
+function staffVerificationTimelineItemHtml(
+  item,
+  workbench,
+) {
+  const messageRecordId =
+    String(
+      item?.message_record_id
+      ?? "",
+    );
+
+  const reviewId =
+    String(
+      item?.review_id
+      ?? "",
+    );
+
+  const eventTime =
+    staffVerificationTimelineEventTime(
+      item,
+    );
+
+  const groupName =
+    item?.line_group_name
+    || item?.line_group_id
+    || "ไม่ระบุกลุ่ม";
+
+  const total =
+    Number(
+      item?.message_order_total
+      ?? 0,
+    );
+
+  const isHighTotal =
+    workbench
+      ?._verificationHighTotalIds
+      ?.has(
+        messageRecordId,
+      )
+    === true;
+
+  const messageType =
+    staffVerificationTimelineMessageType(
+      item,
+    );
+
+  const sourceText =
+    staffVerificationTimelineSourceText(
+      item,
+    );
+
+  const itemSummary =
+    staffVerificationTimelineItemSummary(
+      item,
+    );
+
+  const issueSummary =
+    staffVerificationTimelineIssueSummary(
+      item,
+    );
+
+  const actionLabel =
+    item?.needs_interpretation
+      ? "แก้ไขรายการ"
+      : "ตรวจรายการ";
+
+  const selected =
+    String(
+      workbench
+        ?._selectedMessageRecordId
+      ?? "",
+    )
+    === messageRecordId;
+
+  let content = "";
+
+  if (
+    item?.needs_interpretation
+    && issueSummary
+  ) {
+    content = `
+      <div class="verification-timeline-issue">
+        ${escapeHtml(
+          issueSummary,
+        )}
+      </div>
+    `;
+  } else if (
+    messageType === "IMAGE"
+  ) {
+    const itemCount =
+      Array.isArray(
+        item?.items,
+      )
+        ? item.items.length
+        : 0;
+
+    content = `
+      <div class="verification-timeline-source">
+        อ่านได้
+        <strong>${formatNumber(
+          itemCount,
+        )}</strong>
+        รายการ
+      </div>
+    `;
+  } else if (sourceText) {
+    const clipped =
+      sourceText.length > 140
+        ? `${sourceText.slice(
+            0,
+            137,
+          )}...`
+        : sourceText;
+
+    content = `
+      <div class="verification-timeline-source">
+        ${escapeHtml(clipped)}
+      </div>
+    `;
+  }
+
+  return `
+    <article
+      class="verification-queue-item verification-timeline-item${
+        selected
+          ? " selected"
+          : ""
+      }${
+        item?.needs_interpretation
+          ? " needs-fix"
+          : ""
+      }${
+        isHighTotal
+          ? " high-total"
+          : ""
+      }"
+      data-verification-feed="TIMELINE"
+      data-message-record-id="${escapeHtml(
+        messageRecordId,
+      )}"
+      data-review-id="${escapeHtml(
+        reviewId,
+      )}"
+    >
+      <div class="verification-queue-item-head">
+        <div class="verification-timeline-title">
+          <strong>
+            ${escapeHtml(groupName)}
+          </strong>
+
+          ${
+            eventTime
+              ? `
+                <span>
+                  ${escapeHtml(
+                    formatBangkokTime(
+                      eventTime,
+                    ),
+                  )}
+                </span>
+              `
+              : ""
+          }
+        </div>
+
+        <div class="verification-timeline-badges">
+          ${staffVerificationTimelineBadgesHtml(
+            item,
+            {
+              isHighTotal,
+            },
+          )}
+        </div>
+      </div>
+
+      ${content}
+
+      ${
+        itemSummary
+          ? `
+            <div class="verification-timeline-result">
+              ${escapeHtml(
+                itemSummary,
+              )}
+            </div>
+          `
+          : ""
+      }
+
+      <div class="verification-timeline-bottom">
+        <div class="verification-queue-item-meta">
+          <span>
+            ยอด
+            <strong>
+              ${formatNumber(total)}
+            </strong>
+          </span>
+        </div>
+
+        <button
+          type="button"
+          class="button ghost small open-staff-verification-item"
+          data-message-record-id="${escapeHtml(
+            messageRecordId,
+          )}"
+        >
+          ${actionLabel}
+        </button>
+      </div>
+    </article>
+  `;
+}
+
+
+function staffVerificationMergeTimelineItems(
+  workbench,
+  items = [],
+  feed = "RECENT",
+) {
+  if (!workbench) {
+    return;
+  }
+
+  if (
+    !workbench
+      ._verificationWorkbenchItems
+  ) {
+    workbench._verificationWorkbenchItems =
+      new Map();
+  }
+
+  if (
+    !workbench
+      ._verificationHighTotalIds
+  ) {
+    workbench._verificationHighTotalIds =
+      new Set();
+  }
+
+  for (const item of (
+    Array.isArray(items)
+      ? items
+      : []
+  )) {
+    const key =
+      String(
+        item?.message_record_id
+        ?? "",
+      );
+
+    if (!key) {
+      continue;
+    }
+
+    const existing =
+      workbench
+        ._verificationWorkbenchItems
+        .get(key)
+      ?? {};
+
+    workbench
+      ._verificationWorkbenchItems
+      .set(
+        key,
+        {
+          ...existing,
+          ...item,
+        },
+      );
+
+    if (feed === "HIGH_TOTAL") {
+      workbench
+        ._verificationHighTotalIds
+        .add(key);
+    }
+  }
+}
+
+
+function staffVerificationTimelineMatchesFilters(
+  item,
+  workbench,
+) {
+  const filters =
+    workbench
+      ?._verificationTimelineFilters
+    ?? new Set();
+
+  if (!filters.size) {
+    return true;
+  }
+
+  const key =
+    String(
+      item?.message_record_id
+      ?? "",
+    );
+
+  for (const filter of filters) {
+    if (
+      filter === "NEEDS_FIX"
+      && item?.needs_interpretation
+        !== true
+    ) {
+      return false;
+    }
+
+    if (
+      filter === "HIGH_TOTAL"
+      && !workbench
+        ?._verificationHighTotalIds
+        ?.has(key)
+    ) {
+      return false;
+    }
+
+    if (
+      filter === "AUTO"
+      && !staffVerificationTimelineIsAuto(
+        item,
+      )
+    ) {
+      return false;
+    }
+
+    if (
+      filter === "TEXT"
+      && staffVerificationTimelineMessageType(
+        item,
+      )
+        !== "TEXT"
+    ) {
+      return false;
+    }
+
+    if (
+      filter === "IMAGE"
+      && staffVerificationTimelineMessageType(
+        item,
+      )
+        !== "IMAGE"
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+
+function staffVerificationTimelineSortedItems(
+  workbench,
+) {
+  const items = [
+    ...(
+      workbench
+        ?._verificationWorkbenchItems
+        ?.values()
+      ?? []
+    ),
+  ];
+
+  const filtered =
+    items.filter(
+      (item) =>
+        staffVerificationTimelineMatchesFilters(
+          item,
+          workbench,
+        ),
+    );
+
+  const sortMode =
+    workbench
+      ?._verificationTimelineSort
+    ?? "LATEST";
+
+  filtered.sort(
+    (left, right) => {
+      if (sortMode === "HIGHEST") {
+        const totalDelta =
+          Number(
+            right?.message_order_total
+            ?? 0,
+          )
+          - Number(
+            left?.message_order_total
+            ?? 0,
+          );
+
+        if (totalDelta) {
+          return totalDelta;
+        }
+      }
+
+      const timeDelta =
+        staffVerificationTimelineTimestamp(
+          right,
+        )
+        - staffVerificationTimelineTimestamp(
+          left,
+        );
+
+      if (
+        sortMode === "OLDEST"
+        && timeDelta
+      ) {
+        return -timeDelta;
+      }
+
+      if (timeDelta) {
+        return timeDelta;
+      }
+
+      return String(
+        right?.message_record_id
+        ?? "",
+      ).localeCompare(
+        String(
+          left?.message_record_id
+          ?? "",
+        ),
+      );
+    },
+  );
+
+  return filtered;
+}
+
+
+function staffVerificationTimelineCounts(
+  workbench,
+) {
+  const items = [
+    ...(
+      workbench
+        ?._verificationWorkbenchItems
+        ?.values()
+      ?? []
+    ),
+  ];
+
+  let needsFix = 0;
+  let highTotal = 0;
+  let auto = 0;
+  let text = 0;
+  let image = 0;
+
+  for (const item of items) {
+    const key =
+      String(
+        item?.message_record_id
+        ?? "",
+      );
+
+    if (
+      item?.needs_interpretation
+      === true
+    ) {
+      needsFix += 1;
+    }
+
+    if (
+      workbench
+        ?._verificationHighTotalIds
+        ?.has(key)
+    ) {
+      highTotal += 1;
+    }
+
+    if (
+      staffVerificationTimelineIsAuto(
+        item,
+      )
+    ) {
+      auto += 1;
+    }
+
+    if (
+      staffVerificationTimelineMessageType(
+        item,
+      )
+      === "IMAGE"
+    ) {
+      image += 1;
+    } else {
+      text += 1;
+    }
+  }
+
+  return {
+    all:
+      items.length,
+    needsFix,
+    highTotal,
+    auto,
+    text,
+    image,
+  };
+}
+
+
+function staffVerificationTimelineFooterHtml(
+  workbench,
+) {
+  const loaded =
+    workbench
+      ?._verificationWorkbenchItems
+      ?.size
+    ?? 0;
+
+  const hasMoreRecent =
+    workbench
+      ?._verificationPagination
+      ?.has_more
+    === true;
+
+  const hasMoreHigh =
+    workbench
+      ?._highTotalPagination
+      ?.has_more
+    === true;
+
+  return `
+    <div class="muted small-text">
+      โหลดแล้ว
+      ${formatNumber(loaded)}
+      รายการ
+    </div>
+
+    ${
+      hasMoreRecent
+      || hasMoreHigh
+        ? `
+          <button
+            type="button"
+            class="button ghost small load-more-verification-timeline load-more-verification-feed"
+          >
+            โหลดรายการเพิ่มเติม
+          </button>
+        `
+        : ""
+    }
+  `;
+}
+
+
+function staffVerificationUpdateTimelineControls(
+  workbench,
+) {
+  if (!workbench) {
+    return;
+  }
+
+  const counts =
+    staffVerificationTimelineCounts(
+      workbench,
+    );
+
+  const countByFilter = {
+    ALL:
+      counts.all,
+    NEEDS_FIX:
+      counts.needsFix,
+    HIGH_TOTAL:
+      counts.highTotal,
+    AUTO:
+      counts.auto,
+    TEXT:
+      counts.text,
+    IMAGE:
+      counts.image,
+  };
+
+  workbench
+    .querySelectorAll(
+      "[data-verification-filter]",
+    )
+    .forEach(
+      (button) => {
+        const filter =
+          String(
+            button.dataset
+              .verificationFilter
+            ?? "",
+          );
+
+        const active =
+          filter === "ALL"
+            ? !workbench
+              ._verificationTimelineFilters
+              ?.size
+            : workbench
+              ._verificationTimelineFilters
+              ?.has(filter)
+              === true;
+
+        button.classList.toggle(
+          "active",
+          active,
+        );
+
+        button.setAttribute(
+          "aria-pressed",
+          active
+            ? "true"
+            : "false",
+        );
+
+        const count =
+          button.querySelector(
+            "[data-filter-count]",
+          );
+
+        if (count) {
+          count.textContent =
+            formatNumber(
+              countByFilter[filter]
+              ?? 0,
+            );
+        }
+      },
+    );
+
+  const clear =
+    workbench.querySelector(
+      ".clear-verification-timeline-filters",
+    );
+
+  if (clear) {
+    clear.hidden =
+      !workbench
+        ._verificationTimelineFilters
+        ?.size;
+  }
+
+  const summary =
+    workbench.querySelector(
+      "[data-verification-timeline-summary]",
+    );
+
+  if (summary) {
+    summary.innerHTML = `
+      <span>
+        ทั้งหมด
+        <strong>${formatNumber(
+          counts.all,
+        )}</strong>
+      </span>
+      <span>
+        🔴 ต้องแก้ไข
+        <strong>${formatNumber(
+          counts.needsFix,
+        )}</strong>
+      </span>
+      <span>
+        🟠 ยอดสูง
+        <strong>${formatNumber(
+          counts.highTotal,
+        )}</strong>
+      </span>
+      <span>
+        ⚙️ ระบบ Auto
+        <strong>${formatNumber(
+          counts.auto,
+        )}</strong>
+      </span>
+    `;
+  }
+}
+
+
+function staffVerificationRenderTimeline(
+  workbench,
+) {
+  if (!workbench) {
+    return;
+  }
+
+  const itemsRoot =
+    workbench.querySelector(
+      "[data-verification-timeline-items]",
+    );
+
+  const footer =
+    workbench.querySelector(
+      "[data-verification-timeline-footer]",
+    );
+
+  if (
+    !itemsRoot
+    || !footer
+  ) {
+    return;
+  }
+
+  const items =
+    staffVerificationTimelineSortedItems(
+      workbench,
+    );
+
+  itemsRoot.innerHTML =
+    items.length
+      ? items
+        .map(
+          (item) =>
+            staffVerificationTimelineItemHtml(
+              item,
+              workbench,
+            ),
+        )
+        .join("")
+      : `
+        <div class="empty compact">
+          ไม่พบรายการตามตัวกรอง
+        </div>
+      `;
+
+  footer.innerHTML =
+    staffVerificationTimelineFooterHtml(
+      workbench,
+    );
+
+  staffVerificationUpdateTimelineControls(
+    workbench,
+  );
+}
+
+
 function selectStaffVerificationWorkbenchItem(
   workbench,
   messageRecordId,
@@ -7859,9 +8790,8 @@ function selectStaffVerificationWorkbenchItem(
 
   footer.innerHTML = `
     <div class="muted small-text">
-      พื้นที่ตรวจรายการเดียวกัน
-      ไม่ว่าคุณจะเปิดจากคิวตามเวลา
-      หรือคิวยอดสูง
+      รายการนี้เปิดจาก Timeline เดียวกัน
+      โดยยังคงการตรวจและการยืนยันเดิม
     </div>
   `;
 
@@ -7934,59 +8864,12 @@ async function loadMoreStaffVerificationFeed(
           ?? {}
         );
 
-  for (const item of items) {
-    const key =
-      String(
-        item?.message_record_id
-        ?? "",
-      );
-
-    if (key) {
-      workbench
-        ._verificationWorkbenchItems
-        .set(
-          key,
-          item,
-        );
-    }
-  }
-
-  const itemsRoot =
-    workbench.querySelector(
-      `[data-verification-feed-items="${feed}"]`,
-    );
-
-  const footer =
-    workbench.querySelector(
-      `[data-verification-feed-footer="${feed}"]`,
-    );
-
-  if (
-    !itemsRoot
-    || !footer
-  ) {
-    return;
-  }
-
-  if (
-    itemsRoot.querySelector(
-      ".empty",
-    )
-  ) {
-    itemsRoot.innerHTML = "";
-  }
-
-  itemsRoot.insertAdjacentHTML(
-    "beforeend",
-    items
-      .map(
-        (item) =>
-          staffVerificationQueueItemHtml(
-            item,
-            feed,
-          ),
-      )
-      .join(""),
+  staffVerificationMergeTimelineItems(
+    workbench,
+    items,
+    isHighTotal
+      ? "HIGH_TOTAL"
+      : "RECENT",
   );
 
   if (isHighTotal) {
@@ -7996,15 +8879,61 @@ async function loadMoreStaffVerificationFeed(
     workbench._verificationPagination =
       pagination;
   }
+}
 
-  footer.innerHTML =
-    staffVerificationQueueFooterHtml(
-      feed,
-      pagination,
-      itemsRoot.querySelectorAll(
-        ".verification-queue-item",
-      ).length,
+
+async function loadMoreStaffVerificationTimeline(
+  workbench,
+) {
+  if (!workbench) {
+    return;
+  }
+
+  const jobs = [];
+
+  if (
+    workbench
+      ?._verificationPagination
+      ?.has_more
+  ) {
+    jobs.push(
+      loadMoreStaffVerificationFeed(
+        workbench,
+        "RECENT",
+        Number(
+          workbench
+            ._verificationPagination
+            ?.next_offset
+          ?? 0,
+        ),
+      ),
     );
+  }
+
+  if (
+    workbench
+      ?._highTotalPagination
+      ?.has_more
+  ) {
+    jobs.push(
+      loadMoreStaffVerificationFeed(
+        workbench,
+        "HIGH_TOTAL",
+        Number(
+          workbench
+            ._highTotalPagination
+            ?.next_offset
+          ?? 0,
+        ),
+      ),
+    );
+  }
+
+  await Promise.all(jobs);
+
+  staffVerificationRenderTimeline(
+    workbench,
+  );
 }
 
 
@@ -8029,6 +8958,61 @@ function bindStaffVerificationWorkbench(
   workbench.addEventListener(
     "click",
     async (event) => {
+      const filterButton =
+        event.target.closest(
+          "[data-verification-filter]",
+        );
+
+      if (filterButton) {
+        const filter =
+          String(
+            filterButton.dataset
+              .verificationFilter
+            ?? "",
+          );
+
+        if (filter === "ALL") {
+          workbench
+            ._verificationTimelineFilters
+            .clear();
+        } else if (
+          workbench
+            ._verificationTimelineFilters
+            .has(filter)
+        ) {
+          workbench
+            ._verificationTimelineFilters
+            .delete(filter);
+        } else if (filter) {
+          workbench
+            ._verificationTimelineFilters
+            .add(filter);
+        }
+
+        staffVerificationRenderTimeline(
+          workbench,
+        );
+
+        return;
+      }
+
+      const clearFilters =
+        event.target.closest(
+          ".clear-verification-timeline-filters",
+        );
+
+      if (clearFilters) {
+        workbench
+          ._verificationTimelineFilters
+          .clear();
+
+        staffVerificationRenderTimeline(
+          workbench,
+        );
+
+        return;
+      }
+
       const openButton =
         event.target.closest(
           ".open-staff-verification-item",
@@ -8081,33 +9065,18 @@ function bindStaffVerificationWorkbench(
 
       const loadMore =
         event.target.closest(
-          ".load-more-verification-feed",
+          ".load-more-verification-timeline",
         );
 
       if (!loadMore) {
         return;
       }
 
-      const feed =
-        String(
-          loadMore.dataset.feed
-          ?? "",
-        );
-
-      const nextOffset =
-        Number(
-          loadMore.dataset
-            .nextOffset
-          ?? 0,
-        );
-
       loadMore.disabled = true;
 
       try {
-        await loadMoreStaffVerificationFeed(
+        await loadMoreStaffVerificationTimeline(
           workbench,
-          feed,
-          nextOffset,
         );
       } catch (error) {
         toast(
@@ -8115,8 +9084,47 @@ function bindStaffVerificationWorkbench(
           true,
         );
       } finally {
-        loadMore.disabled = false;
+        if (loadMore.isConnected) {
+          loadMore.disabled = false;
+        }
       }
+    },
+  );
+
+  workbench.addEventListener(
+    "change",
+    (event) => {
+      const sort =
+        event.target.closest(
+          ".verification-timeline-sort",
+        );
+
+      if (!sort) {
+        return;
+      }
+
+      const value =
+        String(
+          sort.value
+          ?? "LATEST",
+        );
+
+      if (
+        ![
+          "LATEST",
+          "OLDEST",
+          "HIGHEST",
+        ].includes(value)
+      ) {
+        return;
+      }
+
+      workbench._verificationTimelineSort =
+        value;
+
+      staffVerificationRenderTimeline(
+        workbench,
+      );
     },
   );
 }
@@ -8147,72 +9155,148 @@ function appendStaffVerificationQueue(
       ?.high_total_items
     ?? [];
 
+  const attentionNeedsFixItems =
+    (
+      workbenchPayload
+        ?.attention_items
+      ?? []
+    ).filter(
+      (item) =>
+        item?.needs_interpretation
+        === true,
+    );
+
   list.insertAdjacentHTML(
     "afterbegin",
     `
       <section
         id="staffVerificationWorkbench"
-        class="verification-workbench"
+        class="verification-workbench verification-timeline-workbench"
       >
         <div class="verification-workbench-heading">
           <div>
             <div class="preview-heading">
-              งานที่ต้องตรวจตอนนี้
+              รายการตรวจ
             </div>
 
             <div class="muted small-text">
-              ซ้ายเรียงตามเวลาที่เข้า
-              · ขวาเรียงยอดสูงก่อน
+              Timeline เดียว · ค่าเริ่มต้นเรียงล่าสุดก่อน
             </div>
           </div>
+
+          <label class="verification-timeline-sort-control">
+            <span>เรียง</span>
+            <select class="verification-timeline-sort">
+              <option value="LATEST">
+                ล่าสุดก่อน
+              </option>
+              <option value="OLDEST">
+                เก่าสุดก่อน
+              </option>
+              <option value="HIGHEST">
+                ยอดสูงสุด
+              </option>
+            </select>
+          </label>
         </div>
 
-        <div class="verification-queue-grid">
-          ${staffVerificationQueueColumnHtml(
-            {
-              feed:
-                "RECENT",
-              title:
-                "คิวตรวจตามเวลา",
-              subtitle:
-                "ใหม่ → เก่า",
-              items:
-                verificationItems,
-              pagination:
-                workbenchPayload
-                  ?.verification_pagination
-                ?? {},
-            },
-          )}
+        <div
+          class="verification-timeline-summary"
+          data-verification-timeline-summary
+        ></div>
 
-          ${staffVerificationQueueColumnHtml(
-            {
-              feed:
-                "HIGH_TOTAL",
-              title:
-                "🔥 ยอดสูง — ควรทำก่อน",
-              subtitle:
-                "ยอดมาก → น้อย",
-              items:
-                highTotalItems,
-              pagination:
-                workbenchPayload
-                  ?.high_total_pagination
-                ?? {},
-            },
-          )}
+        <div class="verification-timeline-filters">
+          <button
+            type="button"
+            class="verification-filter-chip active"
+            data-verification-filter="ALL"
+            aria-pressed="true"
+          >
+            ทั้งหมด
+            <span data-filter-count>0</span>
+          </button>
+
+          <button
+            type="button"
+            class="verification-filter-chip"
+            data-verification-filter="NEEDS_FIX"
+            aria-pressed="false"
+          >
+            ต้องแก้ไข
+            <span data-filter-count>0</span>
+          </button>
+
+          <button
+            type="button"
+            class="verification-filter-chip"
+            data-verification-filter="HIGH_TOTAL"
+            aria-pressed="false"
+          >
+            ยอดสูง
+            <span data-filter-count>0</span>
+          </button>
+
+          <button
+            type="button"
+            class="verification-filter-chip"
+            data-verification-filter="AUTO"
+            aria-pressed="false"
+          >
+            ระบบ Auto
+            <span data-filter-count>0</span>
+          </button>
+
+          <button
+            type="button"
+            class="verification-filter-chip"
+            data-verification-filter="TEXT"
+            aria-pressed="false"
+          >
+            💬 ข้อความ
+            <span data-filter-count>0</span>
+          </button>
+
+          <button
+            type="button"
+            class="verification-filter-chip"
+            data-verification-filter="IMAGE"
+            aria-pressed="false"
+          >
+            🖼 รูปภาพ
+            <span data-filter-count>0</span>
+          </button>
+
+          <button
+            type="button"
+            class="button ghost small clear-verification-timeline-filters"
+            hidden
+          >
+            ล้างตัวกรอง
+          </button>
         </div>
+
+        <section class="verification-timeline-shell">
+          <div
+            class="verification-timeline-items"
+            data-verification-timeline-items
+          ></div>
+
+          <div
+            class="verification-queue-footer verification-timeline-footer"
+            data-verification-timeline-footer
+          ></div>
+        </section>
 
         <section
           id="staffVerificationQueue"
           class="preview-box verification-shared-workspace"
         >
           <div class="preview-heading">
-            พื้นที่ตรวจรายการ
+            รายละเอียดรายการ
           </div>
 
           <div class="muted small-text verification-workspace-hint">
-            เลือกรายการจากคิวด้านบน
+            เลือกรายการจาก Timeline
             เพื่อเริ่มตรวจ ยืนยัน
             หรือแก้ไข
           </div>
@@ -8245,28 +9329,32 @@ function appendStaffVerificationQueue(
   workbench._verificationWorkbenchItems =
     new Map();
 
-  for (
-    const item
-    of [
-      ...verificationItems,
-      ...highTotalItems,
-    ]
-  ) {
-    const key =
-      String(
-        item?.message_record_id
-        ?? "",
-      );
+  workbench._verificationHighTotalIds =
+    new Set();
 
-    if (key) {
-      workbench
-        ._verificationWorkbenchItems
-        .set(
-          key,
-          item,
-        );
-    }
-  }
+  workbench._verificationTimelineFilters =
+    new Set();
+
+  workbench._verificationTimelineSort =
+    "LATEST";
+
+  staffVerificationMergeTimelineItems(
+    workbench,
+    verificationItems,
+    "RECENT",
+  );
+
+  staffVerificationMergeTimelineItems(
+    workbench,
+    highTotalItems,
+    "HIGH_TOTAL",
+  );
+
+  staffVerificationMergeTimelineItems(
+    workbench,
+    attentionNeedsFixItems,
+    "PRIORITY",
+  );
 
   workbench._verificationPagination =
     workbenchPayload
@@ -8278,10 +9366,15 @@ function appendStaffVerificationQueue(
       ?.high_total_pagination
     ?? {};
 
+  staffVerificationRenderTimeline(
+    workbench,
+  );
+
   bindStaffVerificationWorkbench(
     workbench,
   );
 }
+
 
 // R2D3B-2 Staff-scoped Post-close Review Queue
 //

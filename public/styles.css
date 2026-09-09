@@ -1995,3 +1995,232 @@ body{background:#f3f6fa}
     border-top: 1px solid #e2e8f0;
   }
 }
+
+
+/* Review Timeline v1 */
+.verification-timeline-workbench {
+  gap: 12px;
+}
+
+.verification-timeline-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 10px 12px;
+  border: 1px solid #dce5ef;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #53657a;
+  font-size: 12px;
+}
+
+.verification-timeline-summary span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.verification-timeline-summary strong {
+  color: #173a5e;
+  font-variant-numeric: tabular-nums;
+}
+
+.verification-timeline-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-items: center;
+}
+
+.verification-filter-chip {
+  appearance: none;
+  border: 1px solid #d7e0ea;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: #fff;
+  color: #53657a;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.verification-filter-chip span {
+  display: inline-flex;
+  min-width: 19px;
+  justify-content: center;
+  margin-left: 3px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: #eef3f8;
+  color: #52657b;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.verification-filter-chip.active {
+  border-color: #315f8d;
+  background: #edf5fc;
+  color: #173a5e;
+}
+
+.verification-filter-chip.active span {
+  background: #fff;
+  color: #173a5e;
+}
+
+.verification-timeline-sort-control {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  color: #69778b;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.verification-timeline-sort {
+  min-height: 34px;
+  border: 1px solid #d7e0ea;
+  border-radius: 9px;
+  padding: 5px 28px 5px 9px;
+  background: #fff;
+  color: #243b53;
+  font: inherit;
+  font-size: 12px;
+}
+
+.verification-timeline-shell {
+  overflow: hidden;
+  border: 1px solid #dce5ef;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.verification-timeline-items {
+  display: grid;
+  max-height: 58vh;
+  overflow: auto;
+}
+
+.verification-timeline-item {
+  gap: 7px;
+  padding: 11px 13px;
+}
+
+.verification-timeline-item.needs-fix {
+  box-shadow: inset 4px 0 0 #b94a3a;
+}
+
+.verification-timeline-item.high-total:not(.needs-fix) {
+  box-shadow: inset 4px 0 0 #d58a23;
+}
+
+.verification-timeline-item.selected {
+  background: #f7fbff;
+  outline: 1px solid rgba(49, 95, 141, .28);
+  outline-offset: -1px;
+}
+
+.verification-timeline-title {
+  display: flex;
+  gap: 7px 10px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.verification-timeline-title strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.verification-timeline-title span {
+  color: #69778b;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.verification-timeline-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  justify-content: flex-end;
+}
+
+.verification-queue-badge.needs-fix {
+  background: #fff0ed;
+  color: #9a3e24;
+}
+
+.verification-queue-badge.high-total {
+  background: #fff6e8;
+  color: #945814;
+}
+
+.verification-queue-badge.message-type {
+  background: #f5f7fa;
+  color: #5c6b7a;
+}
+
+.verification-timeline-source {
+  color: #243b53;
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.verification-timeline-issue {
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: #fff7f4;
+  color: #8d3b2e;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.verification-timeline-result {
+  color: #52657b;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.verification-timeline-bottom {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.verification-timeline-footer {
+  min-height: 44px;
+}
+
+@media(max-width:700px) {
+  .verification-workbench-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .verification-timeline-sort-control {
+    justify-content: space-between;
+  }
+
+  .verification-timeline-sort {
+    flex: 1;
+    max-width: 180px;
+  }
+
+  .verification-timeline-item {
+    padding: 10px 11px;
+  }
+
+  .verification-queue-item-head {
+    display: grid;
+    gap: 6px;
+  }
+
+  .verification-timeline-badges {
+    justify-content: flex-start;
+  }
+}
