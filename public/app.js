@@ -5143,7 +5143,180 @@ function staffVerificationIssueText(
 }
 
 
-function staffVerificationItemsHtml(
+/* Review display order v3 */
+let staffVerificationItemsViewSerial = 0;
+
+const STAFF_VERIFICATION_CATEGORY_ORDER =
+  new Map(
+    ["A", "B", "E", "F", "G", "H", "L"]
+      .map(
+        (category, index) => [
+          category,
+          index,
+        ],
+      ),
+  );
+
+
+function staffVerificationItemKey(
+  item,
+) {
+  return `${String(
+    item?.category
+    ?? "",
+  )}${String(
+    item?.code
+    ?? "",
+  )}`;
+}
+
+
+function staffVerificationCanonicalDisplayItems(
+  items = [],
+) {
+  return [...(
+    Array.isArray(items)
+      ? items
+      : []
+  )]
+    .sort(
+      (left, right) => {
+        const leftCategory =
+          String(
+            left?.category
+            ?? "",
+          );
+
+        const rightCategory =
+          String(
+            right?.category
+            ?? "",
+          );
+
+        const categoryDelta =
+          (
+            STAFF_VERIFICATION_CATEGORY_ORDER
+              .get(leftCategory)
+            ?? 999
+          )
+          - (
+            STAFF_VERIFICATION_CATEGORY_ORDER
+              .get(rightCategory)
+            ?? 999
+          );
+
+        if (categoryDelta) {
+          return categoryDelta;
+        }
+
+        return String(
+          left?.code
+          ?? "",
+        ).localeCompare(
+          String(
+            right?.code
+            ?? "",
+          ),
+          "en",
+          {
+            numeric: true,
+          },
+        );
+      },
+    );
+}
+
+
+function staffVerificationSourceCodePosition(
+  code,
+  sourceText,
+) {
+  const rawCode =
+    String(
+      code
+      ?? "",
+    ).trim();
+
+  if (!rawCode) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+
+  const source =
+    String(
+      sourceText
+      ?? "",
+    );
+
+  const escapedCode =
+    rawCode.replace(
+      /[.*+?^${}()|[\]\\]/g,
+      "\\$&",
+    );
+
+  const match =
+    new RegExp(
+      `(^|\\D)${escapedCode}(?=\\D|$)`,
+      "u",
+    ).exec(source);
+
+  if (!match) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+
+  return (
+    match.index
+    + String(
+      match[1]
+      ?? "",
+    ).length
+  );
+}
+
+
+function staffVerificationSourceDisplayItems(
+  items = [],
+  sourceText = "",
+) {
+  const canonical =
+    staffVerificationCanonicalDisplayItems(
+      items,
+    );
+
+  return canonical
+    .map(
+      (item, canonicalIndex) => ({
+        item,
+        canonicalIndex,
+        sourcePosition:
+          staffVerificationSourceCodePosition(
+            item?.code,
+            sourceText,
+          ),
+      }),
+    )
+    .sort(
+      (left, right) => {
+        const positionDelta =
+          left.sourcePosition
+          - right.sourcePosition;
+
+        if (positionDelta) {
+          return positionDelta;
+        }
+
+        return (
+          left.canonicalIndex
+          - right.canonicalIndex
+        );
+      },
+    )
+    .map(
+      ({ item }) => item,
+    );
+}
+
+
+function staffVerificationItemRowsHtml(
   items = [],
 ) {
   if (
@@ -5158,25 +5331,397 @@ function staffVerificationItemsHtml(
   }
 
   return `
-    <div class="item-chips">
+    <div class="staff-verification-code-rows">
       ${items
         .map(
           (item) => `
-            <span class="chip">
-              ${escapeHtml(
-                `${item?.category ?? ""}${item?.code ?? ""}`,
-              )}
-              =
-              ${formatNumber(
-                Number(
-                  item?.quantity
-                  ?? 0,
-                ),
-              )}
-            </span>
+            <div class="staff-verification-code-row">
+              <strong class="staff-verification-code">
+                ${escapeHtml(
+                  staffVerificationItemKey(
+                    item,
+                  ),
+                )}
+              </strong>
+              <span class="staff-verification-quantity">
+                ${formatNumber(
+                  Number(
+                    item?.quantity
+                    ?? 0,
+                  ),
+                )}
+              </span>
+            </div>
           `,
         )
         .join("")}
+    </div>
+  `;
+}
+
+
+function staffVerificationCategoryItemsHtml(
+  items = [],
+) {
+  const canonical =
+    staffVerificationCanonicalDisplayItems(
+      items,
+    );
+
+  if (!canonical.length) {
+    return `
+      <div class="muted small-text">
+        ไม่มีรายการรหัส
+      </div>
+    `;
+  }
+
+  const grouped =
+    new Map();
+
+  for (const item of canonical) {
+    const category =
+      String(
+        item?.category
+        ?? "-",
+      );
+
+    if (!grouped.has(category)) {
+      grouped.set(
+        category,
+        [],
+      );
+    }
+
+    grouped.get(category).push(item);
+  }
+
+  return `
+    <div class="staff-verification-category-groups">
+      ${[...grouped.entries()]
+        .map(
+          ([category, groupItems]) => `
+            <section class="staff-verification-category-group">
+              <div class="staff-verification-category-heading">
+                หมวด ${escapeHtml(category)}
+              </div>
+              ${staffVerificationItemRowsHtml(
+                groupItems,
+              )}
+            </section>
+          `,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+
+function staffVerificationViewToggleHtml(
+  sourceHtml,
+  categoryHtml,
+) {
+  const serial =
+    ++staffVerificationItemsViewSerial;
+
+  const toggleId =
+    `staffVerificationItemsView${serial}`;
+
+  return `
+    <div class="staff-verification-items-view">
+      <input
+        id="${toggleId}"
+        class="staff-verification-items-toggle"
+        type="checkbox"
+      />
+
+      <label
+        class="staff-verification-items-switch"
+        for="${toggleId}"
+        title="สลับวิธีเรียงรายการ"
+      >
+        <span class="staff-verification-mode-source">
+          ตามข้อความ
+        </span>
+        <span class="staff-verification-mode-category">
+          ตามหมวดและรหัส
+        </span>
+      </label>
+
+      <div class="staff-verification-source-order">
+        ${sourceHtml}
+      </div>
+
+      <div class="staff-verification-category-order">
+        ${categoryHtml}
+      </div>
+    </div>
+  `;
+}
+
+
+function staffVerificationItemsHtml(
+  items = [],
+  sourceText = "",
+) {
+  const safeItems =
+    Array.isArray(items)
+      ? items
+      : [];
+
+  if (!safeItems.length) {
+    return `
+      <div class="muted small-text">
+        ไม่มีรายการรหัส
+      </div>
+    `;
+  }
+
+  return staffVerificationViewToggleHtml(
+    staffVerificationItemRowsHtml(
+      staffVerificationSourceDisplayItems(
+        safeItems,
+        sourceText,
+      ),
+    ),
+    staffVerificationCategoryItemsHtml(
+      safeItems,
+    ),
+  );
+}
+
+
+function staffVerificationComparisonRowsHtml(
+  beforeItems = [],
+  afterItems = [],
+  orderedItems = [],
+) {
+  const beforeMap =
+    new Map(
+      (
+        Array.isArray(beforeItems)
+          ? beforeItems
+          : []
+      ).map(
+        (item) => [
+          staffVerificationItemKey(
+            item,
+          ),
+          item,
+        ],
+      ),
+    );
+
+  const afterMap =
+    new Map(
+      (
+        Array.isArray(afterItems)
+          ? afterItems
+          : []
+      ).map(
+        (item) => [
+          staffVerificationItemKey(
+            item,
+          ),
+          item,
+        ],
+      ),
+    );
+
+  return orderedItems
+    .map(
+      (item) => {
+        const key =
+          staffVerificationItemKey(
+            item,
+          );
+
+        const before =
+          beforeMap.get(key)
+          ?? null;
+
+        const after =
+          afterMap.get(key)
+          ?? null;
+
+        const beforeQty =
+          before
+            ? Number(
+                before?.quantity
+                ?? 0,
+              )
+            : null;
+
+        const afterQty =
+          after
+            ? Number(
+                after?.quantity
+                ?? 0,
+              )
+            : null;
+
+        const delta =
+          (afterQty ?? 0)
+          - (beforeQty ?? 0);
+
+        let changeLabel =
+          "ไม่เปลี่ยน";
+
+        let changeClass =
+          "same";
+
+        if (
+          beforeQty == null
+          && afterQty != null
+        ) {
+          changeLabel =
+            `เพิ่ม +${formatNumber(
+              afterQty,
+            )}`;
+          changeClass =
+            "added";
+        } else if (
+          beforeQty != null
+          && afterQty == null
+        ) {
+          changeLabel =
+            `ลบ -${formatNumber(
+              beforeQty,
+            )}`;
+          changeClass =
+            "removed";
+        } else if (delta !== 0) {
+          changeLabel =
+            `${delta > 0 ? "+" : ""}${formatNumber(
+              delta,
+            )}`;
+          changeClass =
+            "changed";
+        }
+
+        return `
+          <div class="staff-verification-compare-row">
+            <div class="staff-verification-compare-cell before">
+              <strong>${escapeHtml(key)}</strong>
+              <span>
+                ${
+                  beforeQty == null
+                    ? "—"
+                    : formatNumber(
+                        beforeQty,
+                      )
+                }
+              </span>
+            </div>
+
+            <div class="staff-verification-compare-cell after">
+              <strong>${escapeHtml(key)}</strong>
+              <span>
+                ${
+                  afterQty == null
+                    ? "—"
+                    : formatNumber(
+                        afterQty,
+                      )
+                }
+              </span>
+              <em class="staff-verification-change ${changeClass}">
+                ${escapeHtml(
+                  changeLabel,
+                )}
+              </em>
+            </div>
+          </div>
+        `;
+      },
+    )
+    .join("");
+}
+
+
+function staffVerificationComparisonHtml(
+  beforeItems = [],
+  afterItems = [],
+  sourceText = "",
+) {
+  const union =
+    new Map();
+
+  for (const item of (
+    Array.isArray(beforeItems)
+      ? beforeItems
+      : []
+  )) {
+    union.set(
+      staffVerificationItemKey(
+        item,
+      ),
+      item,
+    );
+  }
+
+  for (const item of (
+    Array.isArray(afterItems)
+      ? afterItems
+      : []
+  )) {
+    union.set(
+      staffVerificationItemKey(
+        item,
+      ),
+      item,
+    );
+  }
+
+  const unionItems =
+    [...union.values()];
+
+  if (!unionItems.length) {
+    return `
+      <div class="muted small-text">
+        ไม่มีรายการรหัสสำหรับเปรียบเทียบ
+      </div>
+    `;
+  }
+
+  const sourceRows =
+    staffVerificationComparisonRowsHtml(
+      beforeItems,
+      afterItems,
+      staffVerificationSourceDisplayItems(
+        unionItems,
+        sourceText,
+      ),
+    );
+
+  const categoryRows =
+    staffVerificationComparisonRowsHtml(
+      beforeItems,
+      afterItems,
+      staffVerificationCanonicalDisplayItems(
+        unionItems,
+      ),
+    );
+
+  return `
+    <div class="staff-verification-comparison">
+      <div class="staff-verification-compare-head">
+        <strong>ข้อมูลเดิม</strong>
+        <strong>ข้อมูลหลังแก้ไข</strong>
+      </div>
+
+      ${staffVerificationViewToggleHtml(
+        `
+          <div class="staff-verification-compare-rows">
+            ${sourceRows}
+          </div>
+        `,
+        `
+          <div class="staff-verification-compare-rows">
+            ${categoryRows}
+          </div>
+        `,
+      )}
     </div>
   `;
 }
@@ -5415,6 +5960,31 @@ function staffVerificationCardHtml(
       )}"
     >
       <div class="review-meta staff-verification-meta">
+        ${
+          item?.review_id
+            ? `
+              <span class="staff-verification-review-id">
+                <strong>
+                  Review #${escapeHtml(
+                    item.review_id,
+                  )}
+                </strong>
+              </span>
+            `
+            : ""
+        }
+
+        <span class="staff-verification-message-type">
+          ${
+            String(
+              item?.message_type
+              ?? "",
+            ).toLowerCase()
+            === "image"
+              ? "🖼 รูปภาพ"
+              : "💬 ข้อความ"
+          }
+        </span>
         <span>
           <strong>
             ${escapeHtml(
@@ -5488,6 +6058,7 @@ function staffVerificationCardHtml(
         ${staffVerificationItemsHtml(
           item?.items
           ?? [],
+          sourceText,
         )}
       </div>
 
@@ -5496,25 +6067,6 @@ function staffVerificationCardHtml(
           item,
         )}
       </div>
-
-      <details class="staff-verification-technical">
-        <summary>
-          รายละเอียดระบบ
-        </summary>
-
-        <div class="muted small-text staff-verification-technical-body">
-          สถานะ:
-          ${escapeHtml(
-            item?.parse_status
-            || "ไม่ระบุ",
-          )}
-          · Parser:
-          ${escapeHtml(
-            item?.parser_version
-            || "ไม่ระบุ",
-          )}
-        </div>
-      </details>
     </article>
   `;
 }
@@ -5790,23 +6342,18 @@ function staffVerificationPreviewHtml(
         </span>
       </div>
 
-      <div class="muted small-text">
-        Parser:
-        ${escapeHtml(
-          preview?.parser_version
-          ?? "-",
-        )}
-        · รหัสแรก:
-        ${escapeHtml(
-          preview?.first_order_code
-          ?? "-",
-        )}
-      </div>
-
       ${totalSummary}
 
-      ${staffVerificationItemsHtml(
+      ${staffVerificationComparisonHtml(
+        originalItem?.items
+        ?? [],
         previewItems,
+        preview?.normalized_text
+        ?? originalItem?.text
+        ?? originalItem?.display_text
+        ?? originalItem?.raw_text
+        ?? originalItem?.normalized_text
+        ?? "",
       )}
 
       ${
