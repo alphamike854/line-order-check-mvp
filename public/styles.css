@@ -2298,3 +2298,35 @@ body{background:#f3f6fa}
     max-height: 52vh;
   }
 }
+
+/* Review Inspector source-first v1 */
+.verification-inspector-source-first {
+  margin: 0 0 12px;
+  padding: 12px 13px;
+  border: 1px solid #d9e3ee;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.verification-inspector-source-first > strong {
+  display: block;
+  margin-bottom: 6px;
+  color: #173a5e;
+  font-size: 12px;
+}
+
+.verification-inspector-source-first .staff-verification-source-text,
+.verification-inspector-source-first .live-review-source-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+  color: #1f3347;
+}
+
+.verification-split-inspector .review-meta {
+  margin-top: 2px;
+}
+
+.verification-split-inspector .review-image-evidence {
+  margin-bottom: 12px;
+}

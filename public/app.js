@@ -5959,6 +5959,14 @@ function staffVerificationCardHtml(
         messageRecordId,
       )}"
     >
+      <div class="reason staff-verification-source verification-inspector-source-first">
+        <strong>
+          ข้อความต้นฉบับ
+        </strong>
+        <div class="staff-verification-source-text">
+          ${escapeHtml(sourceText)}
+        </div>
+      </div>
       <div class="review-meta staff-verification-meta">
         ${
           item?.review_id
@@ -6038,16 +6046,6 @@ function staffVerificationCardHtml(
         ${staffVerificationClaimStatusHtml(
           item,
         )}
-      </div>
-
-      <div class="reason staff-verification-source">
-        <strong>
-          ข้อความต้นทาง
-        </strong>
-
-        <div class="staff-verification-source-text">
-          ${escapeHtml(sourceText)}
-        </div>
       </div>
 
       <div class="reason staff-verification-result">
@@ -8788,6 +8786,7 @@ function staffVerificationRenderTimeline(
 }
 
 
+/* Review Inspector source-first v1 */
 /* Review Split View v1 */
 function staffVerificationRestoreLiveReviewInspectorCard(
   workbench,
@@ -11593,6 +11592,22 @@ async function loadReviews() {
           class="review-card"
           data-review-id="${escapeHtml(item.id)}"
         >
+          ${reviewImageEvidenceHtml(item)}
+
+          ${
+            item.text
+              ? `
+                <div class="reason live-review-source verification-inspector-source-first">
+                  <strong>
+                    ข้อความต้นฉบับ
+                  </strong>
+                  <div class="live-review-source-text">
+                    ${escapeHtml(item.text)}
+                  </div>
+                </div>
+              `
+              : ""
+          }
           <div class="review-meta">
             <span>
               <strong>
@@ -11614,7 +11629,6 @@ async function loadReviews() {
 
           <div class="review-claim-state"></div>
 
-          ${reviewImageEvidenceHtml(item)}
 
           <div class="reason live-review-reason">
             <strong>
