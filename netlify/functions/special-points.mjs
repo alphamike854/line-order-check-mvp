@@ -110,6 +110,7 @@ async function pointPayload(
       round_id: null,
       round_no: null,
       round_status: null,
+      eligible_line_groups: [],
     };
   }
 
@@ -148,6 +149,7 @@ async function pointPayload(
       round_id: null,
       round_no: null,
       round_status: null,
+      eligible_line_groups: [],
     };
   }
 
@@ -207,6 +209,7 @@ async function pointPayload(
     promoResult,
     codeResult,
     statusResult,
+    eligibleLineGroupResult,
   ] = await Promise.all([
     supabase
       .from(promotionSource)
@@ -239,6 +242,18 @@ async function pointPayload(
         selectedSummaryGroup,
       )
       .maybeSingle(),
+
+    supabase
+      .from("settlement_line_group_config")
+      .select("line_group_id,line_group_name")
+      .eq("settlement_session_id", session.id)
+      .eq(
+        "summary_group_id",
+        selectedSummaryGroup,
+      )
+      .eq("enabled", true)
+      .order("line_group_name")
+      .order("line_group_id"),
   ]);
 
   for (
@@ -246,6 +261,7 @@ async function pointPayload(
       promoResult,
       codeResult,
       statusResult,
+      eligibleLineGroupResult,
     ]
   ) {
     if (result.error) throw result.error;
@@ -331,6 +347,8 @@ async function pointPayload(
       selectedSummaryGroup,
     profiles: profileResult.data ?? [],
     promotions: promoResult.data ?? [],
+    eligible_line_groups:
+      eligibleLineGroupResult.data ?? [],
     codes: codeResult.data ?? [],
     status: statusResult.data ?? null,
     round_id: roundRead.round?.id ?? null,
