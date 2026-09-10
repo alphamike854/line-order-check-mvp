@@ -164,7 +164,18 @@ function mapError(message) {
   if (message.includes("SUMMARY_GROUP_REQUIRED")) return [400, "SUMMARY_GROUP_REQUIRED"];
   if (message.includes("SUMMARY_GROUP_STATE_REQUIRED")) return [400, "SUMMARY_GROUP_STATE_REQUIRED"];
   if (message.includes("SPECIAL_POINT_CODES_INCOMPLETE")) return [409, "SPECIAL_POINT_CODES_INCOMPLETE"];
-  if (message.includes("INVALID_PROMOTION")) return [400, message.includes("CODE")?"INVALID_PROMOTION_CODE":"INVALID_PROMOTION_RULE"];
+
+  if (message.includes("ROUND_CONFIG_ARCHIVED")) return [409, "ROUND_CONFIG_ARCHIVED"];
+  if (message.includes("ROUND_NOT_EDITABLE")) return [409, "ROUND_NOT_EDITABLE"];
+  if (message.includes("ROUND_NOT_FOUND")) return [409, "ROUND_NOT_FOUND"];
+
+  if (message.includes("INVALID_PROMOTION_SCOPE")) return [400, "INVALID_PROMOTION_SCOPE"];
+  if (message.includes("INVALID_PROMOTION_LINE_GROUPS")) return [400, "INVALID_PROMOTION_LINE_GROUPS"];
+  if (message.includes("PROMOTION_ALL_WITH_SELECTED_GROUPS")) return [400, "PROMOTION_ALL_WITH_SELECTED_GROUPS"];
+  if (message.includes("PROMOTION_SELECTED_GROUPS_REQUIRED")) return [400, "PROMOTION_SELECTED_GROUPS_REQUIRED"];
+  if (message.includes("PROMOTION_LINE_GROUP_OUT_OF_SCOPE")) return [400, "PROMOTION_LINE_GROUP_OUT_OF_SCOPE"];
+
+  if (message.includes("INVALID_PROMOTION")) return [400, message.includes("CODE") ? "INVALID_PROMOTION_CODE" : "INVALID_PROMOTION_RULE"];
   return [500, message];
 }
 
@@ -318,6 +329,380 @@ async function changeSummaryGroupState(
     group_state: data,
     image_cleanup: imageCleanup,
     ...(await getPayload()),
+  });
+}
+
+async function resolvePromotionRound(
+  sessionId,
+  summaryGroupId,
+) {
+  const {
+    data: session,
+    error: sessionError,
+  } = await supabase
+    .from("settlement_sessions")
+    .select("id,status")
+    .eq("id", sessionId)
+    .maybeSingle();
+
+  if (sessionError) throw sessionError;
+
+  if (!session) {
+    throw new Error(
+      "SETTLEMENT_NOT_FOUND",
+    );
+  }
+
+  const {
+    data: mappings,
+    error: mappingError,
+  } = await supabase
+    .from("settlement_line_group_config")
+    .select("line_group_id")
+    .eq(
+      "settlement_session_id",
+      sessionId,
+    )
+    .eq(
+      "summary_group_id",
+      summaryGroupId,
+    )
+    .eq("enabled", true)
+    .limit(1);
+
+  if (mappingError) throw mappingError;
+
+  if (!(mappings ?? []).length) {
+    throw new Error(
+      "SUMMARY_GROUP_NOT_IN_SETTLEMENT",
+    );
+  }
+
+  const {
+    data: round,
+    error: roundError,
+  } = await supabase
+    .from("settlement_summary_group_rounds")
+    .select(
+      "id,settlement_session_id,summary_group_id,round_no,status",
+    )
+    .eq(
+      "settlement_session_id",
+      sessionId,
+    )
+    .eq(
+      "summary_group_id",
+      summaryGroupId,
+    )
+    .in("status", ["OPEN", "CLOSED"])
+    .order(
+      "round_no",
+      { ascending: false },
+    )
+    .limit(1)
+    .maybeSingle();
+
+  if (roundError) throw roundError;
+
+  if (!round) {
+    throw new Error(
+      "ROUND_NOT_FOUND",
+    );
+  }
+
+  const {
+    data: snapshot,
+    error: snapshotError,
+  } = await supabase
+    .from(
+      "settlement_summary_group_round_snapshots",
+    )
+    .select("round_id")
+    .eq("round_id", round.id)
+    .maybeSingle();
+
+  if (snapshotError) {
+    throw snapshotError;
+  }
+
+  if (snapshot) {
+    throw new Error(
+      "ROUND_CONFIG_ARCHIVED",
+    );
+  }
+
+  return round;
+}
+
+async function changeRoundPointPromotion(
+  body,
+  deleting = false,
+) {
+  const sessionId =
+    String(
+      body.settlement_session_id ?? "",
+    ).trim();
+
+  const summaryGroupId =
+    String(
+      body.summary_group_id ?? "",
+    ).trim();
+
+  const category =
+    String(
+      body.category ?? "",
+    ).trim().toUpperCase();
+
+  const code =
+    String(
+      body.code ?? "",
+    ).trim();
+
+  if (!sessionId) {
+    return json(
+      {
+        ok: false,
+        error: "SETTLEMENT_NOT_FOUND",
+      },
+      400,
+    );
+  }
+
+  if (!summaryGroupId) {
+    return json(
+      {
+        ok: false,
+        error: "SUMMARY_GROUP_REQUIRED",
+      },
+      400,
+    );
+  }
+
+  if (!category || !code) {
+    return json(
+      {
+        ok: false,
+        error: "INVALID_PROMOTION_RULE",
+      },
+      400,
+    );
+  }
+
+  let factor = null;
+  let targetScope = "ALL";
+  let lineGroupIds = [];
+
+  if (!deleting) {
+    factor =
+      Number(
+        body.point_factor_pct,
+      );
+
+    if (
+      !Number.isFinite(factor)
+      || factor < 0
+      || factor > 100
+    ) {
+      return json(
+        {
+          ok: false,
+          error:
+            "INVALID_PROMOTION_RULE",
+        },
+        400,
+      );
+    }
+
+    targetScope =
+      String(
+        body.target_scope ?? "ALL",
+      ).trim().toUpperCase();
+
+    if (
+      !["ALL", "SELECTED"].includes(
+        targetScope,
+      )
+    ) {
+      return json(
+        {
+          ok: false,
+          error:
+            "INVALID_PROMOTION_SCOPE",
+        },
+        400,
+      );
+    }
+
+    if (
+      body.line_group_ids !== undefined
+      && body.line_group_ids !== null
+      && !Array.isArray(
+        body.line_group_ids,
+      )
+    ) {
+      return json(
+        {
+          ok: false,
+          error:
+            "INVALID_PROMOTION_LINE_GROUPS",
+        },
+        400,
+      );
+    }
+
+    const rawLineGroupIds =
+      body.line_group_ids ?? [];
+
+    if (
+      rawLineGroupIds.some(
+        (value) =>
+          typeof value !== "string"
+          || !value.trim(),
+      )
+    ) {
+      return json(
+        {
+          ok: false,
+          error:
+            "INVALID_PROMOTION_LINE_GROUPS",
+        },
+        400,
+      );
+    }
+
+    lineGroupIds = [
+      ...new Set(
+        rawLineGroupIds.map(
+          (value) => value.trim(),
+        ),
+      ),
+    ].sort();
+
+    if (
+      targetScope === "ALL"
+      && lineGroupIds.length
+    ) {
+      return json(
+        {
+          ok: false,
+          error:
+            "PROMOTION_ALL_WITH_SELECTED_GROUPS",
+        },
+        400,
+      );
+    }
+
+    if (
+      targetScope === "SELECTED"
+      && !lineGroupIds.length
+    ) {
+      return json(
+        {
+          ok: false,
+          error:
+            "PROMOTION_SELECTED_GROUPS_REQUIRED",
+        },
+        400,
+      );
+    }
+  }
+
+  let round;
+
+  try {
+    round =
+      await resolvePromotionRound(
+        sessionId,
+        summaryGroupId,
+      );
+  } catch (error) {
+    const [status, errorCode] =
+      mapError(
+        String(
+          error?.message
+          ?? error
+          ?? "UNKNOWN",
+        ),
+      );
+
+    return json(
+      {
+        ok: false,
+        error: errorCode,
+      },
+      status,
+    );
+  }
+
+  const rpc =
+    deleting
+      ? "delete_settlement_round_point_promotion"
+      : "set_settlement_round_point_promotion";
+
+  const args =
+    deleting
+      ? {
+          p_round_id:
+            round.id,
+          p_category:
+            category,
+          p_code:
+            code,
+          p_changed_by:
+            OPERATOR,
+        }
+      : {
+          p_round_id:
+            round.id,
+          p_category:
+            category,
+          p_code:
+            code,
+          p_point_factor_pct:
+            factor,
+          p_target_scope:
+            targetScope,
+          p_line_group_ids:
+            lineGroupIds,
+          p_changed_by:
+            OPERATOR,
+        };
+
+  const {
+    data,
+    error,
+  } = await supabase.rpc(
+    rpc,
+    args,
+  );
+
+  if (error) {
+    const [status, errorCode] =
+      mapError(
+        error.message,
+      );
+
+    return json(
+      {
+        ok: false,
+        error: errorCode,
+      },
+      status,
+    );
+  }
+
+  return json({
+    ok: true,
+    promotion_change: data,
+    round: {
+      id: round.id,
+      round_no:
+        round.round_no,
+      round_status:
+        round.status,
+      summary_group_id:
+        round.summary_group_id,
+    },
   });
 }
 
@@ -483,6 +868,20 @@ export default async (req) => {
       return changeSummaryGroupState(
         body,
         false,
+      );
+    }
+
+    if (action === "SET_ROUND_PROMOTION") {
+      return changeRoundPointPromotion(
+        body,
+        false,
+      );
+    }
+
+    if (action === "DELETE_ROUND_PROMOTION") {
+      return changeRoundPointPromotion(
+        body,
+        true,
       );
     }
 

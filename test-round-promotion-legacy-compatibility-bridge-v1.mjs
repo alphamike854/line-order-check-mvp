@@ -364,12 +364,12 @@ assert.match(
   /"delete_settlement_summary_group_point_promotion"/,
 );
 
-assert.doesNotMatch(
+assert.match(
   settlementApp,
   /"set_settlement_round_point_promotion"/,
 );
 
-assert.doesNotMatch(
+assert.match(
   settlementApp,
   /"delete_settlement_round_point_promotion"/,
 );
@@ -387,7 +387,7 @@ for (const app of readers) {
 }
 
 console.log(
-  "PASS PBR-11 application reads/writes remain on legacy compatibility boundary in 2C2P1",
+  "PASS PBR-11 legacy compatibility remains available alongside explicit Round mutation capability in 2C2P2B1",
 );
 
 assert.match(
