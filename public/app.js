@@ -31,6 +31,10 @@ const state = {
   specialPointRules: [],
   specialPointProfiles: [],
   specialPointPromotions: [],
+  specialPointEligibleLineGroups: [],
+  specialPointRoundId: null,
+  specialPointRoundNo: null,
+  specialPointRoundStatus: null,
   specialPointSessionId: null,
   specialPointSummaryGroupId: null,
   specialPointSession: null,
@@ -12191,6 +12195,76 @@ function renderPromotionDrafts() {
 }
 
 
+function promotionTargetLabel(
+  item,
+  eligibleLineGroups,
+) {
+  const scope =
+    String(
+      item?.target_scope || "ALL",
+    ).toUpperCase();
+
+  if (scope !== "SELECTED") {
+    return "ทุก LINE Group";
+  }
+
+  const nameById =
+    new Map(
+      (eligibleLineGroups || []).map(
+        (group) => [
+          String(group.line_group_id || ""),
+          String(
+            group.line_group_name
+            || group.line_group_id
+            || "",
+          ),
+        ],
+      ),
+    );
+
+  const ids =
+    Array.isArray(item?.line_group_ids)
+      ? item.line_group_ids
+      : [];
+
+  const labels =
+    ids.map(
+      (id) =>
+        nameById.get(String(id))
+        || String(id),
+    );
+
+  return labels.length
+    ? `เฉพาะ ${labels.join(", ")}`
+    : "เฉพาะ LINE Group";
+}
+
+
+function syncLivePromotionTargetVisibility(
+  form,
+) {
+  if (!form) return;
+
+  const selector =
+    form.querySelector(
+      "[data-promotion-line-groups]",
+    );
+
+  if (!selector) return;
+
+  const scope =
+    String(
+      form.elements.target_scope?.value
+      || "ALL",
+    ).toUpperCase();
+
+  selector.classList.toggle(
+    "hidden",
+    scope !== "SELECTED",
+  );
+}
+
+
 function renderSettlementPromotionControls(
   payload,
 ) {
@@ -12199,30 +12273,70 @@ function renderSettlementPromotionControls(
 
   if (!root) return;
 
-  const open =
-    payload?.open_session;
+  const session =
+    payload?.session || null;
 
-  if (!open?.id) {
-    root.innerHTML = "";
-    root.classList.add("hidden");
-    return;
-  }
+  const summaryGroupId =
+    String(
+      payload?.selected_summary_group
+      || "",
+    );
 
-  const groups =
-    promotionSummaryGroups(payload);
+  const roundId =
+    payload?.round_id || null;
+
+  const roundNo =
+    payload?.round_no ?? null;
+
+  const roundStatus =
+    payload?.round_status || null;
+
+  const eligibleLineGroups =
+    Array.isArray(
+      payload?.eligible_line_groups,
+    )
+      ? [...payload.eligible_line_groups]
+      : [];
 
   const promotions =
     Array.isArray(payload?.promotions)
       ? [...payload.promotions]
       : [];
 
+  if (
+    !session?.id
+    || !summaryGroupId
+  ) {
+    root.innerHTML = "";
+    root.classList.add("hidden");
+    return;
+  }
+
+  root.classList.remove("hidden");
+
+  if (!roundId) {
+    root.innerHTML = `
+      <div class="settlement-promotion-head">
+        <div>
+          <strong>Promotion Point</strong>
+          <span>
+            ${escapeHtml(
+              groupName(summaryGroupId),
+            )}
+          </span>
+        </div>
+      </div>
+      <div class="muted">
+        กลุ่มนี้ยังไม่มีรอบปัจจุบัน
+        จึงยังแก้ไข Promotion ไม่ได้
+      </div>
+    `;
+    return;
+  }
+
   promotions.sort(
     (a, b) =>
-      String(a.summary_group_id || "")
-        .localeCompare(
-          String(b.summary_group_id || ""),
-        )
-      || String(a.category || "")
+      String(a.category || "")
         .localeCompare(
           String(b.category || ""),
         )
@@ -12232,17 +12346,46 @@ function renderSettlementPromotionControls(
         ),
   );
 
-  root.classList.remove("hidden");
+  const lineGroupOptions =
+    eligibleLineGroups
+      .map(
+        (group) => `
+          <label class="promotion-line-group-option">
+            <input
+              type="checkbox"
+              name="line_group_ids"
+              value="${escapeHtml(
+                group.line_group_id,
+              )}"
+            />
+            <span>
+              ${escapeHtml(
+                group.line_group_name
+                || group.line_group_id,
+              )}
+            </span>
+          </label>
+        `,
+      )
+      .join("");
 
   root.innerHTML = `
     <div class="settlement-promotion-head">
       <div>
-        <strong>Promotion รายกลุ่ม</strong>
+        <strong>Promotion Point</strong>
         <span>
-          ใช้เฉพาะกลุ่มสรุปที่กำหนด
-          และมีผลกับยอดทั้งหมดในรอบนี้
+          ${escapeHtml(
+            groupName(summaryGroupId),
+          )}
+          · รอบ ${formatNumber(roundNo)}
+          · ${escapeHtml(roundStatus)}
+        </span>
+        <span>
+          แก้ไขได้ทั้งรอบ OPEN และ CLOSED
+          จนกว่าจะเปิดรอบถัดไป
         </span>
       </div>
+
       <small>
         ${formatNumber(promotions.length)} รายการ
       </small>
@@ -12250,15 +12393,8 @@ function renderSettlementPromotionControls(
 
     <form
       id="livePromotionForm"
-      class="compact-form inline-form"
+      class="compact-form inline-form round-promotion-form"
     >
-      <select
-        name="summary_group_id"
-        required
-      >
-        ${promotionGroupOptions(groups)}
-      </select>
-
       <select name="category">
         <option>A</option>
         <option>B</option>
@@ -12285,6 +12421,45 @@ function renderSettlementPromotionControls(
         required
       />
 
+      <div
+        class="promotion-target-scope"
+        role="group"
+        aria-label="เป้าหมาย Promotion"
+      >
+        <span>เป้าหมาย</span>
+
+        <label class="check">
+          <input
+            type="radio"
+            name="target_scope"
+            value="ALL"
+            checked
+          />
+          ทุก LINE Group
+        </label>
+
+        <label class="check">
+          <input
+            type="radio"
+            name="target_scope"
+            value="SELECTED"
+          />
+          เลือกเฉพาะ LINE Group
+        </label>
+      </div>
+
+      <div
+        class="promotion-line-group-selector hidden"
+        data-promotion-line-groups
+      >
+        ${
+          lineGroupOptions
+          || `<div class="muted">
+                ไม่มี LINE Group ที่เปิดใช้งาน
+              </div>`
+        }
+      </div>
+
       <button
         class="button primary small"
         type="submit"
@@ -12298,64 +12473,80 @@ function renderSettlementPromotionControls(
         promotions.length
           ? promotions
               .map(
-                (item) => `
-                  <div class="settings-row">
-                    <span>
-                      <strong>
-                        ${escapeHtml(
-                          groupName(
-                            item.summary_group_id,
-                          ),
-                        )}
-                        · ${escapeHtml(item.category)}
-                        ${escapeHtml(item.code)}
-                        · ${formatNumber(
+                (item) => {
+                  const lineGroupIds =
+                    Array.isArray(
+                      item.line_group_ids,
+                    )
+                      ? item.line_group_ids
+                      : [];
+
+                  return `
+                    <div class="settings-row">
+                      <span>
+                        <strong>
+                          ${escapeHtml(item.category)}
+                          ${escapeHtml(item.code)}
+                          · ${formatNumber(
+                            item.point_factor_pct,
+                          )}% ของ Point
+                        </strong>
+                        <small>
+                          ${escapeHtml(
+                            promotionTargetLabel(
+                              item,
+                              eligibleLineGroups,
+                            ),
+                          )}
+                        </small>
+                      </span>
+
+                      <button
+                        type="button"
+                        class="button ghost small edit-live-promotion"
+                        data-summary-group-id="${escapeHtml(
+                          summaryGroupId,
+                        )}"
+                        data-category="${escapeHtml(
+                          item.category,
+                        )}"
+                        data-code="${escapeHtml(
+                          item.code,
+                        )}"
+                        data-factor="${escapeHtml(
                           item.point_factor_pct,
-                        )}% ของ Point
-                      </strong>
-                      <small>
-                        ${escapeHtml(
-                          item.summary_group_id,
-                        )}
-                      </small>
-                    </span>
+                        )}"
+                        data-target-scope="${escapeHtml(
+                          item.target_scope
+                          || "ALL",
+                        )}"
+                        data-line-group-ids="${escapeHtml(
+                          JSON.stringify(
+                            lineGroupIds,
+                          ),
+                        )}"
+                      >
+                        แก้ไข
+                      </button>
 
-                    <button
-                      type="button"
-                      class="button ghost small edit-live-promotion"
-                      data-summary-group-id="${escapeHtml(
-                        item.summary_group_id,
-                      )}"
-                      data-category="${escapeHtml(
-                        item.category,
-                      )}"
-                      data-code="${escapeHtml(
-                        item.code,
-                      )}"
-                      data-factor="${escapeHtml(
-                        item.point_factor_pct,
-                      )}"
-                    >
-                      แก้ไข
-                    </button>
-
-                    <button
-                      type="button"
-                      class="button ghost small delete-live-promotion"
-                      data-summary-group-id="${escapeHtml(
-                        item.summary_group_id,
-                      )}"
-                      data-category="${escapeHtml(
-                        item.category,
-                      )}"
-                      data-code="${escapeHtml(
-                        item.code,
-                      )}"
-                    >
-                      ลบ
-                    </button>
-                  </div>
-                `,
+                      <button
+                        type="button"
+                        class="button ghost small delete-live-promotion"
+                        data-summary-group-id="${escapeHtml(
+                          summaryGroupId,
+                        )}"
+                        data-category="${escapeHtml(
+                          item.category,
+                        )}"
+                        data-code="${escapeHtml(
+                          item.code,
+                        )}"
+                      >
+                        ลบ
+                      </button>
+                    </div>
+                  `;
+                },
               )
               .join("")
           : `<div class="muted">
@@ -12365,11 +12556,32 @@ function renderSettlementPromotionControls(
     </div>
   `;
 
-  $("#livePromotionForm")
-    ?.addEventListener(
-      "submit",
-      saveLivePromotion,
+  const form =
+    $("#livePromotionForm");
+
+  form?.addEventListener(
+    "submit",
+    saveLivePromotion,
+  );
+
+  form
+    ?.querySelectorAll(
+      'input[name="target_scope"]',
+    )
+    .forEach(
+      (input) =>
+        input.addEventListener(
+          "change",
+          () =>
+            syncLivePromotionTargetVisibility(
+              form,
+            ),
+        ),
     );
+
+  syncLivePromotionTargetVisibility(
+    form,
+  );
 
   $$(".edit-live-promotion")
     .forEach(
@@ -12399,8 +12611,18 @@ function editLivePromotion(button) {
 
   if (!form) return;
 
-  form.elements.summary_group_id.value =
+  const summaryGroupId =
     button.dataset.summaryGroupId || "";
+
+  if (
+    summaryGroupId
+    !== state.specialPointSummaryGroupId
+  ) {
+    return toast(
+      "Promotion นี้ไม่ตรงกับกลุ่มสรุปที่กำลังเปิด",
+      true,
+    );
+  }
 
   form.elements.category.value =
     button.dataset.category || "A";
@@ -12411,30 +12633,63 @@ function editLivePromotion(button) {
   form.elements.point_factor_pct.value =
     button.dataset.factor || "";
 
+  const scope =
+    String(
+      button.dataset.targetScope || "ALL",
+    ).toUpperCase();
+
+  form.elements.target_scope.value =
+    scope === "SELECTED"
+      ? "SELECTED"
+      : "ALL";
+
+  let selectedIds = [];
+
+  try {
+    const parsed =
+      JSON.parse(
+        button.dataset.lineGroupIds
+        || "[]",
+      );
+
+    selectedIds =
+      Array.isArray(parsed)
+        ? parsed.map(String)
+        : [];
+  } catch {
+    selectedIds = [];
+  }
+
+  const selectedSet =
+    new Set(selectedIds);
+
+  form
+    .querySelectorAll(
+      'input[name="line_group_ids"]',
+    )
+    .forEach(
+      (input) => {
+        input.checked =
+          selectedSet.has(input.value);
+      },
+    );
+
+  syncLivePromotionTargetVisibility(
+    form,
+  );
+
   form.elements.code.focus();
 }
 
 
 async function refreshAfterPromotionChange(
   settlementSessionId,
+  summaryGroupId,
 ) {
-  await loadDashboard({
-    silent: true,
-    preserveReviewWorkbench: true,
-  });
-
-  const reportSelect =
-    $("#reportSessionSelect");
-
-  if (
-    reportSelect
-    && reportSelect.value ===
-      settlementSessionId
-  ) {
-    await loadReport({
-      silent: true,
-    });
-  }
+  await loadSpecialPoints(
+    settlementSessionId,
+    summaryGroupId,
+  );
 }
 
 
@@ -12444,21 +12699,25 @@ async function saveLivePromotion(event) {
   const form =
     event.currentTarget;
 
-  const open =
-    state.settlement?.open_session;
+  const settlementSessionId =
+    state.specialPointSessionId;
 
-  if (!open?.id) {
+  const summaryGroupId =
+    state.specialPointSummaryGroupId;
+
+  const roundId =
+    state.specialPointRoundId;
+
+  if (
+    !settlementSessionId
+    || !summaryGroupId
+    || !roundId
+  ) {
     return toast(
-      "ยังไม่ได้เปิดยอด",
+      "รอบนี้ยังไม่พร้อมแก้ Promotion",
       true,
     );
   }
-
-  const summaryGroupId =
-    String(
-      form.elements.summary_group_id.value
-      || "",
-    );
 
   const category =
     String(
@@ -12477,15 +12736,14 @@ async function saveLivePromotion(event) {
       form.elements.point_factor_pct.value,
     );
 
+  const targetScope =
+    String(
+      form.elements.target_scope?.value
+      || "ALL",
+    ).toUpperCase();
+
   const expectedLength =
     categoryCodeLength(category);
-
-  if (!summaryGroupId) {
-    return toast(
-      "กรุณาเลือกกลุ่มสรุป",
-      true,
-    );
-  }
 
   if (
     !new RegExp(
@@ -12509,6 +12767,50 @@ async function saveLivePromotion(event) {
     );
   }
 
+  if (
+    !["ALL", "SELECTED"].includes(
+      targetScope,
+    )
+  ) {
+    return toast(
+      "รูปแบบเป้าหมาย Promotion ไม่ถูกต้อง",
+      true,
+    );
+  }
+
+  const selectedLineGroupIds =
+    [
+      ...new Set(
+        Array.from(
+          form.querySelectorAll(
+            'input[name="line_group_ids"]:checked',
+          ),
+        )
+          .map(
+            (input) =>
+              String(
+                input.value || "",
+              ).trim(),
+          )
+          .filter(Boolean),
+      ),
+    ].sort();
+
+  if (
+    targetScope === "SELECTED"
+    && !selectedLineGroupIds.length
+  ) {
+    return toast(
+      "กรุณาเลือกอย่างน้อย 1 LINE Group",
+      true,
+    );
+  }
+
+  const lineGroupIds =
+    targetScope === "SELECTED"
+      ? selectedLineGroupIds
+      : [];
+
   const submit =
     form.querySelector(
       'button[type="submit"]',
@@ -12522,25 +12824,27 @@ async function saveLivePromotion(event) {
       {
         method: "POST",
         body: JSON.stringify({
-          action: "SET_PROMOTION",
+          action:
+            "SET_ROUND_PROMOTION",
           settlement_session_id:
-            open.id,
+            settlementSessionId,
           summary_group_id:
             summaryGroupId,
           category,
           code,
           point_factor_pct:
             factor,
+          target_scope:
+            targetScope,
+          line_group_ids:
+            lineGroupIds,
         }),
       },
     );
 
-    form.elements.code.value = "";
-    form.elements.point_factor_pct.value =
-      "";
-
     await refreshAfterPromotionChange(
-      open.id,
+      settlementSessionId,
+      summaryGroupId,
     );
 
     toast(
@@ -12564,12 +12868,24 @@ async function saveLivePromotion(event) {
 async function deleteLivePromotion(
   button,
 ) {
-  const open =
-    state.settlement?.open_session;
-
-  if (!open?.id) return;
+  const settlementSessionId =
+    state.specialPointSessionId;
 
   const summaryGroupId =
+    state.specialPointSummaryGroupId;
+
+  const roundId =
+    state.specialPointRoundId;
+
+  if (
+    !settlementSessionId
+    || !summaryGroupId
+    || !roundId
+  ) {
+    return;
+  }
+
+  const itemSummaryGroupId =
     button.dataset.summaryGroupId || "";
 
   const category =
@@ -12579,12 +12895,21 @@ async function deleteLivePromotion(
     button.dataset.code || "";
 
   if (
+    itemSummaryGroupId
+    !== summaryGroupId
+  ) {
+    return toast(
+      "Promotion นี้ไม่ตรงกับกลุ่มสรุปที่กำลังเปิด",
+      true,
+    );
+  }
+
+  if (
     !window.confirm(
       `ลบ Promotion ${
         groupName(summaryGroupId)
       } ${category}${code}?\n`
-      + `Point และ Risk ของยอดทั้งหมดในกลุ่มนี้`
-      + `จะถูกคำนวณใหม่`,
+      + `ค่าของรหัสนี้จะกลับเป็น Point ปกติ 100%`,
     )
   ) {
     return;
@@ -12598,9 +12923,10 @@ async function deleteLivePromotion(
       {
         method: "POST",
         body: JSON.stringify({
-          action: "DELETE_PROMOTION",
+          action:
+            "DELETE_ROUND_PROMOTION",
           settlement_session_id:
-            open.id,
+            settlementSessionId,
           summary_group_id:
             summaryGroupId,
           category,
@@ -12610,7 +12936,8 @@ async function deleteLivePromotion(
     );
 
     await refreshAfterPromotionChange(
-      open.id,
+      settlementSessionId,
+      summaryGroupId,
     );
 
     toast(
@@ -12629,6 +12956,7 @@ async function deleteLivePromotion(
     button.disabled = false;
   }
 }
+
 
 function renderSettlementGroupControls(payload) {
   const root = $("#settlementGroupControls");
@@ -12893,14 +13221,13 @@ async function changeSettlementSummaryGroup(
 function renderSettlementStatus(payload) {
   state.settlement=payload;
   renderSettlementGroupControls(payload);
-  renderSettlementPromotionControls(payload);
   const open=payload.open_session;
   $("#prepareOpenButton").classList.toggle("hidden",Boolean(open));
   $("#closeSettlementButton").classList.toggle("hidden",!open);
   if(open){
     businessDateInput.value=open.business_date;businessDateInput.disabled=true;
     $("#settlementStatus").textContent=`เปิดยอดอยู่ · ${open.business_date}`;
-    $("#settlementMeta").textContent=`เริ่ม ${formatBangkokTime(open.opened_at)} · Promotion ${formatNumber((payload.promotions||[]).length)} รายการ · ${payload.actual_point_status?.actual_codes_ready?"Point ครบ":"Point ยังไม่ครบ"}`;
+    $("#settlementMeta").textContent=`เริ่ม ${formatBangkokTime(open.opened_at)} · ${payload.actual_point_status?.actual_codes_ready?"Point ครบ":"Point ยังไม่ครบ"}`;
     $("#openSettlementEditor").classList.add("hidden");
   }else{
     businessDateInput.disabled=false;if(!businessDateInput.value)businessDateInput.value=todayBangkok();
@@ -13111,6 +13438,18 @@ async function loadSpecialPoints(
   state.specialPointPromotions=
     payload.promotions||[];
 
+  state.specialPointEligibleLineGroups=
+    payload.eligible_line_groups||[];
+
+  state.specialPointRoundId=
+    payload.round_id||null;
+
+  state.specialPointRoundNo=
+    payload.round_no??null;
+
+  state.specialPointRoundStatus=
+    payload.round_status||null;
+
   state.specialPointRules=
     (payload.codes||[]).map(
       r=>({
@@ -13120,6 +13459,9 @@ async function loadSpecialPoints(
     );
 
   renderSpecialPoints();
+  renderSettlementPromotionControls(
+    payload,
+  );
 
   const enabled=
     Boolean(

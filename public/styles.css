@@ -2330,3 +2330,64 @@ body{background:#f3f6fa}
 .verification-split-inspector .review-image-evidence {
   margin-bottom: 12px;
 }
+
+/* Phase 2C2P2B2B Round Promotion target editor */
+.settlement-promotion-controls{
+  margin-bottom:18px;
+}
+.round-promotion-form{
+  margin-top:10px;
+}
+.promotion-target-scope{
+  grid-column:1/-1;
+  display:flex;
+  align-items:center;
+  gap:14px;
+  flex-wrap:wrap;
+  padding:8px 10px;
+  border:1px solid #e2e8f0;
+  border-radius:10px;
+  background:#f8fafc;
+}
+.promotion-target-scope>span{
+  font-size:.78rem;
+  font-weight:800;
+  color:#475569;
+}
+.promotion-line-group-selector{
+  grid-column:1/-1;
+  display:grid;
+  grid-template-columns:
+    repeat(auto-fit,minmax(180px,1fr));
+  gap:7px;
+  padding:10px;
+  border:1px solid #e2e8f0;
+  border-radius:10px;
+  background:#fff;
+}
+.promotion-line-group-option{
+  display:flex;
+  align-items:center;
+  gap:7px;
+  min-width:0;
+  font-size:.8rem;
+  color:#475569;
+}
+.promotion-line-group-option input{
+  width:auto!important;
+  flex:0 0 auto;
+}
+.promotion-line-group-option span{
+  min-width:0;
+  overflow-wrap:anywhere;
+}
+@media(max-width:620px){
+  .promotion-target-scope{
+    align-items:flex-start;
+    flex-direction:column;
+    gap:8px;
+  }
+  .promotion-line-group-selector{
+    grid-template-columns:1fr;
+  }
+}

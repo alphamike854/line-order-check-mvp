@@ -242,18 +242,18 @@ console.log(
   "PASS P2B1-09 legacy compatibility actions remain available",
 );
 
-assert.doesNotMatch(
+assert.match(
   browser,
   /SET_ROUND_PROMOTION/,
 );
 
-assert.doesNotMatch(
+assert.match(
   browser,
   /DELETE_ROUND_PROMOTION/,
 );
 
 console.log(
-  "PASS P2B1-10 browser UI remains intentionally uncut in B1",
+  "PASS P2B1-10 browser now consumes the explicit Round-native mutation capability",
 );
 
 assert.match(

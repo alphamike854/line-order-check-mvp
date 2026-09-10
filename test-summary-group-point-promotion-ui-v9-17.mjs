@@ -109,16 +109,16 @@ console.log(
 
 assert.match(
   app,
-  /action: "SET_PROMOTION"/,
+  /action:\s*"SET_ROUND_PROMOTION"/,
 );
 
 assert.match(
   app,
-  /action: "DELETE_PROMOTION"/,
+  /action:\s*"DELETE_ROUND_PROMOTION"/,
 );
 
 console.log(
-  "PASS P1UI-07 browser sends scoped Promotion actions",
+  "PASS P1UI-07 browser sends scoped Round Promotion actions",
 );
 
 assert.match(
@@ -128,39 +128,34 @@ assert.match(
 
 assert.match(
   app,
-  /loadDashboard\(\{\s*silent: true,\s*preserveReviewWorkbench: true,/s,
-);
-
-assert.match(
-  app,
-  /loadReport\(\{\s*silent: true,/s,
+  /loadSpecialPoints\(\s*settlementSessionId,\s*summaryGroupId,\s*\)/s,
 );
 
 console.log(
-  "PASS P1UI-08 Point/Risk/Report refresh after change",
+  "PASS P1UI-08 Promotion refreshes the authoritative Point context while downstream calculation cutover stays deferred",
 );
 
 assert.match(
   app,
-  /มีผลกับยอดทั้งหมดในรอบนี้/,
+  /แก้ไขได้ทั้งรอบ OPEN และ CLOSED/,
 );
 
 assert.match(
   app,
-  /Point และ Risk ของยอดทั้งหมดในกลุ่มนี้/,
+  /Point ปกติ 100%/,
 );
 
 console.log(
-  "PASS P1UI-09 operator sees retrospective recalculation semantics",
+  "PASS P1UI-09 operator sees current Round editability and delete semantics",
 );
 
 assert.match(
   app,
-  /Promotion \$\{formatNumber\(\(payload\.promotions\|\|\[\]\)\.length\)\} รายการ/,
+  /\$\{formatNumber\(promotions\.length\)\} รายการ/,
 );
 
 console.log(
-  "PASS P1UI-10 scoped Promotion count is labelled as entries",
+  "PASS P1UI-10 Round-scoped Promotion count remains labelled as entries",
 );
 
 console.log(

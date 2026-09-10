@@ -127,18 +127,18 @@ assert.match(
   /action === "DELETE_ROUND_PROMOTION"/,
 );
 
-assert.doesNotMatch(
+assert.match(
   browser,
   /SET_ROUND_PROMOTION/,
 );
 
-assert.doesNotMatch(
+assert.match(
   browser,
   /DELETE_ROUND_PROMOTION/,
 );
 
 console.log(
-  "PASS P2B2A-08 direct Round API exists while browser cutover remains deferred",
+  "PASS P2B2A-08 editor context now feeds the Round-native browser mutation path",
 );
 
 console.log(
