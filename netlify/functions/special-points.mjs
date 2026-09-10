@@ -47,6 +47,52 @@ async function summaryGroupsForSession(sessionId) {
   ];
 }
 
+async function resolvePointRoundRead(
+  sessionId,
+  summaryGroupId,
+) {
+  const { data, error } = await supabase
+    .from("settlement_summary_group_rounds")
+    .select("id,round_no,status")
+    .eq("settlement_session_id", sessionId)
+    .eq("summary_group_id", summaryGroupId)
+    .in("status", ["OPEN", "CLOSED"])
+    .order("round_no", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  if (!data) {
+    return {
+      mode: "LEGACY_NO_ROUND",
+      round: null,
+    };
+  }
+
+  const {
+    data: snapshot,
+    error: snapshotError,
+  } = await supabase
+    .from("settlement_summary_group_round_snapshots")
+    .select("round_id")
+    .eq("round_id", data.id)
+    .maybeSingle();
+
+  if (snapshotError) throw snapshotError;
+
+  if (snapshot) {
+    throw new Error(
+      "CURRENT_ROUND_ARCHIVED",
+    );
+  }
+
+  return {
+    mode: "ROUND",
+    round: data,
+  };
+}
+
 async function pointPayload(
   session,
   explicitSummaryGroupId = "",
@@ -61,6 +107,9 @@ async function pointPayload(
       promotions: [],
       codes: [],
       status: null,
+      round_id: null,
+      round_no: null,
+      round_status: null,
     };
   }
 
@@ -96,6 +145,9 @@ async function pointPayload(
       promotions: [],
       codes: [],
       status: null,
+      round_id: null,
+      round_no: null,
+      round_status: null,
     };
   }
 
@@ -104,6 +156,31 @@ async function pointPayload(
       "SUMMARY_GROUP_NOT_IN_SETTLEMENT",
     );
   }
+
+  const roundRead =
+    await resolvePointRoundRead(
+      session.id,
+      selectedSummaryGroup,
+    );
+
+  const useRoundRead =
+    roundRead.mode === "ROUND";
+
+  const codeSource = useRoundRead
+    ? "settlement_summary_group_actual_special_point_codes_current"
+    : "settlement_summary_group_actual_special_point_codes";
+
+  const statusSource = useRoundRead
+    ? "session_summary_group_actual_point_status_current"
+    : "session_summary_group_actual_point_status";
+
+  const codeSelect = useRoundRead
+    ? "summary_group_id,round_id,round_no,round_status,category,code,created_at,updated_at,updated_by"
+    : "summary_group_id,category,code,created_at";
+
+  const statusSelect = useRoundRead
+    ? "summary_group_id,round_id,round_no,round_status,actual_codes_ready,category_counts"
+    : "summary_group_id,actual_codes_ready,category_counts";
 
   const [
     promoResult,
@@ -124,12 +201,8 @@ async function pointPayload(
       .order("code"),
 
     supabase
-      .from(
-        "settlement_summary_group_actual_special_point_codes",
-      )
-      .select(
-        "summary_group_id,category,code,created_at",
-      )
+      .from(codeSource)
+      .select(codeSelect)
       .eq("settlement_session_id", session.id)
       .eq(
         "summary_group_id",
@@ -139,12 +212,8 @@ async function pointPayload(
       .order("code"),
 
     supabase
-      .from(
-        "session_summary_group_actual_point_status",
-      )
-      .select(
-        "summary_group_id,actual_codes_ready,category_counts",
-      )
+      .from(statusSource)
+      .select(statusSelect)
       .eq("settlement_session_id", session.id)
       .eq(
         "summary_group_id",
@@ -163,6 +232,32 @@ async function pointPayload(
     if (result.error) throw result.error;
   }
 
+  if (useRoundRead) {
+    const expectedRoundId =
+      roundRead.round?.id ?? null;
+
+    if (
+      !statusResult.data
+      || statusResult.data.round_id !==
+        expectedRoundId
+    ) {
+      throw new Error(
+        "ROUND_READ_PROJECTION_MISMATCH",
+      );
+    }
+
+    if (
+      (codeResult.data ?? []).some(
+        (row) =>
+          row.round_id !== expectedRoundId,
+      )
+    ) {
+      throw new Error(
+        "ROUND_CODE_PROJECTION_MISMATCH",
+      );
+    }
+  }
+
   return {
     session,
     open_session:
@@ -174,6 +269,9 @@ async function pointPayload(
     promotions: promoResult.data ?? [],
     codes: codeResult.data ?? [],
     status: statusResult.data ?? null,
+    round_id: roundRead.round?.id ?? null,
+    round_no: roundRead.round?.round_no ?? null,
+    round_status: roundRead.round?.status ?? null,
   };
 }
 
