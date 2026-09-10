@@ -166,6 +166,27 @@ async function pointPayload(
   const useRoundRead =
     roundRead.mode === "ROUND";
 
+  const promotionSource = useRoundRead
+    ? "settlement_summary_group_point_promotions_current"
+    : "settlement_point_promotions";
+
+  const promotionSelect = useRoundRead
+    ? [
+        "summary_group_id",
+        "round_id",
+        "round_no",
+        "round_status",
+        "promotion_id",
+        "category",
+        "code",
+        "point_factor_pct",
+        "target_scope",
+        "line_group_ids",
+        "updated_at",
+        "updated_by",
+      ].join(",")
+    : "summary_group_id,category,code,point_factor_pct";
+
   const codeSource = useRoundRead
     ? "settlement_summary_group_actual_special_point_codes_current"
     : "settlement_summary_group_actual_special_point_codes";
@@ -188,10 +209,8 @@ async function pointPayload(
     statusResult,
   ] = await Promise.all([
     supabase
-      .from("settlement_point_promotions")
-      .select(
-        "summary_group_id,category,code,point_factor_pct",
-      )
+      .from(promotionSource)
+      .select(promotionSelect)
       .eq("settlement_session_id", session.id)
       .eq(
         "summary_group_id",
@@ -235,6 +254,51 @@ async function pointPayload(
   if (useRoundRead) {
     const expectedRoundId =
       roundRead.round?.id ?? null;
+
+    if (
+      (promoResult.data ?? []).some(
+        (row) =>
+          row.round_id !== expectedRoundId,
+      )
+    ) {
+      throw new Error(
+        "ROUND_PROMOTION_PROJECTION_MISMATCH",
+      );
+    }
+
+    for (
+      const promotion of
+      promoResult.data ?? []
+    ) {
+      const targetScope =
+        promotion.target_scope;
+
+      const lineGroupIds =
+        Array.isArray(
+          promotion.line_group_ids,
+        )
+          ? promotion.line_group_ids
+          : null;
+
+      if (
+        !["ALL", "SELECTED"].includes(
+          targetScope,
+        )
+        || !lineGroupIds
+        || (
+          targetScope === "ALL"
+          && lineGroupIds.length !== 0
+        )
+        || (
+          targetScope === "SELECTED"
+          && lineGroupIds.length === 0
+        )
+      ) {
+        throw new Error(
+          "ROUND_PROMOTION_TARGET_MISMATCH",
+        );
+      }
+    }
 
     if (
       !statusResult.data
