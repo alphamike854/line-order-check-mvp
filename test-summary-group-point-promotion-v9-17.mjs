@@ -100,7 +100,8 @@ console.log(
 );
 
 
-// P1-05: changes are allowed only while settlement is OPEN.
+// P1-05 historical v9.17 contract: the original migration required an OPEN settlement.
+// Later Round-scoped compatibility migrations may supersede this live runtime restriction.
 const openGuards =
   sql.match(
     /v_session\.status\s*<>\s*'OPEN'/gi,
@@ -112,7 +113,7 @@ assert.ok(
 );
 
 console.log(
-  "PASS P1-05 live Promotion editing is OPEN-settlement only",
+  "PASS P1-05 v9.17 migration originally limited Promotion editing to OPEN settlement",
 );
 
 
