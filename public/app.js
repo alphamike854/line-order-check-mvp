@@ -8434,6 +8434,114 @@ function staffVerificationTimelineItemSummary(
 }
 
 
+
+function staffVerificationPerCodeHighTotal(
+  item,
+) {
+  const totals =
+    new Map();
+
+  const rows =
+    Array.isArray(
+      item?.items,
+    )
+      ? item.items
+      : [];
+
+  for (const row of rows) {
+    const category =
+      String(
+        row?.category
+        ?? "",
+      )
+        .trim()
+        .toUpperCase();
+
+    const code =
+      String(
+        row?.code
+        ?? "",
+      ).trim();
+
+    const quantity =
+      Number(
+        row?.quantity
+        ?? 0,
+      );
+
+    if (
+      !category
+      || !code
+      || !Number.isFinite(
+        quantity,
+      )
+    ) {
+      continue;
+    }
+
+    const key =
+      `${category}\u0000${code}`;
+
+    totals.set(
+      key,
+      (
+        totals.get(key)
+        ?? 0
+      )
+        + quantity,
+    );
+  }
+
+  let bestCategory = "";
+  let bestCode = "";
+  let bestTotal = 0;
+
+  for (
+    const [
+      key,
+      total,
+    ]
+    of totals
+  ) {
+    if (
+      total <= bestTotal
+    ) {
+      continue;
+    }
+
+    const separator =
+      key.indexOf(
+        "\u0000",
+      );
+
+    bestCategory =
+      key.slice(
+        0,
+        separator,
+      );
+
+    bestCode =
+      key.slice(
+        separator + 1,
+      );
+
+    bestTotal =
+      total;
+  }
+
+  return {
+    category:
+      bestCategory,
+
+    code:
+      bestCode,
+
+    total:
+      bestTotal,
+  };
+}
+
+
 function staffVerificationTimelineBadgesHtml(
   item,
   {
@@ -8454,9 +8562,27 @@ function staffVerificationTimelineBadgesHtml(
   }
 
   if (isHighTotal) {
+    const highTotal =
+      staffVerificationPerCodeHighTotal(
+        item,
+      );
+
+    const highTotalLabel =
+      highTotal.total > 0
+        ? `${highTotal.category}${highTotal.code} · ${formatNumber(
+            highTotal.total,
+          )}`
+        : "";
+
     badges.push(`
       <span class="verification-queue-badge high-total">
-        🟠 ยอดสูง
+        🟠 ยอดสูง${
+          highTotalLabel
+            ? ` · ${escapeHtml(
+                highTotalLabel,
+              )}`
+            : ""
+        }
       </span>
     `);
   }
@@ -8897,14 +9023,12 @@ function staffVerificationTimelineSortedItems(
     (left, right) => {
       if (sortMode === "HIGHEST") {
         const totalDelta =
-          Number(
-            right?.message_order_total
-            ?? 0,
-          )
-          - Number(
-            left?.message_order_total
-            ?? 0,
-          );
+          staffVerificationPerCodeHighTotal(
+            right,
+          ).total
+          - staffVerificationPerCodeHighTotal(
+              left,
+            ).total;
 
         if (totalDelta) {
           return totalDelta;
