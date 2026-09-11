@@ -17,6 +17,10 @@ import {
   normalizeWorkbenchOffset,
 } from "../../src/lib/staff-workbench.mjs";
 
+import {
+  addScopedWorkbenchImageEvidence,
+} from "../../src/lib/staff-workbench-image-evidence.mjs";
+
 
 export default async function handler(req) {
   if (req.method !== "GET") {
@@ -202,10 +206,9 @@ export default async function handler(req) {
         },
       );
 
-    return json({
-      ok: true,
+    const payload =
+      buildStaffWorkbenchPayload({
 
-      ...buildStaffWorkbenchPayload({
         actor:
           auth.actor,
 
@@ -229,7 +232,18 @@ export default async function handler(req) {
 
         highTotalLimit,
         highTotalOffset,
-      }),
+
+      });
+
+    const publicPayload =
+      await addScopedWorkbenchImageEvidence(
+        supabase,
+        payload,
+      );
+
+    return json({
+      ok: true,
+      ...publicPayload,
     });
   } catch (error) {
     console.error(

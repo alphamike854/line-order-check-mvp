@@ -5927,6 +5927,92 @@ function staffVerificationResolutionHtml(
 }
 
 
+
+function staffVerificationImageEvidenceHtml(
+  item,
+  {
+    compact = false,
+  } = {},
+) {
+  const messageType =
+    String(
+      item?.message_type
+      ?? "",
+    ).toUpperCase();
+
+  if (messageType !== "IMAGE") {
+    return "";
+  }
+
+  const signedUrl =
+    String(
+      item?.image_evidence_url
+      ?? "",
+    ).trim();
+
+  if (!signedUrl) {
+    if (
+      item?.has_image_evidence
+      !== true
+    ) {
+      return "";
+    }
+
+    return `
+      <div class="review-image-evidence staff-verification-image-evidence unavailable">
+        <div class="muted small-text">
+          🖼 มีรูปภาพต้นฉบับ แต่ไม่สามารถโหลด Preview ได้ในขณะนี้
+        </div>
+      </div>
+    `;
+  }
+
+  const escapedUrl =
+    escapeHtml(
+      signedUrl,
+    );
+
+  return `
+    <figure
+      class="
+        review-image-evidence
+        staff-verification-image-evidence
+        ${
+          compact
+            ? "compact"
+            : ""
+        }
+      "
+    >
+      <a
+        class="staff-verification-image-link"
+        href="${escapedUrl}"
+        target="_blank"
+        rel="noopener noreferrer"
+        title="เปิดภาพต้นฉบับขนาดเต็ม"
+      >
+        <img
+          class="staff-verification-inline-image"
+          src="${escapedUrl}"
+          alt="ภาพข้อความต้นฉบับ"
+          loading="lazy"
+        >
+      </a>
+
+      ${
+        compact
+          ? ""
+          : `
+            <figcaption class="muted small-text">
+              ภาพต้นฉบับ · กดภาพเพื่อเปิดขนาดเต็ม
+            </figcaption>
+          `
+      }
+    </figure>
+  `;
+}
+
+
 function staffVerificationCardHtml(
   item,
 ) {
@@ -5964,6 +6050,7 @@ function staffVerificationCardHtml(
         messageRecordId,
       )}"
     >
+      ${staffVerificationImageEvidenceHtml(item)}
       <div class="reason staff-verification-source verification-inspector-source-first">
         <strong>
           ข้อความต้นฉบับ
@@ -8506,6 +8593,12 @@ function staffVerificationTimelineItemHtml(
 
     content = `
       <div class="verification-timeline-source verification-timeline-image-summary">
+        ${staffVerificationImageEvidenceHtml(
+          item,
+          {
+            compact: true,
+          },
+        )}
         <div>
           🖼 อ่านได้
           <strong>${formatNumber(
