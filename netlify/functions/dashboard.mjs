@@ -17,11 +17,7 @@ import { buildRiskDistributionPlan } from "../../src/lib/risk-engine.mjs";
 function sum(rows, key) { return rows.reduce((total, row) => total + Number(row[key] ?? 0), 0); }
 const RISK_POOL_CATEGORIES = Object.freeze({ MAIN:new Set(["A","B","E","F","G"]), H:new Set(["H"]), L:new Set(["L"]) });
 
-export default async (req, context) => {
-  const __regionProbeToken=new URL(req.url).searchParams.get("__region_probe");
-  if(__regionProbeToken){
-    console.info(`dashboard runtime proof token=${__regionProbeToken} request_id=${context?.requestId??"unknown"} server_region=${context?.server?.region??"unknown"}`);
-  }
+export default async (req) => {
   if (req.method !== "GET") return json({ ok:false,error:"METHOD_NOT_ALLOWED" },405);
   const denied=requireDashboardAccess(req); if(denied)return denied;
   try {
