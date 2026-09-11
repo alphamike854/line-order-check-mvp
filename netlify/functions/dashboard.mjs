@@ -1,4 +1,8 @@
 import {
+  buildDashboardFreshness,
+  loadDashboardPointContext,
+} from "../../src/lib/dashboard-point-context.mjs";
+import {
   fetchOpenSettlementSession,
   fetchOpenReviewCount,
   fetchUnsends,
@@ -87,24 +91,116 @@ export default async (req) => {
       messagesQuery=messagesQuery.eq("summary_group_id",summaryGroupId);
     }
 
-    const [codeResult,categoryResult,overallResult,poolResult,lineGroupRiskResult,lineGroupCodeResult,messagesResult,profileResult,promoResult,actualResult,warehouseLimitResult,riskBudgetResult,reviewOpenCount,unsends,batchFreshResult]=await Promise.all([
-      codeQuery,categoryQuery,overallQuery,poolQuery,lineGroupRiskQuery,lineGroupCodeQuery,messagesQuery,
-      supabase.from("settlement_point_profiles").select("category,special_multiplier,max_special_codes").eq("settlement_session_id",session.id).order("category"),
-      supabase.from("settlement_point_promotions").select("summary_group_id,category,code,point_factor_pct").eq("settlement_session_id",session.id).order("summary_group_id").order("category").order("code"),
-      (() => {
-        let query=supabase
-          .from("settlement_summary_group_actual_special_point_codes")
-          .select("summary_group_id,category,code,created_at")
-          .eq("settlement_session_id",session.id);
-        if(summaryGroupId)query=query.eq("summary_group_id",summaryGroupId);
-        return query.order("summary_group_id").order("category").order("code");
-      })(),
-      supabase.from("warehouse_transfer_limits").select("destination,max_batch_quantity,enabled,updated_at").eq("enabled",true).order("destination"),
-      supabase.from("summary_group_risk_pool_settings").select("summary_group_id,risk_pool,point_loss_tolerance,updated_at").order("summary_group_id").order("risk_pool"),
-      fetchOpenReviewCount(session.business_date,summaryGroupId,session.id),fetchUnsends(session.business_date,summaryGroupId),
-      supabase.from("settlement_transfer_batches").select("confirmed_at").eq("settlement_session_id",session.id).order("confirmed_at",{ascending:false}).limit(1),
+    const [
+      codeResult,
+      categoryResult,
+      overallResult,
+      poolResult,
+      lineGroupRiskResult,
+      lineGroupCodeResult,
+      messagesResult,
+      profileResult,
+      pointContext,
+      warehouseLimitResult,
+      riskBudgetResult,
+      settingsFreshResult,
+      reviewOpenCount,
+      unsends,
+      batchFreshResult,
+    ]=await Promise.all([
+      codeQuery,
+      categoryQuery,
+      overallQuery,
+      poolQuery,
+      lineGroupRiskQuery,
+      lineGroupCodeQuery,
+      messagesQuery,
+
+      supabase
+        .from("settlement_point_profiles")
+        .select(
+          "category,special_multiplier,max_special_codes"
+        )
+        .eq(
+          "settlement_session_id",
+          session.id
+        )
+        .order("category"),
+
+      loadDashboardPointContext({
+        supabase,
+        settlementSessionId:session.id,
+        summaryGroupId,
+      }),
+
+      supabase
+        .from("warehouse_transfer_limits")
+        .select(
+          "destination,max_batch_quantity,enabled,updated_at"
+        )
+        .eq("enabled",true)
+        .order("destination"),
+
+      supabase
+        .from("summary_group_risk_pool_settings")
+        .select(
+          "summary_group_id,risk_pool,point_loss_tolerance,updated_at"
+        )
+        .order("summary_group_id")
+        .order("risk_pool"),
+
+      supabase
+        .from("settings_change_events")
+        .select("changed_at")
+        .order(
+          "changed_at",
+          {ascending:false}
+        )
+        .limit(1),
+
+      fetchOpenReviewCount(
+        session.business_date,
+        summaryGroupId,
+        session.id
+      ),
+
+      fetchUnsends(
+        session.business_date,
+        summaryGroupId
+      ),
+
+      supabase
+        .from("settlement_transfer_batches")
+        .select("confirmed_at")
+        .eq(
+          "settlement_session_id",
+          session.id
+        )
+        .order(
+          "confirmed_at",
+          {ascending:false}
+        )
+        .limit(1),
     ]);
-    for(const r of [codeResult,categoryResult,overallResult,poolResult,lineGroupRiskResult,lineGroupCodeResult,messagesResult,profileResult,promoResult,actualResult,warehouseLimitResult,riskBudgetResult,batchFreshResult]) if(r.error) throw r.error;
+
+    for(
+      const result of [
+        codeResult,
+        categoryResult,
+        overallResult,
+        poolResult,
+        lineGroupRiskResult,
+        lineGroupCodeResult,
+        messagesResult,
+        profileResult,
+        warehouseLimitResult,
+        riskBudgetResult,
+        settingsFreshResult,
+        batchFreshResult,
+      ]
+    ){
+      if(result.error)throw result.error;
+    }
 
     const riskCodes=(codeResult.data??[]).sort((a,b)=>a.summary_group_id.localeCompare(b.summary_group_id)||a.category.localeCompare(b.category)||Number(b.order_total)-Number(a.order_total)||a.code.localeCompare(b.code));
     const categoryRisk=(categoryResult.data??[]).sort((a,b)=>a.summary_group_id.localeCompare(b.summary_group_id)||a.category.localeCompare(b.category));
@@ -358,15 +454,28 @@ export default async (req) => {
     });
     const messages=messagesResult.data??[];
     const profiles=profileResult.data??[];
-    const promotions=(promoResult.data??[]).filter(r=>!summaryGroupId||r.summary_group_id===summaryGroupId);
-    const actual=actualResult.data??[];
+    const promotions=pointContext.promotions;
+    const actual=pointContext.actual;
     const warehouseLimits=warehouseLimitResult.data??[];
     const riskBudgets=riskBudgetResult.data??[];
-    const settingsSignature=[
-      ...warehouseLimits.map(r=>`${r.destination}:${r.max_batch_quantity}:${r.updated_at}`),
-      ...riskBudgets.map(r=>`${r.summary_group_id}:${r.point_loss_tolerance}:${r.updated_at}`),
-    ].join(",");
-    const version=[session.id,messages[0]?.event_timestamp??"",batchFreshResult.data?.[0]?.confirmed_at??"",actual.map(r=>`${r.category}${r.code}`).join(","),promotions.map(r=>`${r.summary_group_id}:${r.category}${r.code}:${r.point_factor_pct}`).join(","),settingsSignature].join("|");
+
+    const freshness=
+      buildDashboardFreshness({
+        sessionId:session.id,
+        messageAt:
+          messages[0]?.event_timestamp??null,
+        transferAt:
+          batchFreshResult.data?.[0]
+            ?.confirmed_at??null,
+        settingsAt:
+          settingsFreshResult.data?.[0]
+            ?.changed_at??null,
+        rounds:pointContext.rounds,
+        actualCodes:actual,
+        promotions,
+        warehouseLimits,
+        riskBudgets,
+      });
 
     const mainPlans=distributionPlans.filter((plan)=>plan.risk_pool==="MAIN");
 
@@ -412,7 +521,7 @@ export default async (req) => {
         };
 
     return json({
-      ok:true,settlement_session:session,business_date:session.business_date,selected_summary_group:summaryGroupId??"ALL",generated_at:new Date().toISOString(),freshness:{version},summary_groups:summaryGroups,line_groups:lineGroups,
+      ok:true,settlement_session:session,business_date:session.business_date,selected_summary_group:summaryGroupId??"ALL",generated_at:new Date().toISOString(),freshness,summary_groups:summaryGroups,line_groups:lineGroups,
       metrics:{messages_total:messages.length,parsed:messages.filter(m=>m.parse_status==="PARSED").length,pending:messages.filter(m=>m.parse_status==="PENDING").length,review_open:Number(reviewOpenCount||0),gross_received:Number(metricOverall?.gross_received||0),adjusted_received:Number(metricOverall?.adjusted_received||0),point_reserve_total:Number(metricOverall?.point_reserve_total||0),risk_point_total:Number(metricOverall?.risk_point_total||0),safety_margin:Number(metricOverall?.safety_margin||0),point_loss_tolerance:Number(metricOverall?.point_loss_tolerance||0),risk_budget:Number(metricOverall?.risk_budget||0),excess_point_risk:Number(metricOverall?.excess_point_risk||0),transfer_required_total:metricOverall?.transfer_required_total==null?null:Number(metricOverall.transfer_required_total||0),distribution_incomplete:distributionIncomplete,distribution_point_pending:distributionPointPending,confirmed_cut_total:Number(metricOverall?.confirmed_cut_total||0),risk_pct:Number(metricOverall?.risk_pct||0),last_event_at:messages[0]?.event_timestamp??session.opened_at},
       risk_codes:riskCodes,category_risk:categoryRisk,overall_risk:overallRisk,risk_pools:riskPools,distribution_plans:distributionPlans,line_group_risk:lineGroupRisk,line_group_risk_codes:lineGroupRiskCodes,line_group_distribution_plans:lineGroupDistributionPlans,point_profiles:profiles,point_promotions:promotions,warehouse_limits:warehouseLimits,actual_special_codes:actual,
     });

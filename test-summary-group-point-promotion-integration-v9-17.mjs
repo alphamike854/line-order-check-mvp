@@ -49,21 +49,21 @@ console.log(
 // Integration-02
 assert.match(
   dashboard,
-  /select\("summary_group_id,category,code,point_factor_pct"\)/,
+  /loadDashboardPointContext\(\{/,
 );
 
 assert.match(
   dashboard,
-  /r\.summary_group_id===summaryGroupId/,
+  /const promotions=pointContext\.promotions;/,
 );
 
 assert.match(
   dashboard,
-  /`\$\{r\.summary_group_id\}:\$\{r\.category\}\$\{r\.code\}:\$\{r\.point_factor_pct\}`/,
+  /buildDashboardFreshness\(\{/,
 );
 
 console.log(
-  "PASS P1INT-02 dashboard Promotion payload/freshness is scoped",
+  "PASS P1INT-02 dashboard Promotion payload/freshness delegates to scoped Round-aware context",
 );
 
 

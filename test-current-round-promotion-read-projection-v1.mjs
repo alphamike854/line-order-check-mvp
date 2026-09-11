@@ -217,7 +217,6 @@ console.log(
 
 for (const source of [
   settlement,
-  dashboard,
   accounting,
 ]) {
   assert.match(
@@ -231,8 +230,18 @@ for (const source of [
   );
 }
 
+assert.match(
+  dashboard,
+  /loadDashboardPointContext/,
+);
+
+assert.match(
+  dashboard,
+  /buildDashboardFreshness/,
+);
+
 console.log(
-  "PASS PRC-11 Settlement/Dashboard/Accounting remain outside 2C2P2A",
+  "PASS PRC-11 Settlement/Accounting retain compatibility paths while Dashboard delegates to P3A2",
 );
 
 assert.match(

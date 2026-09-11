@@ -320,12 +320,12 @@ console.log(
 
 assert.match(
   dashboard,
-  /\.from\("settlement_summary_group_actual_special_point_codes"\)/,
+  /loadDashboardPointContext/,
 );
 
 assert.match(
   freshness,
-  /\.from\("settlement_summary_group_actual_special_point_codes"\)/,
+  /loadDashboardPointContext/,
 );
 
 assert.match(
@@ -359,7 +359,7 @@ assert.doesNotMatch(
 );
 
 console.log(
-  "PASS C2C1-15 Dashboard/Risk/mutation boundaries remain untouched",
+  "PASS C2C1-15 Dashboard metadata delegates to P3A2 while Risk/mutation boundaries remain unchanged",
 );
 
 assert.match(

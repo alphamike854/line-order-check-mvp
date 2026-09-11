@@ -467,12 +467,17 @@ console.log(
 
 assert.match(
   dashboard,
-  /settlement_point_promotions/,
+  /loadDashboardPointContext/,
+);
+
+assert.match(
+  dashboard,
+  /buildDashboardFreshness/,
 );
 
 assert.doesNotMatch(
   dashboard,
-  /settlement_summary_group_point_promotions_current/,
+  /\.from\("settlement_point_promotions"\)/,
 );
 
 assert.match(
@@ -486,7 +491,7 @@ assert.doesNotMatch(
 );
 
 console.log(
-  "PASS P2B2B-15 Dashboard/Accounting production calculation cutover remains deferred",
+  "PASS P2B2B-15 Dashboard metadata delegates to P3A2 while Accounting cutover remains deferred",
 );
 
 console.log(

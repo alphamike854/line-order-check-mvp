@@ -107,32 +107,32 @@ console.log(
 // A2A-04
 assert.match(
   dashboard,
-  /settlement_summary_group_actual_special_point_codes/,
+  /loadDashboardPointContext/,
 );
 
 assert.match(
   dashboard,
-  /select\("summary_group_id,category,code,created_at"\)/,
+  /actual_special_codes:actual/,
 );
 
 console.log(
-  "PASS A2A-04 Dashboard Actual Point payload carries Summary Group identity",
+  "PASS A2A-04 Dashboard Actual Point payload delegates to Round-aware point context",
 );
 
 
 // A2A-05
 assert.match(
   freshness,
-  /settlement_summary_group_actual_special_point_codes/,
+  /loadDashboardPointContext/,
 );
 
 assert.match(
   freshness,
-  /\$\{r\.summary_group_id\}\|\$\{r\.category\}\$\{r\.code\}@/,
+  /buildDashboardFreshness/,
 );
 
 console.log(
-  "PASS A2A-05 Freshness signature detects group-specific Point changes",
+  "PASS A2A-05 Freshness delegates to shared Round-aware signature",
 );
 
 
