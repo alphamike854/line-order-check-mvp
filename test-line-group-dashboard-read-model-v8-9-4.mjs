@@ -11,15 +11,34 @@ const dashboard = fs.readFileSync(
 
 
 // New LINE Group DB read models.
+// Dashboard LINE Group state is now supplied by the shared
+// Dashboard Risk Snapshot RPC rather than direct heavy-view reads.
 assert.match(
   dashboard,
-  /session_line_group_risk_state/,
+  /dashboard_risk_snapshot/,
 );
 
 assert.match(
   dashboard,
-  /session_line_group_code_retention_state/,
+  /riskSnapshot\.line_group_risk/,
 );
+
+assert.match(
+  dashboard,
+  /riskSnapshot\.line_group_risk_codes/,
+);
+
+assert.doesNotMatch(
+  dashboard,
+  /supabase\.from\("session_line_group_risk_state"\)/,
+);
+
+assert.doesNotMatch(
+  dashboard,
+  /supabase\.from\("session_line_group_code_retention_state"\)/,
+);
+
+
 
 
 // New response collections.
@@ -56,15 +75,27 @@ assert.match(
 );
 
 
-// Summary Group filter propagates to both LINE Group views.
+// Summary Group scope propagates through the shared Dashboard RPC.
 assert.match(
   dashboard,
-  /lineGroupRiskQuery=lineGroupRiskQuery\.eq\("summary_group_id",summaryGroupId\)/,
+  /p_settlement_session_id:session\.id/,
 );
 
 assert.match(
   dashboard,
-  /query=query\.eq\("summary_group_id",summaryGroupId\)/,
+  /p_summary_group_id:summaryGroupId\?\?null/,
+);
+
+// LINE Group retention scope is now owned by
+// dashboard_risk_snapshot via p_summary_group_id.
+assert.match(
+  dashboard,
+  /p_summary_group_id:summaryGroupId\?\?null/,
+);
+
+assert.doesNotMatch(
+  dashboard,
+  /fetchAllLineGroupCodeRetentionRows/,
 );
 
 
@@ -216,9 +247,17 @@ assert.doesNotMatch(
   /\.delete\s*\(/,
 );
 
-assert.doesNotMatch(
-  dashboard,
-  /\.rpc\s*\(/,
+// Dashboard remains read-only while allowing the single
+// STABLE Dashboard Risk Snapshot read RPC.
+const dashboardRpcCalls = [
+  ...dashboard.matchAll(
+    /supabase\.rpc\(\s*"([^"]+)"/g,
+  ),
+].map((match) => match[1]);
+
+assert.deepEqual(
+  dashboardRpcCalls,
+  ["dashboard_risk_snapshot"],
 );
 
 

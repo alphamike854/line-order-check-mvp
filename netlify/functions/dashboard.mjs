@@ -17,43 +17,6 @@ import { buildRiskDistributionPlan } from "../../src/lib/risk-engine.mjs";
 function sum(rows, key) { return rows.reduce((total, row) => total + Number(row[key] ?? 0), 0); }
 const RISK_POOL_CATEGORIES = Object.freeze({ MAIN:new Set(["A","B","E","F","G"]), H:new Set(["H"]), L:new Set(["L"]) });
 
-const LINE_GROUP_CODE_PAGE_SIZE=1000;
-const LINE_GROUP_CODE_SELECT="settlement_session_id,line_group_id,summary_group_id,category,code,order_total,confirmed_cut,retained_quantity,effective_multiplier,retention_limit,recommended_cut,projected_retained,recommended_point_reduction,retention_status,confirmed_cut_exceeds_order_total";
-
-async function fetchAllLineGroupCodeRetentionRows(settlementSessionId,summaryGroupId){
-  const rows=[];
-
-  for(let from=0;;from+=LINE_GROUP_CODE_PAGE_SIZE){
-    let query=supabase
-      .from("session_line_group_code_retention_state")
-      .select(LINE_GROUP_CODE_SELECT)
-      .eq("settlement_session_id",settlementSessionId)
-      .order("summary_group_id",{ascending:true})
-      .order("line_group_id",{ascending:true})
-      .order("category",{ascending:true})
-      .order("code",{ascending:true})
-      .range(from,from+LINE_GROUP_CODE_PAGE_SIZE-1);
-
-    if(summaryGroupId){
-      query=query.eq("summary_group_id",summaryGroupId);
-    }
-
-    const result=await query;
-
-    if(result.error){
-      return result;
-    }
-
-    const page=result.data??[];
-    rows.push(...page);
-
-    if(page.length<LINE_GROUP_CODE_PAGE_SIZE){
-      return {data:rows,error:null};
-    }
-  }
-}
-
-
 export default async (req) => {
   if (req.method !== "GET") return json({ ok:false,error:"METHOD_NOT_ALLOWED" },405);
   const denied=requireDashboardAccess(req); if(denied)return denied;
@@ -65,39 +28,21 @@ export default async (req) => {
       return json({ok:true,settlement_session:null,business_date:null,selected_summary_group:summaryGroupId??"ALL",generated_at:new Date().toISOString(),summary_groups:summaryGroups,line_groups:lineGroups,metrics:{messages_total:0,parsed:0,pending:0,review_open:0,gross_received:0,adjusted_received:0,point_reserve_total:0,risk_point_total:0,safety_margin:0,point_loss_tolerance:0,risk_budget:0,excess_point_risk:0,transfer_required_total:0,distribution_incomplete:false,confirmed_cut_total:0,risk_pct:0,last_event_at:null},risk_codes:[],category_risk:[],overall_risk:[],risk_pools:[],distribution_plans:[],line_group_risk:[],line_group_risk_codes:[],line_group_distribution_plans:[],actual_special_codes:[],point_profiles:[],point_promotions:[],warehouse_limits:[],freshness:{version:"NO_OPEN_SETTLEMENT"}});
     }
 
-    let codeQuery=supabase.from("session_code_risk_state").select("settlement_session_id,business_date,summary_group_id,category,code,order_total,adjusted_total,special_multiplier,max_special_codes,promotion_factor_pct,effective_multiplier,point_exposure,reserve_rank,reserve_candidate,actual_special_point,actual_point,confirmed_cut,available_to_cut,retained_quantity,retained_point_exposure").eq("settlement_session_id",session.id);
-    let categoryQuery=supabase.from("session_category_risk_state").select("settlement_session_id,business_date,summary_group_id,category,special_multiplier,max_special_codes,actual_selected_count,order_total,adjusted_total,point_reserve,actual_point,reserve_safe_capacity,reserve_risk_pct").eq("settlement_session_id",session.id);
-    let overallQuery=supabase.from("session_overall_risk_state").select("settlement_session_id,business_date,summary_group_id,gross_received,adjusted_received,point_reserve_total,actual_point_total,actual_codes_ready,risk_mode,risk_point_total,net_safe_capacity,confirmed_cut_total,remaining_safe_capacity,over_safe_amount,risk_pct,safety_margin,safety_margin_pct,point_loss_tolerance,risk_budget,risk_budget_margin,excess_point_risk").eq("settlement_session_id",session.id);
-    let poolQuery=supabase.from("session_risk_pool_state").select("settlement_session_id,business_date,summary_group_id,risk_pool,gross_received,adjusted_received,point_reserve_total,actual_point_total,multiplier_configured,actual_codes_ready,risk_mode,risk_point_total,safety_margin,confirmed_cut_total,point_loss_tolerance,risk_pct,risk_budget,excess_point_risk,risk_budget_margin").eq("settlement_session_id",session.id);
-
-    let lineGroupRiskQuery=supabase
-      .from("session_line_group_risk_state")
-      .select("settlement_session_id,business_date,line_group_id,line_group_name,summary_group_id,reduction_pct,enabled,gross_received,calculation_band,risk_budget_pct,risk_budget,amount_to_next_band,calculation_status,multiplier_configured,risk_calculation_ready,risk_status,cut_required,risk_model,over_limit_code_count,recommended_cut_total,recommended_point_reduction,confirmed_cut_total,retained_total,over_cut_code_count")
-      .eq("settlement_session_id",session.id);
-
-    const lineGroupCodeQuery=
-      fetchAllLineGroupCodeRetentionRows(
-        session.id,
-        summaryGroupId
-      );
+    const riskSnapshotQuery=supabase.rpc(
+      "dashboard_risk_snapshot",
+      {
+        p_settlement_session_id:session.id,
+        p_summary_group_id:summaryGroupId??null,
+      }
+    );
 
     let messagesQuery=supabase.from("messages").select("parse_status,event_timestamp").eq("settlement_session_id",session.id).order("event_timestamp",{ascending:false}).limit(10000);
     if(summaryGroupId){
-      codeQuery=codeQuery.eq("summary_group_id",summaryGroupId);
-      categoryQuery=categoryQuery.eq("summary_group_id",summaryGroupId);
-      overallQuery=overallQuery.eq("summary_group_id",summaryGroupId);
-      poolQuery=poolQuery.eq("summary_group_id",summaryGroupId);
-      lineGroupRiskQuery=lineGroupRiskQuery.eq("summary_group_id",summaryGroupId);
       messagesQuery=messagesQuery.eq("summary_group_id",summaryGroupId);
     }
 
     const [
-      codeResult,
-      categoryResult,
-      overallResult,
-      poolResult,
-      lineGroupRiskResult,
-      lineGroupCodeResult,
+      riskSnapshotResult,
       messagesResult,
       profileResult,
       pointContext,
@@ -108,12 +53,7 @@ export default async (req) => {
       unsends,
       batchFreshResult,
     ]=await Promise.all([
-      codeQuery,
-      categoryQuery,
-      overallQuery,
-      poolQuery,
-      lineGroupRiskQuery,
-      lineGroupCodeQuery,
+      riskSnapshotQuery,
       messagesQuery,
 
       supabase
@@ -185,12 +125,7 @@ export default async (req) => {
 
     for(
       const result of [
-        codeResult,
-        categoryResult,
-        overallResult,
-        poolResult,
-        lineGroupRiskResult,
-        lineGroupCodeResult,
+        riskSnapshotResult,
         messagesResult,
         profileResult,
         warehouseLimitResult,
@@ -202,19 +137,42 @@ export default async (req) => {
       if(result.error)throw result.error;
     }
 
-    const riskCodes=(codeResult.data??[]).sort((a,b)=>a.summary_group_id.localeCompare(b.summary_group_id)||a.category.localeCompare(b.category)||Number(b.order_total)-Number(a.order_total)||a.code.localeCompare(b.code));
-    const categoryRisk=(categoryResult.data??[]).sort((a,b)=>a.summary_group_id.localeCompare(b.summary_group_id)||a.category.localeCompare(b.category));
-    const overallRisk=(overallResult.data??[]).sort((a,b)=>a.summary_group_id.localeCompare(b.summary_group_id));
-    const riskPools=(poolResult.data??[]).sort((a,b)=>a.summary_group_id.localeCompare(b.summary_group_id)||a.risk_pool.localeCompare(b.risk_pool));
+    const riskSnapshot=riskSnapshotResult.data;
+    const riskSnapshotKeys=[
+      "risk_codes",
+      "category_risk",
+      "overall_risk",
+      "risk_pools",
+      "line_group_risk",
+      "line_group_risk_codes",
+    ];
 
-    const lineGroupRisk=(lineGroupRiskResult.data??[]).sort(
+    if(
+      !riskSnapshot
+      || typeof riskSnapshot!=="object"
+      || Array.isArray(riskSnapshot)
+      || riskSnapshotKeys.some(
+        key=>!Array.isArray(riskSnapshot[key])
+      )
+    ){
+      throw new Error(
+        "DASHBOARD_RISK_SNAPSHOT_INVALID"
+      );
+    }
+
+    const riskCodes=[...riskSnapshot.risk_codes].sort((a,b)=>a.summary_group_id.localeCompare(b.summary_group_id)||a.category.localeCompare(b.category)||Number(b.order_total)-Number(a.order_total)||a.code.localeCompare(b.code));
+    const categoryRisk=[...riskSnapshot.category_risk].sort((a,b)=>a.summary_group_id.localeCompare(b.summary_group_id)||a.category.localeCompare(b.category));
+    const overallRisk=[...riskSnapshot.overall_risk].sort((a,b)=>a.summary_group_id.localeCompare(b.summary_group_id));
+    const riskPools=[...riskSnapshot.risk_pools].sort((a,b)=>a.summary_group_id.localeCompare(b.summary_group_id)||a.risk_pool.localeCompare(b.risk_pool));
+
+    const lineGroupRisk=[...riskSnapshot.line_group_risk].sort(
       (a,b)=>
         a.summary_group_id.localeCompare(b.summary_group_id)
         || String(a.line_group_name||a.line_group_id)
           .localeCompare(String(b.line_group_name||b.line_group_id))
     );
 
-    const lineGroupRiskCodes=(lineGroupCodeResult.data??[]).sort(
+    const lineGroupRiskCodes=[...riskSnapshot.line_group_risk_codes].sort(
       (a,b)=>
         a.summary_group_id.localeCompare(b.summary_group_id)
         || a.line_group_id.localeCompare(b.line_group_id)
