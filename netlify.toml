@@ -4,3 +4,7 @@
 [functions]
   directory = "netlify/functions"
   node_bundler = "esbuild"
+
+# Keep Dashboard compute close to the Supabase project in Singapore.
+[functions.dashboard]
+  region = "sin"
