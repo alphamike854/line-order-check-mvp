@@ -485,4 +485,6 @@ export default async (req) => {
     });
   } catch(error){console.error("dashboard failed",error);return json({ok:false,error:error?.message??String(error)},500);}
 };
-export const config={path:"/api/dashboard"};
+export const config={path:"/api/dashboard",region:"sin"};
+
+console.info("dashboard runtime region",{aws_region:process.env.AWS_REGION??process.env.AWS_DEFAULT_REGION??null});
