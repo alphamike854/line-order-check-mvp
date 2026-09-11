@@ -5953,7 +5953,8 @@ function staffVerificationCardHtml(
     item?.text
     ?? item?.display_text
     ?? item?.raw_text
-    ?? item?.normalized_text
+    ?? item?.ocr_text
+      ?? item?.normalized_text
     ?? "";
 
   return `
@@ -7084,8 +7085,9 @@ async function confirmStaffVerification(
       "ยืนยันออเดอร์แล้ว",
     );
 
-    await reloadStaffVerificationQueue(
+    await reloadStaffVerificationQueuePreservingPosition(
       root,
+      messageRecordId,
     );
   } catch (error) {
     if (
@@ -7419,8 +7421,9 @@ async function applyStaffVerificationCorrection(
         : "บันทึก Human Truth แล้ว โดยไม่แก้ canonical ของรอบที่ปิดแล้ว",
     );
 
-    await reloadStaffVerificationQueue(
+    await reloadStaffVerificationQueuePreservingPosition(
       root,
+      messageRecordId,
     );
   } catch (error) {
     const code =
@@ -7853,6 +7856,349 @@ function staffVerificationQueueColumnHtml(
 }
 
 
+
+/* Review UX continuity v1 */
+function staffVerificationFindWorkbench(
+  root,
+) {
+  let node =
+    root
+    ?? null;
+
+  while (node) {
+    if (
+      node._verificationWorkbenchItems
+      instanceof Map
+      || node._verificationTimelineFilters
+      instanceof Set
+    ) {
+      return node;
+    }
+
+    node =
+      node.parentElement
+      ?? null;
+  }
+
+  return null;
+}
+
+
+function staffVerificationCaptureContinuity(
+  root,
+  messageRecordId,
+) {
+  const workbench =
+    staffVerificationFindWorkbench(
+      root,
+    );
+
+  const timeline =
+    workbench?.querySelector(
+      "[data-verification-timeline-items]",
+    )
+    ?? null;
+
+  const rows =
+    timeline
+      ? Array.from(
+          timeline.querySelectorAll(
+            ".verification-timeline-item[data-message-record-id]",
+          ),
+        )
+      : [];
+
+  const resolvedId =
+    String(
+      messageRecordId
+      ?? "",
+    );
+
+  const rowIndex =
+    rows.findIndex(
+      (row) =>
+        String(
+          row.dataset.messageRecordId
+          ?? "",
+        )
+        === resolvedId,
+    );
+
+  const candidateIds = [];
+
+  if (rowIndex >= 0) {
+    for (
+      let index = rowIndex + 1;
+      index < rows.length;
+      index += 1
+    ) {
+      const id =
+        String(
+          rows[index]?.dataset?.messageRecordId
+          ?? "",
+        );
+
+      if (
+        id
+        && id !== resolvedId
+      ) {
+        candidateIds.push(id);
+      }
+    }
+
+    for (
+      let index = rowIndex - 1;
+      index >= 0;
+      index -= 1
+    ) {
+      const id =
+        String(
+          rows[index]?.dataset?.messageRecordId
+          ?? "",
+        );
+
+      if (
+        id
+        && id !== resolvedId
+      ) {
+        candidateIds.push(id);
+      }
+    }
+  }
+
+  return {
+    resolvedMessageRecordId:
+      resolvedId,
+
+    selectedMessageRecordId:
+      String(
+        workbench?._selectedMessageRecordId
+        ?? "",
+      ),
+
+    candidateIds,
+
+    rowIndex,
+
+    timelineScrollTop:
+      Number(
+        timeline?.scrollTop
+        ?? 0,
+      ),
+
+    pageScrollX:
+      Number(
+        window.scrollX
+        ?? 0,
+      ),
+
+    pageScrollY:
+      Number(
+        window.scrollY
+        ?? 0,
+      ),
+
+    filters:
+      [
+        ...(
+          workbench?._verificationTimelineFilters
+          ?? []
+        ),
+      ],
+
+    sort:
+      String(
+        workbench?._verificationTimelineSort
+        ?? "LATEST",
+      ),
+  };
+}
+
+
+function staffVerificationRestoreContinuity(
+  state,
+) {
+  if (!state) {
+    return;
+  }
+
+  const root =
+    document.querySelector(
+      "#staffVerificationQueue",
+    );
+
+  const workbench =
+    staffVerificationFindWorkbench(
+      root,
+    );
+
+  if (!workbench) {
+    window.scrollTo({
+      left:
+        Number(
+          state.pageScrollX
+          ?? 0,
+        ),
+
+      top:
+        Number(
+          state.pageScrollY
+          ?? 0,
+        ),
+
+      behavior: "auto",
+    });
+
+    return;
+  }
+
+  workbench._verificationTimelineFilters =
+    new Set(
+      state.filters
+      ?? [],
+    );
+
+  workbench._verificationTimelineSort =
+    state.sort
+    ?? "LATEST";
+
+  staffVerificationRenderTimeline(
+    workbench,
+  );
+
+  const items =
+    workbench._verificationWorkbenchItems
+    ?? new Map();
+
+  let targetId = "";
+
+  const oldSelected =
+    String(
+      state.selectedMessageRecordId
+      ?? "",
+    );
+
+  if (
+    oldSelected
+    && oldSelected
+      !== state.resolvedMessageRecordId
+    && items.has(oldSelected)
+  ) {
+    targetId = oldSelected;
+  }
+
+  if (!targetId) {
+    for (
+      const candidate
+      of state.candidateIds
+      ?? []
+    ) {
+      if (items.has(candidate)) {
+        targetId =
+          candidate;
+        break;
+      }
+    }
+  }
+
+  if (!targetId) {
+    const visible =
+      staffVerificationTimelineSortedItems(
+        workbench,
+      );
+
+    if (visible.length) {
+      const index =
+        Math.max(
+          0,
+          Math.min(
+            Number(
+              state.rowIndex
+              ?? 0,
+            ),
+            visible.length - 1,
+          ),
+        );
+
+      targetId =
+        String(
+          visible[index]
+            ?.message_record_id
+          ?? "",
+        );
+    }
+  }
+
+  if (targetId) {
+    selectStaffVerificationWorkbenchItem(
+      workbench,
+      targetId,
+      {
+        scroll: false,
+      },
+    );
+  }
+
+  const restore = () => {
+    const timeline =
+      workbench.querySelector(
+        "[data-verification-timeline-items]",
+      );
+
+    if (timeline) {
+      timeline.scrollTop =
+        Number(
+          state.timelineScrollTop
+          ?? 0,
+        );
+    }
+
+    window.scrollTo({
+      left:
+        Number(
+          state.pageScrollX
+          ?? 0,
+        ),
+
+      top:
+        Number(
+          state.pageScrollY
+          ?? 0,
+        ),
+
+      behavior: "auto",
+    });
+  };
+
+  requestAnimationFrame(
+    () =>
+      requestAnimationFrame(
+        restore,
+      ),
+  );
+}
+
+
+async function reloadStaffVerificationQueuePreservingPosition(
+  root,
+  messageRecordId,
+) {
+  const state =
+    staffVerificationCaptureContinuity(
+      root,
+      messageRecordId,
+    );
+
+  await reloadStaffVerificationQueue(
+    root,
+  );
+
+  staffVerificationRestoreContinuity(
+    state,
+  );
+}
+
+
 /* Review Timeline v1 */
 function staffVerificationTimelineEventTime(
   item,
@@ -7890,7 +8236,8 @@ function staffVerificationTimelineSourceText(
     item?.text
     ?? item?.display_text
     ?? item?.raw_text
-    ?? item?.normalized_text
+    ?? item?.ocr_text
+      ?? item?.normalized_text
     ?? "",
   )
     .replace(/\s+/gu, " ")
@@ -8152,13 +8499,34 @@ function staffVerificationTimelineItemHtml(
         ? item.items.length
         : 0;
 
+    const imageText =
+      sourceText.length > 260
+        ? `${sourceText.slice(0, 260)}…`
+        : sourceText;
+
     content = `
-      <div class="verification-timeline-source">
-        อ่านได้
-        <strong>${formatNumber(
-          itemCount,
-        )}</strong>
-        รายการ
+      <div class="verification-timeline-source verification-timeline-image-summary">
+        <div>
+          🖼 อ่านได้
+          <strong>${formatNumber(
+            itemCount,
+          )}</strong>
+          รายการ
+        </div>
+
+        ${
+          imageText
+            ? `
+              <div class="verification-timeline-image-ocr">
+                ${escapeHtml(imageText)}
+              </div>
+            `
+            : `
+              <div class="muted small-text">
+                มีรูปภาพต้นฉบับ
+              </div>
+            `
+        }
       </div>
     `;
   } else if (sourceText) {
@@ -9249,10 +9617,22 @@ function bindStaffVerificationWorkbench(
           ".open-staff-verification-item",
         );
 
-      if (openButton) {
+      const timelineRow =
+        event.target.closest(
+          ".verification-timeline-item[data-message-record-id]",
+        );
+
+      if (
+        openButton
+        || timelineRow
+      ) {
+        const source =
+          openButton
+          ?? timelineRow;
+
         const messageRecordId =
           String(
-            openButton.dataset
+            source.dataset
               .messageRecordId
             ?? "",
           );

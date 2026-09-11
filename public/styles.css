@@ -1506,6 +1506,18 @@ body{background:#f3f6fa}
   margin-top: 10px;
 }
 
+.staff-verification-correction,
+.verification-split-inspector textarea.review-editor {
+  width: 100%;
+  min-height: 96px;
+  height: auto;
+  field-sizing: content;
+  overflow-y: hidden;
+  resize: none;
+  box-sizing: border-box;
+}
+
+
 /* Staff Review operator shell */
 .staff-live-review-section {
   background: #fff;
@@ -2105,6 +2117,8 @@ body{background:#f3f6fa}
 .verification-timeline-item {
   gap: 7px;
   padding: 11px 13px;
+  cursor: pointer;
+
 }
 
 .verification-timeline-item.needs-fix {
@@ -2168,6 +2182,19 @@ body{background:#f3f6fa}
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
+
+.verification-timeline-image-summary {
+  display: grid;
+  gap: 5px;
+}
+
+.verification-timeline-image-ocr {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: #42566d;
+  font-size: 12px;
+}
+
 
 .verification-timeline-issue {
   padding: 7px 9px;
@@ -2250,8 +2277,8 @@ body{background:#f3f6fa}
 .verification-split-inspector {
   position: sticky;
   top: 12px;
-  max-height: 76vh;
-  overflow: auto;
+  max-height: none;
+  overflow: visible;
   scroll-margin-top: 12px;
 }
 
