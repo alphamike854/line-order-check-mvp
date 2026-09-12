@@ -138,34 +138,84 @@ export async function fetchDashboardFreshness({ businessDate, summaryGroupId = n
   return freshness;
 }
 
-export async function fetchOpenReviews(businessDate, summaryGroupId = null, settlementSessionId = null) {
+function normalizeDashboardRoundIds(roundIds) {
+  return [
+    ...new Set(
+      (roundIds ?? [])
+        .filter(Boolean)
+        .map((roundId) =>
+          String(roundId).trim()
+        )
+        .filter(Boolean),
+    ),
+  ];
+}
+
+
+export async function fetchOpenReviews(
+  roundIds,
+  summaryGroupId = null,
+  settlementSessionId = null,
+) {
   const MESSAGE_PAGE_SIZE = 500;
   const REVIEW_MESSAGE_CHUNK_SIZE = 100;
+
+  const normalizedRoundIds =
+    normalizeDashboardRoundIds(
+      roundIds,
+    );
+
+  if (!normalizedRoundIds.length) {
+    return [];
+  }
+
   const messages = [];
 
-  for (let from = 0; ; from += MESSAGE_PAGE_SIZE) {
+  for (
+    let from = 0;
+    ;
+    from += MESSAGE_PAGE_SIZE
+  ) {
     let query = supabase
       .from("messages")
       .select(
-        "id,business_date,settlement_session_id,summary_group_id,line_group_id,user_id,message_type,raw_text,normalized_text,ocr_text,parse_status,parser_version,image_storage_path,created_at"
+        "id,business_date,settlement_session_id,summary_group_id,summary_group_round_id,line_group_id,user_id,message_type,raw_text,normalized_text,ocr_text,parse_status,parser_version,image_storage_path,created_at"
       )
-      .eq("business_date", businessDate)
-      .order("created_at", { ascending: false })
-      .order("id", { ascending: false })
-      .range(from, from + MESSAGE_PAGE_SIZE - 1);
+      .in(
+        "summary_group_round_id",
+        normalizedRoundIds,
+      )
+      .order(
+        "created_at",
+        {
+          ascending: false,
+        },
+      )
+      .order(
+        "id",
+        {
+          ascending: false,
+        },
+      )
+      .range(
+        from,
+        from + MESSAGE_PAGE_SIZE - 1,
+      );
 
     if (settlementSessionId) {
-      query = query.eq(
-        "settlement_session_id",
-        settlementSessionId
-      );
+      query =
+        query.eq(
+          "settlement_session_id",
+          settlementSessionId,
+        );
     }
 
     if (summaryGroupId) {
-      query = query.eq(
-        "summary_group_id",
-        summaryGroupId
-      );
+      query =
+        query.eq(
+          "summary_group_id",
+          summaryGroupId,
+        );
     }
 
     const {
@@ -173,25 +223,38 @@ export async function fetchOpenReviews(businessDate, summaryGroupId = null, sett
       error,
     } = await query;
 
-    if (error) throw error;
+    if (error) {
+      throw error;
+    }
 
-    const page = data ?? [];
+    const page =
+      data ?? [];
 
-    messages.push(...page);
+    messages.push(
+      ...page,
+    );
 
-    if (page.length < MESSAGE_PAGE_SIZE) {
+    if (
+      page.length
+      < MESSAGE_PAGE_SIZE
+    ) {
       break;
     }
   }
 
-  if (!messages.length) return [];
+  if (!messages.length) {
+    return [];
+  }
 
-  const messageById = new Map(
-    messages.map((message) => [
-      message.id,
-      message,
-    ])
-  );
+  const messageById =
+    new Map(
+      messages.map(
+        (message) => [
+          message.id,
+          message,
+        ],
+      ),
+    );
 
   const messageIds = [
     ...messageById.keys(),
@@ -204,10 +267,12 @@ export async function fetchOpenReviews(businessDate, summaryGroupId = null, sett
     index < messageIds.length;
     index += REVIEW_MESSAGE_CHUNK_SIZE
   ) {
-    const ids = messageIds.slice(
-      index,
-      index + REVIEW_MESSAGE_CHUNK_SIZE
-    );
+    const ids =
+      messageIds.slice(
+        index,
+        index
+          + REVIEW_MESSAGE_CHUNK_SIZE,
+      );
 
     const {
       data,
@@ -217,75 +282,134 @@ export async function fetchOpenReviews(businessDate, summaryGroupId = null, sett
       .select(
         "id,message_record_id,reason_codes,warnings,status,created_at"
       )
-      .eq("status", "OPEN")
-      .in("message_record_id", ids);
+      .eq(
+        "status",
+        "OPEN",
+      )
+      .in(
+        "message_record_id",
+        ids,
+      );
 
-    if (error) throw error;
-
-    reviews.push(...(data ?? []));
-  }
-
-  reviews.sort((left, right) => {
-    const timeDifference =
-      Date.parse(right.created_at) -
-      Date.parse(left.created_at);
-
-    if (timeDifference) {
-      return timeDifference;
+    if (error) {
+      throw error;
     }
 
-    return Number(right.id) -
-      Number(left.id);
-  });
+    reviews.push(
+      ...(data ?? []),
+    );
+  }
+
+  reviews.sort(
+    (left, right) => {
+      const timeDifference =
+        Date.parse(
+          right.created_at,
+        )
+        - Date.parse(
+          left.created_at,
+        );
+
+      if (timeDifference) {
+        return timeDifference;
+      }
+
+      return Number(right.id)
+        - Number(left.id);
+    },
+  );
 
   const {
     lineGroups,
   } = await loadGroupConfig();
 
-  const lineNameById = new Map(
-    lineGroups.map((group) => [
-      group.line_group_id,
-      group.line_group_name,
-    ])
-  );
+  const lineNameById =
+    new Map(
+      lineGroups.map(
+        (group) => [
+          group.line_group_id,
+          group.line_group_name,
+        ],
+      ),
+    );
 
   return reviews
     .map((review) => {
-      const message = messageById.get(
-        review.message_record_id
-      );
+      const message =
+        messageById.get(
+          review.message_record_id,
+        );
 
-      if (!message) return null;
+      if (!message) {
+        return null;
+      }
 
       return {
-        id: review.id,
+        id:
+          review.id,
+
         message_record_id:
           review.message_record_id,
+
+        business_date:
+          message.business_date,
+
+        settlement_session_id:
+          message.settlement_session_id,
+
         summary_group_id:
           message.summary_group_id,
+
+        summary_group_round_id:
+          message.summary_group_round_id,
+
         line_group_id:
           message.line_group_id,
+
         line_group_name:
           lineNameById.get(
-            message.line_group_id
-          ) ?? message.line_group_id,
-        user_id: message.user_id,
-        message_type: message.message_type,
+            message.line_group_id,
+          )
+          ?? message.line_group_id,
+
+        user_id:
+          message.user_id,
+
+        message_type:
+          message.message_type,
+
+        raw_text:
+          message.raw_text,
+
+        normalized_text:
+          message.normalized_text,
+
+        ocr_text:
+          message.ocr_text,
+
         image_storage_path:
-          message.image_storage_path ?? null,
+          message.image_storage_path
+          ?? null,
+
         parse_status:
           message.parse_status,
+
         parser_version:
           message.parser_version,
-        text:
-          message.normalized_text ??
-          message.ocr_text ??
-          message.raw_text ??
-          "",
+
+        source_text:
+          message.ocr_text
+          ?? message.raw_text
+          ?? "",
+
         reason_codes:
-          review.reason_codes ?? [],
+          review.reason_codes
+          ?? [],
+
         warnings:
-          review.warnings ?? [],
+          review.warnings
+          ?? [],
+
         created_at:
           review.created_at,
       };
@@ -295,13 +419,22 @@ export async function fetchOpenReviews(businessDate, summaryGroupId = null, sett
 
 
 export async function fetchOpenReviewCount(
-  businessDate,
+  roundIds,
   summaryGroupId = null,
-  settlementSessionId = null
+  settlementSessionId = null,
 ) {
   const MESSAGE_PAGE_SIZE = 1000;
   const REVIEW_MESSAGE_CHUNK_SIZE = 100;
   const REVIEW_COUNT_CONCURRENCY = 8;
+
+  const normalizedRoundIds =
+    normalizeDashboardRoundIds(
+      roundIds,
+    );
+
+  if (!normalizedRoundIds.length) {
+    return 0;
+  }
 
   const messageIds = [];
 
@@ -313,30 +446,41 @@ export async function fetchOpenReviewCount(
     let query = supabase
       .from("messages")
       .select("id")
-      .eq("business_date", businessDate)
-      .order("created_at", {
-        ascending: false,
-      })
-      .order("id", {
-        ascending: false,
-      })
+      .in(
+        "summary_group_round_id",
+        normalizedRoundIds,
+      )
+      .order(
+        "created_at",
+        {
+          ascending: false,
+        },
+      )
+      .order(
+        "id",
+        {
+          ascending: false,
+        },
+      )
       .range(
         from,
-        from + MESSAGE_PAGE_SIZE - 1
+        from + MESSAGE_PAGE_SIZE - 1,
       );
 
     if (settlementSessionId) {
-      query = query.eq(
-        "settlement_session_id",
-        settlementSessionId
-      );
+      query =
+        query.eq(
+          "settlement_session_id",
+          settlementSessionId,
+        );
     }
 
     if (summaryGroupId) {
-      query = query.eq(
-        "summary_group_id",
-        summaryGroupId
-      );
+      query =
+        query.eq(
+          "summary_group_id",
+          summaryGroupId,
+        );
     }
 
     const {
@@ -344,15 +488,24 @@ export async function fetchOpenReviewCount(
       error,
     } = await query;
 
-    if (error) throw error;
+    if (error) {
+      throw error;
+    }
 
-    const page = data ?? [];
+    const page =
+      data ?? [];
 
     messageIds.push(
-      ...page.map((message) => message.id)
+      ...page.map(
+        (message) =>
+          message.id,
+      ),
     );
 
-    if (page.length < MESSAGE_PAGE_SIZE) {
+    if (
+      page.length
+      < MESSAGE_PAGE_SIZE
+    ) {
       break;
     }
   }
@@ -371,77 +524,240 @@ export async function fetchOpenReviewCount(
     chunks.push(
       messageIds.slice(
         index,
-        index + REVIEW_MESSAGE_CHUNK_SIZE
-      )
+        index
+          + REVIEW_MESSAGE_CHUNK_SIZE,
+      ),
     );
   }
 
   let total = 0;
 
   for (
-    let index = 0;
-    index < chunks.length;
-    index += REVIEW_COUNT_CONCURRENCY
+    let offset = 0;
+    offset < chunks.length;
+    offset += REVIEW_COUNT_CONCURRENCY
   ) {
-    const batch = chunks.slice(
-      index,
-      index + REVIEW_COUNT_CONCURRENCY
-    );
-
-    const results = await Promise.all(
-      batch.map((ids) =>
-        supabase
-          .from("review_items")
-          .select(
-            "id",
-            {
-              count: "exact",
-              head: true,
-            }
+    const results =
+      await Promise.all(
+        chunks
+          .slice(
+            offset,
+            offset
+              + REVIEW_COUNT_CONCURRENCY,
           )
-          .eq("status", "OPEN")
-          .in("message_record_id", ids)
-      )
-    );
+          .map(
+            (ids) =>
+              supabase
+                .from("review_items")
+                .select(
+                  "id",
+                  {
+                    count: "exact",
+                    head: true,
+                  },
+                )
+                .eq(
+                  "status",
+                  "OPEN",
+                )
+                .in(
+                  "message_record_id",
+                  ids,
+                ),
+          ),
+      );
 
-    for (const result of results) {
+    for (
+      const result
+      of results
+    ) {
       if (result.error) {
         throw result.error;
       }
 
-      total += Number(
-        result.count ?? 0
-      );
+      total +=
+        Number(
+          result.count
+          ?? 0,
+        );
     }
   }
 
   return total;
 }
 
-export async function fetchUnsends(businessDate, summaryGroupId = null) {
-  const { startIso, endIso } = bangkokDayRange(businessDate);
-  const { lineGroups } = await loadGroupConfig();
-  const allowedLineIds = summaryGroupId
-    ? new Set(lineGroups.filter((g) => g.summary_group_id === summaryGroupId).map((g) => g.line_group_id))
-    : null;
-  const lineNameById = new Map(lineGroups.map((g) => [g.line_group_id, g.line_group_name]));
 
-  const { data, error } = await supabase
-    .from("unsend_events")
-    .select("id,message_id,line_group_id,user_id,matched_message_record_id,derived_qty_total,unsent_at,created_at")
-    .gte("unsent_at", startIso)
-    .lt("unsent_at", endIso)
-    .order("unsent_at", { ascending: false })
-    .limit(500);
-  if (error) throw error;
+export async function fetchUnsends(
+  roundIds,
+  summaryGroupId = null,
+) {
+  const MESSAGE_PAGE_SIZE = 1000;
+  const UNSEND_MESSAGE_CHUNK_SIZE = 100;
 
-  return (data ?? [])
-    .filter((row) => !allowedLineIds || allowedLineIds.has(row.line_group_id))
-    .map((row) => ({
-      ...row,
-      line_group_name: lineNameById.get(row.line_group_id) ?? row.line_group_id,
-    }));
+  const normalizedRoundIds =
+    normalizeDashboardRoundIds(
+      roundIds,
+    );
+
+  if (!normalizedRoundIds.length) {
+    return [];
+  }
+
+  const messages = [];
+
+  for (
+    let from = 0;
+    ;
+    from += MESSAGE_PAGE_SIZE
+  ) {
+    let query =
+      supabase
+        .from("messages")
+        .select(
+          "id,line_group_id,summary_group_id,summary_group_round_id"
+        )
+        .in(
+          "summary_group_round_id",
+          normalizedRoundIds,
+        )
+        .order(
+          "created_at",
+          {
+            ascending: false,
+          },
+        )
+        .order(
+          "id",
+          {
+            ascending: false,
+          },
+        )
+        .range(
+          from,
+          from
+            + MESSAGE_PAGE_SIZE
+            - 1,
+        );
+
+    if (summaryGroupId) {
+      query =
+        query.eq(
+          "summary_group_id",
+          summaryGroupId,
+        );
+    }
+
+    const {
+      data,
+      error,
+    } = await query;
+
+    if (error) {
+      throw error;
+    }
+
+    const page =
+      data ?? [];
+
+    messages.push(
+      ...page,
+    );
+
+    if (
+      page.length
+      < MESSAGE_PAGE_SIZE
+    ) {
+      break;
+    }
+  }
+
+  if (!messages.length) {
+    return [];
+  }
+
+  const messageIds =
+    messages.map(
+      (message) =>
+        message.id,
+    );
+
+  const events = [];
+
+  for (
+    let index = 0;
+    index < messageIds.length;
+    index += UNSEND_MESSAGE_CHUNK_SIZE
+  ) {
+    const ids =
+      messageIds.slice(
+        index,
+        index
+          + UNSEND_MESSAGE_CHUNK_SIZE,
+      );
+
+    const {
+      data,
+      error,
+    } = await supabase
+      .from("unsend_events")
+      .select(
+        "id,message_id,line_group_id,user_id,matched_message_record_id,derived_qty_total,unsent_at,created_at"
+      )
+      .in(
+        "matched_message_record_id",
+        ids,
+      );
+
+    if (error) {
+      throw error;
+    }
+
+    events.push(
+      ...(data ?? []),
+    );
+  }
+
+  events.sort(
+    (left, right) =>
+      Date.parse(
+        right.unsent_at
+        ?? right.created_at,
+      )
+      - Date.parse(
+        left.unsent_at
+        ?? left.created_at,
+      ),
+  );
+
+  const {
+    lineGroups,
+  } = await loadGroupConfig();
+
+  const lineNameById =
+    new Map(
+      lineGroups.map(
+        (group) => [
+          group.line_group_id,
+          group.line_group_name,
+        ],
+      ),
+    );
+
+  return events
+    .slice(0, 500)
+    .map(
+      (row) => ({
+        ...row,
+
+        line_group_name:
+          lineNameById.get(
+            row.line_group_id,
+          )
+          ?? row.line_group_id,
+      }),
+    );
 }
+
 
 export async function loadParserConfig() {
   const { data, error } = await supabase

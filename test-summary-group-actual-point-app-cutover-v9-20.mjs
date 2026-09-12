@@ -76,12 +76,12 @@ console.log(
 // A2A-03
 assert.match(
   accounting,
-  /settlement_summary_group_actual_special_point_codes/,
+  /accounting_round_point_context/,
 );
 
 assert.match(
   accounting,
-  /session_summary_group_actual_point_status/,
+  /accounting_round_point_status/,
 );
 
 assert.match(
@@ -91,12 +91,12 @@ assert.match(
 
 assert.match(
   accounting,
-  /point_specified:pointSpecified/,
+  /point_specified\s*:\s*pointSpecified/,
 );
 
 assert.match(
   accounting,
-  /actual_point_status:actualPointStatus/,
+  /actual_point_status\s*:\s*actualPointStatus/,
 );
 
 console.log(

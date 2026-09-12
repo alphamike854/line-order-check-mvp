@@ -19,13 +19,14 @@ assert.match(
 );
 
 assert.ok(
-  source.includes('"accounting_effective_order_messages"') &&
-  source.includes('"accounting_effective_order_items"'),
+  source.includes('"accounting_effective_order_messages_rounds"') &&
+  source.includes('"accounting_effective_order_items_rounds"'),
   "both effective accounting messages and items must be fetched through paginated report queries",
 );
 
-assert.ok(
-  source.includes("fetchAllPages(() =>"),
+assert.match(
+  source,
+  /fetchAllPages\(\s*\(\)\s*=>/s,
   "accounting report must use fetchAllPages",
 );
 

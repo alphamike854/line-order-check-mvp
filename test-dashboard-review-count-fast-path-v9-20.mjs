@@ -41,7 +41,7 @@ console.log(
   "PASS RC-02: lightweight review count helper exists"
 );
 
-// RC-03: Count helper must preserve business-date scope.
+// RC-03: Count helper must preserve current-Round/session/group scope.
 const countStart = api.indexOf(
   "export async function fetchOpenReviewCount("
 );
@@ -61,7 +61,7 @@ const countPath = api.slice(
 
 assert.match(
   countPath,
-  /\.eq\("business_date", businessDate\)/
+  /\.in\(\s*"summary_group_round_id"\s*,\s*normalizedRoundIds\s*,?\s*\)/
 );
 
 assert.match(
@@ -75,7 +75,7 @@ assert.match(
 );
 
 console.log(
-  "PASS RC-03: count scope preserves date/session/group filters"
+  "PASS RC-03: count scope preserves Round/session/group filters"
 );
 
 // RC-04: Messages must be ID-only for Dashboard count.
@@ -101,7 +101,7 @@ assert.match(
 
 assert.match(
   countPath,
-  /\.eq\("status", "OPEN"\)/
+  /\.eq\(\s*"status"\s*,\s*"OPEN"\s*,?\s*\)/
 );
 
 console.log(

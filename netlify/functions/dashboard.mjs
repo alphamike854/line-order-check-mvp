@@ -3,6 +3,10 @@ import {
   loadDashboardPointContext,
 } from "../../src/lib/dashboard-point-context.mjs";
 import {
+  loadDashboardRoundContext,
+  sameDashboardRoundScope,
+} from "../../src/lib/dashboard-round-context.mjs";
+import {
   fetchOpenSettlementSession,
   fetchOpenReviewCount,
   fetchUnsends,
@@ -28,6 +32,16 @@ export default async (req) => {
       return json({ok:true,settlement_session:null,business_date:null,selected_summary_group:summaryGroupId??"ALL",generated_at:new Date().toISOString(),summary_groups:summaryGroups,line_groups:lineGroups,metrics:{messages_total:0,parsed:0,pending:0,review_open:0,gross_received:0,adjusted_received:0,point_reserve_total:0,risk_point_total:0,safety_margin:0,point_loss_tolerance:0,risk_budget:0,excess_point_risk:0,transfer_required_total:0,distribution_incomplete:false,confirmed_cut_total:0,risk_pct:0,last_event_at:null},risk_codes:[],category_risk:[],overall_risk:[],risk_pools:[],distribution_plans:[],line_group_risk:[],line_group_risk_codes:[],line_group_distribution_plans:[],actual_special_codes:[],point_profiles:[],point_promotions:[],warehouse_limits:[],freshness:{version:"NO_OPEN_SETTLEMENT"}});
     }
 
+    const roundContext=
+      await loadDashboardRoundContext({
+        supabase,
+        settlementSessionId:session.id,
+        summaryGroupId,
+      });
+
+    const messageRoundIds=
+      roundContext.roundIds;
+
     const riskSnapshotQuery=supabase.rpc(
       "dashboard_risk_snapshot",
       {
@@ -36,9 +50,42 @@ export default async (req) => {
       }
     );
 
-    let messagesQuery=supabase.from("messages").select("parse_status,event_timestamp").eq("settlement_session_id",session.id).order("event_timestamp",{ascending:false}).limit(10000);
-    if(summaryGroupId){
-      messagesQuery=messagesQuery.eq("summary_group_id",summaryGroupId);
+    let messagesQueryPromise=
+      Promise.resolve({
+        data:[],
+        error:null,
+      });
+
+    if(messageRoundIds.length){
+      let messagesQuery=supabase
+        .from("messages")
+        .select(
+          "parse_status,event_timestamp,summary_group_round_id"
+        )
+        .eq(
+          "settlement_session_id",
+          session.id
+        )
+        .in(
+          "summary_group_round_id",
+          messageRoundIds
+        )
+        .order(
+          "event_timestamp",
+          {ascending:false}
+        )
+        .limit(10000);
+
+      if(summaryGroupId){
+        messagesQuery=
+          messagesQuery.eq(
+            "summary_group_id",
+            summaryGroupId
+          );
+      }
+
+      messagesQueryPromise=
+        messagesQuery;
     }
 
     const [
@@ -54,7 +101,7 @@ export default async (req) => {
       batchFreshResult,
     ]=await Promise.all([
       riskSnapshotQuery,
-      messagesQuery,
+      messagesQueryPromise,
 
       supabase
         .from("settlement_point_profiles")
@@ -99,13 +146,13 @@ export default async (req) => {
         .limit(1),
 
       fetchOpenReviewCount(
-        session.business_date,
+        messageRoundIds,
         summaryGroupId,
         session.id
       ),
 
       fetchUnsends(
-        session.business_date,
+        messageRoundIds,
         summaryGroupId
       ),
 
@@ -135,6 +182,24 @@ export default async (req) => {
       ]
     ){
       if(result.error)throw result.error;
+    }
+
+    const finalRoundContext=
+      await loadDashboardRoundContext({
+        supabase,
+        settlementSessionId:session.id,
+        summaryGroupId,
+      });
+
+    if(
+      !sameDashboardRoundScope(
+        roundContext,
+        finalRoundContext
+      )
+    ){
+      throw new Error(
+        "DASHBOARD_ROUND_CONTEXT_CHANGED"
+      );
     }
 
     const riskSnapshot=riskSnapshotResult.data;
@@ -479,8 +544,8 @@ export default async (req) => {
         };
 
     return json({
-      ok:true,settlement_session:session,business_date:session.business_date,selected_summary_group:summaryGroupId??"ALL",generated_at:new Date().toISOString(),freshness,summary_groups:summaryGroups,line_groups:lineGroups,
-      metrics:{messages_total:messages.length,parsed:messages.filter(m=>m.parse_status==="PARSED").length,pending:messages.filter(m=>m.parse_status==="PENDING").length,review_open:Number(reviewOpenCount||0),gross_received:Number(metricOverall?.gross_received||0),adjusted_received:Number(metricOverall?.adjusted_received||0),point_reserve_total:Number(metricOverall?.point_reserve_total||0),risk_point_total:Number(metricOverall?.risk_point_total||0),safety_margin:Number(metricOverall?.safety_margin||0),point_loss_tolerance:Number(metricOverall?.point_loss_tolerance||0),risk_budget:Number(metricOverall?.risk_budget||0),excess_point_risk:Number(metricOverall?.excess_point_risk||0),transfer_required_total:metricOverall?.transfer_required_total==null?null:Number(metricOverall.transfer_required_total||0),distribution_incomplete:distributionIncomplete,distribution_point_pending:distributionPointPending,confirmed_cut_total:Number(metricOverall?.confirmed_cut_total||0),risk_pct:Number(metricOverall?.risk_pct||0),last_event_at:messages[0]?.event_timestamp??session.opened_at},
+      ok:true,settlement_session:session,business_date:roundContext.businessDate,business_dates:roundContext.businessDates,current_rounds:roundContext.rounds,selected_summary_group:summaryGroupId??"ALL",generated_at:new Date().toISOString(),freshness,summary_groups:summaryGroups,line_groups:lineGroups,
+      metrics:{messages_total:messages.length,parsed:messages.filter(m=>m.parse_status==="PARSED").length,pending:messages.filter(m=>m.parse_status==="PENDING").length,review_open:Number(reviewOpenCount||0),gross_received:Number(metricOverall?.gross_received||0),adjusted_received:Number(metricOverall?.adjusted_received||0),point_reserve_total:Number(metricOverall?.point_reserve_total||0),risk_point_total:Number(metricOverall?.risk_point_total||0),safety_margin:Number(metricOverall?.safety_margin||0),point_loss_tolerance:Number(metricOverall?.point_loss_tolerance||0),risk_budget:Number(metricOverall?.risk_budget||0),excess_point_risk:Number(metricOverall?.excess_point_risk||0),transfer_required_total:metricOverall?.transfer_required_total==null?null:Number(metricOverall.transfer_required_total||0),distribution_incomplete:distributionIncomplete,distribution_point_pending:distributionPointPending,confirmed_cut_total:Number(metricOverall?.confirmed_cut_total||0),risk_pct:Number(metricOverall?.risk_pct||0),last_event_at:messages[0]?.event_timestamp??roundContext.rounds[0]?.opened_at??session.opened_at},
       risk_codes:riskCodes,category_risk:categoryRisk,overall_risk:overallRisk,risk_pools:riskPools,distribution_plans:distributionPlans,line_group_risk:lineGroupRisk,line_group_risk_codes:lineGroupRiskCodes,line_group_distribution_plans:lineGroupDistributionPlans,point_profiles:profiles,point_promotions:promotions,warehouse_limits:warehouseLimits,actual_special_codes:actual,
     });
   } catch(error){console.error("dashboard failed",error);return json({ok:false,error:error?.message??String(error)},500);}

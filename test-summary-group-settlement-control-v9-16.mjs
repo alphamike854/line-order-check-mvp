@@ -176,7 +176,9 @@ console.log(
 );
 
 
-// S1-08: closed group creates audited Review.
+// S1-08 revised: legacy pre-cutover messages retain the audited
+// closed-group Review fallback. Fresh TEXT/IMAGE intake after
+// DR1D-B is rejected before message persistence.
 assert.match(
   webhook,
   /SUMMARY_GROUP_CLOSED/,
@@ -188,7 +190,7 @@ assert.match(
 );
 
 console.log(
-  "PASS S1-08 closed-group messages enter Review",
+  "PASS S1-08 legacy pre-cutover closed-group messages retain Review fallback",
 );
 
 

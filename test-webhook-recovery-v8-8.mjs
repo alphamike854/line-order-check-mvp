@@ -38,7 +38,7 @@ assert.match(webhook, /\.eq\("webhook_event_id", webhookEventId\)/);
 
 assert.match(
   webhook,
-  /existingMessage \?\? await createMessage/,
+  /existingMessage\s*\?\?\s*await createMessage/,
 );
 
 // A legacy/broken PARSED + zero order_items is incomplete.

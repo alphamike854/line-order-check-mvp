@@ -29,8 +29,8 @@ assert.doesNotMatch(
 
 assert.match(
   reviewFunction,
-  /\.eq\(\s*"business_date"\s*,\s*businessDate\s*\)/,
-  "Review messages must be scoped by business date before Review lookup"
+  /\.in\(\s*"summary_group_round_id"\s*,\s*normalizedRoundIds\s*,?\s*\)/,
+  "Review messages must be scoped by current Round before Review lookup"
 );
 
 assert.match(

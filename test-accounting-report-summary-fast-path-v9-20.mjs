@@ -82,7 +82,7 @@ console.log(
 
 const rpcIndex =
   api.indexOf(
-    '"accounting_report_line_group_summary"'
+    '"accounting_report_line_group_summary_rounds"'
   );
 
 const ledgerIndex =
@@ -97,7 +97,7 @@ assert.ok(
 
 assert.match(
   api,
-  /summary_only:true/
+  /summary_only\s*:\s*true/
 );
 
 console.log(

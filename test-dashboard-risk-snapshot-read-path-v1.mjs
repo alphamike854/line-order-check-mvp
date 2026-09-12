@@ -146,12 +146,12 @@ for (const table of [
 }
 
 mustMatch(
-  /fetchOpenReviewCount\(\s*session\.business_date,\s*summaryGroupId,\s*session\.id\s*\)/,
+  /fetchOpenReviewCount\(\s*messageRoundIds,\s*summaryGroupId,\s*session\.id\s*\)/,
   "Review count read remains"
 );
 
 mustMatch(
-  /fetchUnsends\(\s*session\.business_date,\s*summaryGroupId\s*\)/,
+  /fetchUnsends\(\s*messageRoundIds,\s*summaryGroupId\s*\)/,
   "Unsend read remains"
 );
 

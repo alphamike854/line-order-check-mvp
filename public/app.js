@@ -104,8 +104,24 @@ function reportCsvCodeCell(value) {
   return reportCsvCell(text);
 }
 
-function reportStatusLabel(session) {
-  return session?.status === "OPEN" ? "ยอดปัจจุบัน" : "ปิดยอดแล้ว";
+function reportStatusLabel(roundStatus) {
+  if (roundStatus === "OPEN") return "ยอดปัจจุบัน";
+  if (roundStatus === "CLOSED") return "ปิดยอดแล้ว";
+  return "ไม่ทราบสถานะ";
+}
+
+function reportRoundIdentityLabel(group) {
+  const dateLabel =
+    group?.business_date
+      ? formatThaiDate(group.business_date)
+      : "ไม่ทราบวันที่";
+
+  const roundLabel =
+    group?.daily_round_no == null
+      ? "ไม่ทราบรอบ"
+      : `รอบประจำวัน ${formatNumber(group.daily_round_no)}`;
+
+  return `${dateLabel} · ${roundLabel} · ${reportStatusLabel(group?.round_status)}`;
 }
 
 function reportSpecialDetail(row) {
@@ -113,16 +129,18 @@ function reportSpecialDetail(row) {
 }
 
 function buildDailyReportCsv(payload) {
-  const headers = ["วันที่","สถานะ","กลุ่มสรุป","LINE Group","ลำดับ","เวลา","รหัสแรก","จำนวน","ลด %","ยอดหลังลด","Point รวม","ยอดสุทธิเทียบ","รายละเอียด Point"];
+  const headers = ["วันที่","รอบประจำวัน","สถานะ","กลุ่มสรุป","LINE Group","ลำดับ","เวลา","รหัสแรก","จำนวน","ลด %","ยอดหลังลด","Point รวม","ยอดสุทธิเทียบ","รายละเอียด Point"];
   const lines = [headers.map(reportCsvCell).join(",")];
-  const session = payload?.session || {};
+
   for (const group of payload?.groups || []) {
     const finalReady = Boolean(group?.actual_point_status?.actual_codes_ready);
     const pointSpecified = Boolean(group?.point_specified);
+
     for (const row of group.ledger || []) {
       const values = [
-        session.business_date || "",
-        reportStatusLabel(session),
+        group.business_date || "",
+        group.daily_round_no ?? "",
+        reportStatusLabel(group.round_status),
         groupName(group.summary_group_id),
         group.line_group_name || "",
         String(row.sequence || 0).padStart(3,"0"),
@@ -132,42 +150,132 @@ function buildDailyReportCsv(payload) {
         "", "", "", "",
         reportSpecialDetail(row),
       ];
-      lines.push(values.map((value,index)=>index===6?reportCsvCodeCell(value):reportCsvCell(value)).join(","));
+
+      lines.push(
+        values
+          .map(
+            (value,index) =>
+              index === 7
+                ? reportCsvCodeCell(value)
+                : reportCsvCell(value),
+          )
+          .join(","),
+      );
     }
+
     const totalValues = [
-      session.business_date || "",
-      reportStatusLabel(session),
+      group.business_date || "",
+      group.daily_round_no ?? "",
+      reportStatusLabel(group.round_status),
       groupName(group.summary_group_id),
       group.line_group_name || "",
       "รวม", "", "",
       group.received_total ?? 0,
       group.reduction_pct ?? 0,
       group.after_reduction ?? 0,
-      pointSpecified ? (group.special_point_total ?? 0) : "รอระบุ",
-      finalReady ? (group.reconciliation_total ?? 0) : "",
+      pointSpecified
+        ? (group.special_point_total ?? 0)
+        : "รอระบุ",
+      finalReady
+        ? (group.reconciliation_total ?? 0)
+        : "",
       "",
     ];
-    lines.push(totalValues.map(reportCsvCell).join(","));
+
+    lines.push(
+      totalValues
+        .map(reportCsvCell)
+        .join(","),
+    );
   }
+
   return `\uFEFF${lines.join("\r\n")}\r\n`;
 }
 
 function exportDailyReportCsv() {
   const payload = state.reportPayload;
-  if (!payload?.session || !(payload.groups || []).length) return toast("ยังไม่มีรายงานสำหรับ Export", true);
+
+  if (
+    !payload?.session
+    || !(payload.groups || []).length
+  ) {
+    return toast(
+      "ยังไม่มีรายงานสำหรับ Export",
+      true,
+    );
+  }
+
+  if (payload?.summary_only === true) {
+    return toast(
+      "กรุณาเลือก LINE Group ก่อน Export CSV",
+      true,
+    );
+  }
+
+  const groups = payload.groups || [];
+
+  const businessDates = [
+    ...new Set(
+      groups
+        .map(
+          (group) =>
+            group.business_date,
+        )
+        .filter(Boolean),
+    ),
+  ];
+
+  const roundStatuses = [
+    ...new Set(
+      groups
+        .map(
+          (group) =>
+            group.round_status,
+        )
+        .filter(Boolean),
+    ),
+  ];
+
+  const datePart =
+    businessDates.length === 1
+      ? businessDates[0]
+      : businessDates.length > 1
+        ? "multi-date"
+        : "report";
+
+  const status =
+    roundStatuses.length === 1
+      ? (
+        roundStatuses[0] === "OPEN"
+          ? "current"
+          : "closed"
+      )
+      : "mixed";
+
   const csv = buildDailyReportCsv(payload);
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const blob = new Blob(
+    [csv],
+    {
+      type: "text/csv;charset=utf-8",
+    },
+  );
+
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
-  const status = payload.session.status === "OPEN" ? "current" : "closed";
+
   link.href = url;
-  link.download = `daily-report-${payload.session.business_date || "report"}-${status}.csv`;
+  link.download =
+    `daily-report-${datePart}-${status}.csv`;
+
   document.body.appendChild(link);
   link.click();
   link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 0);
-}
 
+  setTimeout(
+    () => URL.revokeObjectURL(url),
+    0,
+  );
+}
 
 function aliasTargetLabel(value) {
   const labels = {
@@ -13555,6 +13663,39 @@ async function deleteLivePromotion(
 }
 
 
+function formatBusinessDateThai(value) {
+  const text =
+    String(value || "").trim();
+
+  const match =
+    /^(\d{4})-(\d{2})-(\d{2})$/
+      .exec(text);
+
+  if (!match) {
+    return text;
+  }
+
+  const date =
+    new Date(
+      Date.UTC(
+        Number(match[1]),
+        Number(match[2]) - 1,
+        Number(match[3]),
+      ),
+    );
+
+  return new Intl.DateTimeFormat(
+    "th-TH",
+    {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      timeZone: "Asia/Bangkok",
+    },
+  ).format(date);
+}
+
+
 function renderSettlementGroupControls(payload) {
   const root = $("#settlementGroupControls");
   if (!root) return;
@@ -13602,7 +13743,7 @@ function renderSettlementGroupControls(payload) {
         </span>
       </div>
       <small>
-        ปิดเฉพาะกลุ่มได้ โดยไม่ปิดยอดทั้งหมด
+        เปิด–ปิดรับยอดแยกอิสระในแต่ละกลุ่ม
       </small>
     </div>
 
@@ -13614,8 +13755,40 @@ function renderSettlementGroupControls(payload) {
         const hasPreviousRound =
           item.has_previous_round === true;
 
-        const roundNo =
+        const internalRoundNo =
           Number(item.round_no || 0);
+
+        const dailyRoundNo =
+          Number(
+            item.daily_round_no
+            || internalRoundNo
+            || 0,
+          );
+
+        const businessDate =
+          String(
+            item.business_date || "",
+          );
+
+        const businessDateText =
+          formatBusinessDateThai(
+            businessDate,
+          );
+
+        const roundText =
+          dailyRoundNo > 0
+            ? `รอบ ${formatNumber(dailyRoundNo)}`
+            : "ยังไม่ทราบรอบ";
+
+        const identityText =
+          businessDateText
+            ? `${businessDateText} · ${roundText}`
+            : roundText;
+
+        const staleOpen =
+          accepting
+          && Boolean(businessDate)
+          && businessDate !== todayBangkok();
 
         const id =
           String(
@@ -13627,10 +13800,15 @@ function renderSettlementGroupControls(payload) {
 
         const stateText =
           accepting
-            ? `เปิดรับยอด · รอบ ${formatNumber(roundNo)}`
+            ? `เปิดรับยอด · ${identityText}`
             : hasPreviousRound
-              ? `ปิดรับยอด · รอบ ${formatNumber(roundNo)}`
+              ? `ปิดรับยอด · ${identityText}`
               : "ยังไม่เปิดรอบ";
+
+        const staleText =
+          staleOpen
+            ? " · ⚠ เปิดรับยอดข้ามวัน"
+            : "";
 
         const changedText =
           !accepting
@@ -13653,7 +13831,7 @@ function renderSettlementGroupControls(payload) {
                 accepting ? "open" : "closed"
               }"
             >
-              ${stateText}${escapeHtml(changedText)}
+              ${escapeHtml(stateText)}${escapeHtml(staleText)}${escapeHtml(changedText)}
             </span>
 
             <button
@@ -13670,12 +13848,17 @@ function renderSettlementGroupControls(payload) {
               }"
             >
               ${
-                accepting
-                  ? "ปิดรับยอด"
-                  : hasPreviousRound
-                    ? "เปิดรอบใหม่"
-                    : "เปิดรอบแรก"
-              }
+                  accepting
+                    ? "ปิดรับยอด"
+                    : hasPreviousRound
+                      ? (
+                          businessDate
+                          && businessDate !== todayBangkok()
+                            ? "เปิดรับยอดวันนี้"
+                            : "เปิดรอบใหม่"
+                        )
+                      : "เปิดรอบแรก"
+                }
             </button>
           </div>
         `;
@@ -13738,23 +13921,72 @@ async function changeSettlementSummaryGroup(
     && !window.confirm(
       `ปิดรับยอด ${label}?\n`
       + `ข้อความใหม่ของกลุ่มนี้จะไม่เข้ายอด `
-      + `และจะถูกส่งไปหน้าตรวจรายการ`,
+      + `จนกว่าจะเปิดรับยอดอีกครั้ง`,
     )
   ) {
     return;
   }
 
+    const previousGroupState =
+    (
+      state.settlement?.summary_group_states
+      || []
+    ).find(
+      (item) =>
+        String(item.summary_group_id || "")
+        === summaryGroupId,
+    )
+    || null;
+
+  const previousBusinessDate =
+    String(
+      previousGroupState?.business_date
+      || "",
+    );
+
+  const todayBusinessDate =
+    todayBangkok();
+
+  const openingNewBusinessDate =
+    !currentlyAccepting
+    && hasPreviousRound
+    && Boolean(previousBusinessDate)
+    && previousBusinessDate !== todayBusinessDate;
+
   if (
     !currentlyAccepting
     && hasPreviousRound
-    && !window.confirm(
-      `เปิดรอบใหม่ ${label}?\n`
-      + `ระบบจะเก็บสรุปรอบก่อนหน้า แล้วล้างข้อมูลปฏิบัติการ`
-      + `ของกลุ่มนี้ก่อนเริ่มนับใหม่จาก 0\n`
-      + `กลุ่มอื่นจะไม่ถูกกระทบ`,
-    )
   ) {
-    return;
+    const openingTitle =
+      openingNewBusinessDate
+        ? `เปิดรับยอดวันนี้ ${label}?`
+        : `เปิดรอบใหม่ ${label}?`;
+
+    const openingIdentity =
+      openingNewBusinessDate
+        ? `ระบบจะเริ่ม ${formatBusinessDateThai(
+            todayBusinessDate,
+          )} · รอบ 1
+`
+        : `ระบบจะเปิดรอบถัดไปของ ${formatBusinessDateThai(
+            todayBusinessDate,
+          )}
+`;
+
+    if (
+      !window.confirm(
+        openingTitle
+        + `
+`
+        + openingIdentity
+        + `ระบบจะเก็บสรุปรอบก่อนหน้า แล้วล้างข้อมูลปฏิบัติการ`
+        + `ของกลุ่มนี้ก่อนเริ่มนับใหม่จาก 0
+`
+        + `กลุ่มอื่นจะไม่ถูกกระทบ`,
+      )
+    ) {
+      return;
+    }
   }
 
   if (
@@ -13820,11 +14052,10 @@ function renderSettlementStatus(payload) {
   renderSettlementGroupControls(payload);
   const open=payload.open_session;
   $("#prepareOpenButton").classList.toggle("hidden",Boolean(open));
-  $("#closeSettlementButton").classList.toggle("hidden",!open);
   if(open){
     businessDateInput.value=open.business_date;businessDateInput.disabled=true;
-    $("#settlementStatus").textContent=`เปิดยอดอยู่ · ${open.business_date}`;
-    $("#settlementMeta").textContent=`เริ่ม ${formatBangkokTime(open.opened_at)} · ${payload.actual_point_status?.actual_codes_ready?"Point ครบ":"Point ยังไม่ครบ"}`;
+    $("#settlementStatus").textContent="พร้อมรับยอดรายกลุ่ม";
+    $("#settlementMeta").textContent=`เปิด–ปิดรับยอดจากแต่ละกลุ่มด้านล่าง · ${payload.actual_point_status?.actual_codes_ready?"Point ครบ":"Point ยังไม่ครบ"}`;
     $("#openSettlementEditor").classList.add("hidden");
   }else{
     businessDateInput.disabled=false;if(!businessDateInput.value)businessDateInput.value=todayBangkok();
@@ -14044,6 +14275,12 @@ async function loadSpecialPoints(
   state.specialPointRoundNo=
     payload.round_no??null;
 
+  state.specialPointBusinessDate=
+    payload.business_date||null;
+
+  state.specialPointDailyRoundNo=
+    payload.daily_round_no??null;
+
   state.specialPointRoundStatus=
     payload.round_status||null;
 
@@ -14082,6 +14319,18 @@ async function loadSpecialPoints(
   const context=
     $("#specialPointContext");
 
+  const pointRoundContext=
+    payload.round_id
+      ? reportRoundIdentityLabel({
+          business_date:
+            payload.business_date,
+          daily_round_no:
+            payload.daily_round_no,
+          round_status:
+            payload.round_status,
+        })
+      : "ข้อมูลเดิม · ยังไม่มี Round";
+
   if(context){
     if(!payload.session){
       context.textContent=
@@ -14090,10 +14339,10 @@ async function loadSpecialPoints(
       !payload.selected_summary_group
     ){
       context.textContent=
-        `${payload.session.status==="CLOSED"?"ปิดยอดแล้ว":"ยอดปัจจุบัน"} · ${formatThaiDate(payload.session.business_date)} · เลือกกลุ่มสรุปจากตัวกรองด้านบน`;
+        "เลือกกลุ่มสรุปจากตัวกรองด้านบน";
     }else{
       context.textContent=
-        `${payload.session.status==="CLOSED"?"ปิดยอดแล้ว":"ยอดปัจจุบัน"} · ${formatThaiDate(payload.session.business_date)} · ${groupName(payload.selected_summary_group)}`;
+        `${pointRoundContext} · ${groupName(payload.selected_summary_group)}`;
     }
   }
 }
@@ -14106,7 +14355,7 @@ async function saveSpecialPoints() {
     state.specialPointSummaryGroupId;
 
   const editingStatus=
-    state.specialPointSession?.status;
+    state.specialPointRoundStatus;
 
   if(!sessionId){
     return toast(
@@ -14278,6 +14527,39 @@ function renderReport(payload) {
       ? reportSummaryIds[0]
       : null;
 
+  const reportBusinessDates=[
+    ...new Set(
+      payload.groups
+        .map(g=>g.business_date)
+        .filter(Boolean),
+    ),
+  ];
+
+  const reportRoundStatuses=[
+    ...new Set(
+      payload.groups
+        .map(g=>g.round_status)
+        .filter(Boolean),
+    ),
+  ];
+
+  const hasClosedRound=
+    reportRoundStatuses.includes("CLOSED");
+
+  const reportDateLabel=
+    reportBusinessDates.length===1
+      ? formatThaiDate(reportBusinessDates[0])
+      : reportBusinessDates.length>1
+        ? `หลายวัน · ${reportBusinessDates.map(formatThaiDate).join(" / ")}`
+        : "ไม่ทราบวันที่";
+
+  const reportRoundStatusLabel=
+    reportRoundStatuses.length===1
+      ? reportStatusLabel(reportRoundStatuses[0])
+      : reportRoundStatuses.length>1
+        ? "หลายสถานะ"
+        : "ไม่ทราบสถานะ";
+
   const pointStateLabel=
     allReady
       ? "Point ครบ"
@@ -14291,10 +14573,10 @@ function renderReport(payload) {
       : `<span class="muted">เลือกกลุ่มสรุปเพื่อระบุ/แก้ไข Point</span>`;
 
   const pointNotice=
-    `<div class="report-point-state ${allReady?"ready":"pending"}"><span><strong>${escapeHtml(pointStateLabel)}</strong>${payload.session.status==="CLOSED"&&!allReady?" · ปิดยอดแล้ว ระบุ/แก้ไขภายหลังได้":""}</span>${pointAction}</div>`;
+    `<div class="report-point-state ${allReady?"ready":"pending"}"><span><strong>${escapeHtml(pointStateLabel)}</strong>${hasClosedRound&&!allReady?" · มีรอบปิดแล้ว ระบุ/แก้ไขภายหลังได้":""}</span>${pointAction}</div>`;
 
   root.innerHTML=
-    `<div class="report-session-heading"><strong>รายงานประจำวัน ${escapeHtml(formatThaiDate(payload.session.business_date))}</strong><span>${payload.session.status==="OPEN"?"ยอดปัจจุบัน":`ปิด ${escapeHtml(formatBangkokTime(payload.session.closed_at))}`}</span></div>${pointNotice}`
+    `<div class="report-session-heading"><strong>รายงานประจำวัน ${escapeHtml(reportDateLabel)}</strong><span>${escapeHtml(reportRoundStatusLabel)}</span></div>${pointNotice}`
     + payload.groups.map(g=>{
       const pointSpecified=
         Boolean(
@@ -14313,12 +14595,15 @@ function renderReport(payload) {
           )?.actual_codes_ready,
         );
 
+      const roundIdentity=
+        reportRoundIdentityLabel(g);
+
       if(summaryOnly){
         return `<section class="report-card">
           <div class="report-title">
             <div>
               <h3>${escapeHtml(g.line_group_name)}</h3>
-              <span>${escapeHtml(groupName(g.summary_group_id))}</span>
+              <span>${escapeHtml(groupName(g.summary_group_id))} · ${escapeHtml(roundIdentity)}</span>
             </div>
             <span>${formatNumber(g.message_count)} ข้อความ</span>
           </div>
@@ -14357,7 +14642,7 @@ function renderReport(payload) {
       }
 
       return `<section class="report-card">
-        <div class="report-title"><div><h3>${escapeHtml(g.line_group_name)}</h3><span>${escapeHtml(groupName(g.summary_group_id))}</span></div><span>${formatNumber(g.message_count)} ข้อความ</span></div>
+        <div class="report-title"><div><h3>${escapeHtml(g.line_group_name)}</h3><span>${escapeHtml(groupName(g.summary_group_id))} · ${escapeHtml(roundIdentity)}</span></div><span>${formatNumber(g.message_count)} ข้อความ</span></div>
         <div class="report-metrics"><div><span>ยอดรับจริง</span><strong>${formatNumber(g.received_total)}</strong></div><div><span>ลด</span><strong>${formatNumber(g.reduction_pct)}%</strong></div><div><span>ยอดหลังลด</span><strong>${formatNumber(g.after_reduction)}</strong></div><div><span>Point พิเศษ</span><strong>${pointSpecified?formatNumber(g.special_point_total):"รอระบุ"}</strong></div><div class="net"><span>ยอดสุทธิเทียบ</span><strong>${finalReady?formatNumber(g.reconciliation_total):"—"}</strong></div></div>
         <div class="special-summary"><h4>Point พิเศษ</h4>${g.special_point_codes.length?`<div class="table-wrap"><table><thead><tr><th>รหัส</th><th class="num">จำนวนรวม</th><th class="num">ตัวคูณ</th><th class="num">Point</th></tr></thead><tbody>${g.special_point_codes.map(x=>`<tr><td><strong>${escapeHtml(x.category)}${escapeHtml(x.code)}</strong></td><td class="num">${formatNumber(x.quantity)}</td><td class="num">×${formatNumber(x.multiplier)}</td><td class="num">${formatNumber(x.points)}</td></tr>`).join("")}</tbody></table></div>`:`<div class="muted">${pointSpecified?"ยังไม่มียอดตรงรหัส Point ที่ระบุ":"รอระบุ"}</div>`}</div>
         <div class="table-wrap"><table><thead><tr><th>ลำดับ</th><th>เวลา</th><th>รหัสแรก</th><th class="num">สรุปจำนวน</th><th>Point พิเศษ</th></tr></thead><tbody>${g.ledger.map(row=>`<tr><td>${String(row.sequence).padStart(3,"0")}</td><td>${escapeHtml(new Intl.DateTimeFormat("th-TH",{timeZone:"Asia/Bangkok",hour:"2-digit",minute:"2-digit",second:"2-digit"}).format(new Date(row.event_timestamp)))}</td><td class="report-first-code"><strong>${escapeHtml(row.first_code||"-")}</strong></td><td class="num"><strong>${formatNumber(row.summary_quantity)}</strong></td><td>${row.special_points.length?`★ ${row.special_points.map(x=>`${escapeHtml(x.category)}${escapeHtml(x.code)}=${formatNumber(x.quantity)} ×${formatNumber(x.multiplier)}`).join(", ")}`:""}</td></tr>`).join("")}</tbody><tfoot><tr><th colspan="3">รวม</th><th class="num">${formatNumber(g.received_total)}</th><th></th></tr></tfoot></table></div>
@@ -14430,7 +14715,7 @@ function bindV5Controls() {
     const rule={summary_group_id,category,code,point_factor_pct};const existing=state.promotionDrafts.findIndex(x=>x.summary_group_id===summary_group_id&&x.category===category&&x.code===code);if(existing>=0)state.promotionDrafts[existing]=rule;else state.promotionDrafts.push(rule);
     f.elements.code.value="";f.elements.point_factor_pct.value="";renderPromotionDrafts();
   });
-  $("#openSettlementButton").addEventListener("click",openSettlement);$("#closeSettlementButton").addEventListener("click",closeSettlement);
+  $("#openSettlementButton").addEventListener("click",openSettlement);
   $("#specialPointForm").addEventListener("submit",event=>{
     event.preventDefault();const f=event.currentTarget;const category=f.elements.category.value;const code=f.elements.code.value.trim();const p=pointProfileMap().get(category);const expectedLength=categoryCodeLength(category);
     if(!new RegExp(`^\\d{${expectedLength}}$`).test(code))return toast(`รหัส ${category} ต้องเป็น ${expectedLength} หลัก`,true);

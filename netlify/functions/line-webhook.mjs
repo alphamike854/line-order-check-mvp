@@ -208,7 +208,7 @@ async function findMessageByWebhookEvent(webhookEventId) {
   const { data, error } = await supabase
     .from("messages")
     .select(
-      "id,destination,webhook_event_id,message_id,business_date,settlement_session_id,event_timestamp,line_group_id,summary_group_id,user_id,message_type,raw_text,normalized_text,parse_status,parser_version,unsent"
+      "id,destination,webhook_event_id,message_id,business_date,settlement_session_id,summary_group_round_id,event_timestamp,line_group_id,summary_group_id,user_id,message_type,raw_text,normalized_text,parse_status,parser_version,unsent"
     )
     .eq("webhook_event_id", webhookEventId)
     .maybeSingle();
@@ -251,28 +251,94 @@ async function isExistingMessageComplete(message) {
   return false;
 }
 
-async function createMessage({ destination, event, group, session, messageType, rawText = null, parseStatus = "PENDING" }) {
-  const timestamp = new Date(event.timestamp).toISOString();
+function lineMessageAdmissionFailureReason(error) {
+  const detail = [
+    error?.message,
+    error?.details,
+    error?.hint,
+    error?.code,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  for (const reason of [
+    "SETTLEMENT_NOT_OPEN",
+    "GROUP_NOT_CONFIGURED",
+    "SUMMARY_GROUP_NOT_OPEN",
+  ]) {
+    if (detail.includes(reason)) return reason;
+  }
+
+  return null;
+}
+
+async function createMessage({
+  destination,
+  event,
+  messageType,
+  rawText = null,
+  parseStatus = "PENDING",
+}) {
+  const timestamp =
+    new Date(event.timestamp).toISOString();
+
   const row = {
     destination,
-    webhook_event_id: event.webhookEventId,
-    message_id: event.message?.id ?? null,
-    business_date: session?.business_date ?? bangkokBusinessDate(event.timestamp),
-    settlement_session_id: session?.id ?? null,
-    event_timestamp: timestamp,
-    line_group_id: event.source.groupId,
-    summary_group_id: group?.summary_group_id ?? null,
-    user_id: event.source?.userId ?? null,
-    message_type: messageType,
-    raw_text: rawText,
-    parse_status: parseStatus,
+    webhook_event_id:
+      event.webhookEventId,
+    message_id:
+      event.message?.id ?? null,
+    event_timestamp:
+      timestamp,
+    line_group_id:
+      event.source.groupId,
+    user_id:
+      event.source?.userId ?? null,
+    message_type:
+      messageType,
+    raw_text:
+      rawText,
+    parse_status:
+      parseStatus,
   };
 
-  const { data, error } = await supabase.from("messages").insert(row).select("id,settlement_session_id,business_date,summary_group_id").single();
-  if (error) throw error;
-  // A DB trigger owns the OPEN/CLOSE boundary atomically. Returned values may
-  // therefore differ from the session snapshot read a few milliseconds earlier.
-  return { ...row, ...data };
+  const {
+    data,
+    error,
+  } = await supabase
+    .from("messages")
+    .insert(row)
+    .select(
+      "id,settlement_session_id,business_date,summary_group_id,summary_group_round_id",
+    )
+    .maybeSingle();
+
+  if (error) {
+    const reason =
+      lineMessageAdmissionFailureReason(
+        error,
+      );
+
+    if (reason) {
+      return {
+        ignored: true,
+        reason,
+      };
+    }
+
+    throw error;
+  }
+
+  if (!data) {
+    throw new Error(
+      "MESSAGE_ADMISSION_RETURNED_NO_ROW",
+    );
+  }
+
+  return {
+    ...row,
+    ...data,
+  };
 }
 
 async function saveReview(messageRecordId, reasonCodes, warnings = []) {
@@ -322,7 +388,7 @@ async function persistParsedResult(message, group, result, extraMessageUpdate = 
       message.summary_group_id ?? group?.summary_group_id ?? null;
 
     const { data, error } = await supabase.rpc(
-      "persist_parsed_message_atomic",
+      "persist_parsed_message_atomic_admitted",
       {
         p_message_id: message.id,
         p_normalized_text: result.normalized_text,
@@ -389,53 +455,145 @@ async function persistParsedResult(message, group, result, extraMessageUpdate = 
   };
 }
 
-async function handleTextMessage(destination, event, group, session, existingMessage = null) {
-  const text = event.message.text ?? "";
-  const message = existingMessage ?? await createMessage({
-    destination,
-    event,
-    group,
-    session,
-    messageType: "text",
-    rawText: text,
-  });
+async function handleTextMessage(
+  destination,
+  event,
+  group,
+  session,
+  existingMessage = null,
+) {
+  const text =
+    event.message.text ?? "";
 
-  if (!message.settlement_session_id) {
-    await supabase.from("messages").update({ parse_status: "REVIEW" }).eq("id", message.id);
-    await saveReview(message.id, [{ code: "SETTLEMENT_NOT_OPEN", detail: "ยังไม่ได้เปิดยอด" }], []);
-    return { status: "REVIEW", reason: "SETTLEMENT_NOT_OPEN" };
+  const message =
+    existingMessage
+    ?? await createMessage({
+      destination,
+      event,
+      messageType: "text",
+      rawText: text,
+    });
+
+  if (message?.ignored) {
+    return {
+      status: "IGNORED",
+      reason: message.reason,
+    };
   }
 
-  const effectiveGroup = message.settlement_session_id === session?.id
-    ? group
-    : await resolveSettlementLineGroup(message.settlement_session_id, message.line_group_id);
+  // Legacy pre-cutover rows without Round ownership retain
+  // their historical Review fallback.
+  if (
+    !message.summary_group_round_id
+    && !message.settlement_session_id
+  ) {
+    await supabase
+      .from("messages")
+      .update({
+        parse_status: "REVIEW",
+      })
+      .eq(
+        "id",
+        message.id,
+      );
 
-  if (!effectiveGroup) {
-    await supabase.from("messages").update({ parse_status: "REVIEW" }).eq("id", message.id);
     await saveReview(
       message.id,
-      [{ code: "GROUP_NOT_CONFIGURED", detail: event.source.groupId }],
+      [{
+        code: "SETTLEMENT_NOT_OPEN",
+        detail: "ยังไม่ได้เปิดยอด",
+      }],
       [],
     );
-    return { status: "REVIEW", reason: "GROUP_NOT_CONFIGURED" };
+
+    return {
+      status: "REVIEW",
+      reason: "SETTLEMENT_NOT_OPEN",
+    };
   }
 
-  const groupAccepting =
-    await isSettlementSummaryGroupAccepting(
-      message.settlement_session_id,
-      effectiveGroup.summary_group_id,
+  // Once Round ownership exists, that immutable snapshot is
+  // authoritative even if the group closes while processing.
+  const effectiveGroup =
+    message.summary_group_round_id
+      && message.summary_group_id
+      ? {
+          summary_group_id:
+            message.summary_group_id,
+        }
+      : message.settlement_session_id
+          === session?.id
+        ? group
+        : await resolveSettlementLineGroup(
+            message.settlement_session_id,
+            message.line_group_id,
+          );
+
+  if (!effectiveGroup) {
+    await supabase
+      .from("messages")
+      .update({
+        parse_status: "REVIEW",
+      })
+      .eq(
+        "id",
+        message.id,
+      );
+
+    await saveReview(
+      message.id,
+      [{
+        code: "GROUP_NOT_CONFIGURED",
+        detail:
+          event.source.groupId,
+      }],
+      [],
     );
 
-  if (!groupAccepting) {
-    return markSummaryGroupClosedReview(
-      message,
-      effectiveGroup.summary_group_id,
-    );
+    return {
+      status: "REVIEW",
+      reason: "GROUP_NOT_CONFIGURED",
+    };
   }
 
-  const config = await loadParserConfig();
-  const result = parseOrder(text, config);
-  return persistParsedResult(message, effectiveGroup, result, { first_order_code: firstLedgerCode(result.items, text) || null });
+  // Current accepting state is consulted only for historical
+  // messages that predate Round-owned admission.
+  if (!message.summary_group_round_id) {
+    const groupAccepting =
+      await isSettlementSummaryGroupAccepting(
+        message.settlement_session_id,
+        effectiveGroup.summary_group_id,
+      );
+
+    if (!groupAccepting) {
+      return markSummaryGroupClosedReview(
+        message,
+        effectiveGroup.summary_group_id,
+      );
+    }
+  }
+
+  const config =
+    await loadParserConfig();
+
+  const result =
+    parseOrder(
+      text,
+      config,
+    );
+
+  return persistParsedResult(
+    message,
+    effectiveGroup,
+    result,
+    {
+      first_order_code:
+        firstLedgerCode(
+          result.items,
+          text,
+        ) || null,
+    },
+  );
 }
 
 async function storeImageReviewEvidence(message, image) {
@@ -505,46 +663,108 @@ async function handleImageMessage(
   existingMessage = null,
   processingAttempt = 1,
 ) {
-  const message = existingMessage ?? await createMessage({
-    destination,
-    event,
-    group,
-    session,
-    messageType: "image",
-    parseStatus: "PENDING",
-  });
+  const message =
+    existingMessage
+    ?? await createMessage({
+      destination,
+      event,
+      messageType: "image",
+      parseStatus: "PENDING",
+    });
 
-  if (!message.settlement_session_id) {
-    await supabase.from("messages").update({ parse_status: "REVIEW" }).eq("id", message.id);
-    await saveReview(message.id, [{ code: "SETTLEMENT_NOT_OPEN", detail: "ยังไม่ได้เปิดยอด" }], []);
-    return { status: "REVIEW", reason: "SETTLEMENT_NOT_OPEN" };
+  if (message?.ignored) {
+    return {
+      status: "IGNORED",
+      reason: message.reason,
+    };
   }
 
-  const effectiveGroup = message.settlement_session_id === session?.id
-    ? group
-    : await resolveSettlementLineGroup(message.settlement_session_id, message.line_group_id);
+  // Legacy pre-cutover rows without Round ownership retain
+  // historical Review behavior.
+  if (
+    !message.summary_group_round_id
+    && !message.settlement_session_id
+  ) {
+    await supabase
+      .from("messages")
+      .update({
+        parse_status: "REVIEW",
+      })
+      .eq(
+        "id",
+        message.id,
+      );
 
-  if (!effectiveGroup) {
-    await supabase.from("messages").update({ parse_status: "REVIEW" }).eq("id", message.id);
     await saveReview(
       message.id,
-      [{ code: "GROUP_NOT_CONFIGURED", detail: event.source.groupId }],
+      [{
+        code: "SETTLEMENT_NOT_OPEN",
+        detail: "ยังไม่ได้เปิดยอด",
+      }],
       [],
     );
-    return { status: "REVIEW", reason: "GROUP_NOT_CONFIGURED" };
+
+    return {
+      status: "REVIEW",
+      reason: "SETTLEMENT_NOT_OPEN",
+    };
   }
 
-  const groupAccepting =
-    await isSettlementSummaryGroupAccepting(
-      message.settlement_session_id,
-      effectiveGroup.summary_group_id,
+  const effectiveGroup =
+    message.summary_group_round_id
+      && message.summary_group_id
+      ? {
+          summary_group_id:
+            message.summary_group_id,
+        }
+      : message.settlement_session_id
+          === session?.id
+        ? group
+        : await resolveSettlementLineGroup(
+            message.settlement_session_id,
+            message.line_group_id,
+          );
+
+  if (!effectiveGroup) {
+    await supabase
+      .from("messages")
+      .update({
+        parse_status: "REVIEW",
+      })
+      .eq(
+        "id",
+        message.id,
+      );
+
+    await saveReview(
+      message.id,
+      [{
+        code: "GROUP_NOT_CONFIGURED",
+        detail:
+          event.source.groupId,
+      }],
+      [],
     );
 
-  if (!groupAccepting) {
-    return markSummaryGroupClosedReview(
-      message,
-      effectiveGroup.summary_group_id,
-    );
+    return {
+      status: "REVIEW",
+      reason: "GROUP_NOT_CONFIGURED",
+    };
+  }
+
+  if (!message.summary_group_round_id) {
+    const groupAccepting =
+      await isSettlementSummaryGroupAccepting(
+        message.settlement_session_id,
+        effectiveGroup.summary_group_id,
+      );
+
+    if (!groupAccepting) {
+      return markSummaryGroupClosedReview(
+        message,
+        effectiveGroup.summary_group_id,
+      );
+    }
   }
 
   if (event.message?.contentProvider?.type && event.message.contentProvider.type !== "line") {

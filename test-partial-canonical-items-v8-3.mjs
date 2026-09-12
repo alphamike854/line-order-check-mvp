@@ -31,10 +31,11 @@ assert.match(
   /result\.status === "PARSED"[\s\S]*persist_parsed_message_atomic/
 );
 
-// Review remains created for both REVIEW and PARTIAL.
+// REVIEW / PARTIAL / in-round IGNORE remain Review-only.
+// PARTIAL must still never enter canonical order_items.
 assert.match(
   webhook,
-  /\["REVIEW", "PARTIAL"\]\.includes\(result\.status\)/
+  /\["REVIEW",\s*"PARTIAL",\s*"IGNORE"\]\.includes\(\s*result\.status,?\s*\)/
 );
 
 // Migration cleans tentative canonical rows created before v8.3.

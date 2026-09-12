@@ -21,21 +21,31 @@ const css =
     "utf8",
   );
 
+
 assert.match(
   html,
   /id="settlementGroupControls"/,
 );
+
 console.log(
   "PASS S1UI-01 Summary Group control container exists",
 );
 
-assert.match(
+
+assert.doesNotMatch(
+  html,
+  /id="closeSettlementButton"/,
+);
+
+assert.doesNotMatch(
   html,
   />ปิดยอดทั้งหมด</,
 );
+
 console.log(
-  "PASS S1UI-02 global close action is explicitly labelled",
+  "PASS S1UI-02 global close action removed from operator UI",
 );
+
 
 assert.match(
   app,
@@ -46,17 +56,21 @@ assert.match(
   app,
   /summary_group_states/,
 );
+
 console.log(
   "PASS S1UI-03 group states render from settlement API",
 );
+
 
 assert.match(
   app,
   /action:\s*nextAccepting[\s\S]*"OPEN_GROUP"[\s\S]*"CLOSE_GROUP"/,
 );
+
 console.log(
-  "PASS S1UI-04 UI uses OPEN_GROUP and CLOSE_GROUP",
+  "PASS S1UI-04 UI uses independent OPEN_GROUP / CLOSE_GROUP",
 );
+
 
 assert.match(
   app,
@@ -67,9 +81,11 @@ assert.match(
   app,
   /summary_group_id:\s*summaryGroupId/,
 );
+
 console.log(
-  "PASS S1UI-05 group mutations are scoped to session and Summary Group",
+  "PASS S1UI-05 group mutations remain independently scoped",
 );
+
 
 assert.match(
   app,
@@ -78,24 +94,23 @@ assert.match(
 
 assert.match(
   app,
-  /หน้าตรวจรายการ/,
-);
-console.log(
-  "PASS S1UI-06 close confirmation explains Review behavior",
+  /จนกว่าจะเปิดรับยอดอีกครั้ง/,
 );
 
-assert.match(
-  app,
-  /ปิดยอดทั้งหมดของรอบนี้/,
+console.log(
+  "PASS S1UI-06 close copy matches group receiving boundary",
 );
 
-assert.match(
+
+assert.doesNotMatch(
   app,
-  /ยังมี \$\{formatNumber\(acceptingGroupCount\)\} กลุ่มเปิดรับยอด/,
+  /\$\("#closeSettlementButton"\)\.addEventListener/,
 );
+
 console.log(
-  "PASS S1UI-07 global close warns about accepting groups",
+  "PASS S1UI-07 no global close operator event binding",
 );
+
 
 assert.match(
   css,
@@ -111,10 +126,12 @@ assert.match(
   css,
   /\.settlement-group-state\.closed/,
 );
-console.log(
-  "PASS S1UI-08 group control UI has explicit open/closed states",
-);
 
 console.log(
-  "PASS: Summary Group settlement UI S1 v9.16",
+  "PASS S1UI-08 explicit group open/closed styles remain",
+);
+
+
+console.log(
+  "PASS: Summary Group settlement UI S1 v9.16 revised",
 );

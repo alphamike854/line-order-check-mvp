@@ -194,7 +194,7 @@ assert.doesNotMatch(
 
 assert.match(
   report,
-  /\.rpc\(\s*"accounting_effective_order_items"/,
+  /\.rpc\(\s*"accounting_effective_order_items_rounds"/,
   "full accounting ledger must consume effective truth RPC",
 );
 
@@ -224,7 +224,7 @@ assert.match(
 
 assert.match(
   report,
-  /\.rpc\(\s*"accounting_effective_order_messages"/,
+  /\.rpc\(\s*"accounting_effective_order_messages_rounds"/,
   "full accounting ledger must consume durable effective messages",
 );
 
@@ -254,7 +254,7 @@ assert.doesNotMatch(
 
 assert.match(
   report,
-  /message\.first_order_code\|\|firstLedgerCode\(msgItems,sourceText\)\|\|""/,
+  /message\.first_order_code\s*\|\|\s*firstLedgerCode\(\s*msgItems\s*,\s*sourceText\s*,?\s*\)\s*\|\|\s*""/s,
   "ledger must trust projected first_order_code before deriving from effective items",
 );
 

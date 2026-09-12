@@ -28,17 +28,17 @@ console.log(
 // Integration-01
 assert.match(
   accounting,
-  /select\("summary_group_id,category,code,point_factor_pct"\)/,
+  /"accounting_round_point_context"/,
 );
 
 assert.match(
   accounting,
-  /`\$\{r\.summary_group_id\}\|\$\{r\.category\}\|\$\{r\.code\}`/,
+  /const\s+key\s*=\s*\[\s*promotion\.summary_group_id\s*,\s*promotion\.category\s*,\s*promotion\.code\s*,?\s*\]\.join\(\s*"\|"\s*\)/s,
 );
 
 assert.match(
   accounting,
-  /promoMap\.get\(`\$\{cfg\.summary_group_id\}\|\$\{key\}`\)\?\?100/,
+  /promotionMap\.get\(\s*scopedKey\s*,?\s*\)[\s\S]*?\?\?\s*\[\][\s\S]*?\.find\([\s\S]*?promotionAppliesToLineGroup\([\s\S]*?cfg\.line_group_id[\s\S]*?applicablePromotion[\s\S]*?point_factor_pct[\s\S]*?\?\?\s*100/s,
 );
 
 console.log(

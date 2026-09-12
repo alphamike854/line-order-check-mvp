@@ -10,6 +10,9 @@ import {
   buildDashboardFreshness,
   loadDashboardPointContext,
 } from "../../src/lib/dashboard-point-context.mjs";
+import {
+  loadDashboardRoundContext,
+} from "../../src/lib/dashboard-round-context.mjs";
 
 
 export default async(req)=>{
@@ -44,25 +47,52 @@ export default async(req)=>{
         url.searchParams.get("group")
       );
 
-    let messageQuery=supabase
-      .from("messages")
-      .select("event_timestamp")
-      .eq(
-        "settlement_session_id",
-        session.id
-      )
-      .order(
-        "event_timestamp",
-        {ascending:false}
-      )
-      .limit(1);
+    const roundContext=
+      await loadDashboardRoundContext({
+        supabase,
+        settlementSessionId:session.id,
+        summaryGroupId,
+      });
 
-    if(summaryGroupId){
-      messageQuery=
-        messageQuery.eq(
-          "summary_group_id",
-          summaryGroupId
-        );
+    const messageRoundIds=
+      roundContext.roundIds;
+
+    let messageQueryPromise=
+      Promise.resolve({
+        data:[],
+        error:null,
+      });
+
+    if(messageRoundIds.length){
+      let scopedMessageQuery=supabase
+        .from("messages")
+        .select(
+          "event_timestamp,summary_group_round_id"
+        )
+        .eq(
+          "settlement_session_id",
+          session.id
+        )
+        .in(
+          "summary_group_round_id",
+          messageRoundIds
+        )
+        .order(
+          "event_timestamp",
+          {ascending:false}
+        )
+        .limit(1);
+
+      if(summaryGroupId){
+        scopedMessageQuery=
+          scopedMessageQuery.eq(
+            "summary_group_id",
+            summaryGroupId
+          );
+      }
+
+      messageQueryPromise=
+        scopedMessageQuery;
     }
 
     const [
@@ -73,7 +103,7 @@ export default async(req)=>{
       riskBudgetResult,
       settingsResult,
     ]=await Promise.all([
-      messageQuery,
+      messageQueryPromise,
 
       supabase
         .from("settlement_transfer_batches")
@@ -157,6 +187,9 @@ export default async(req)=>{
     return json({
       ok:true,
       settlement_session:session,
+      business_date:roundContext.businessDate,
+      business_dates:roundContext.businessDates,
+      current_rounds:roundContext.rounds,
       freshness,
     });
   }catch(error){

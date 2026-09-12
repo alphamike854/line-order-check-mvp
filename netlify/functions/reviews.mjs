@@ -6,6 +6,9 @@ import {
   requireDashboardAccess,
   supabase,
 } from "../../src/lib/dashboard-api.mjs";
+import {
+  loadDashboardRoundContext,
+} from "../../src/lib/dashboard-round-context.mjs";
 
 const REVIEW_IMAGE_BUCKET =
   "review-images";
@@ -128,9 +131,18 @@ export default async function handler(req) {
         url.searchParams.get("group"),
       );
 
+    const roundContext =
+      await loadDashboardRoundContext({
+        supabase,
+        settlementSessionId:
+          session.id,
+        summaryGroupId:
+          group,
+      });
+
     const items =
       await fetchOpenReviews(
-        session.business_date,
+        roundContext.roundIds,
         group,
         session.id,
       );
@@ -141,6 +153,12 @@ export default async function handler(req) {
     return json({
       ok: true,
       settlement_session: session,
+      business_date:
+        roundContext.businessDate,
+      business_dates:
+        roundContext.businessDates,
+      current_rounds:
+        roundContext.rounds,
       items: publicItems,
     });
   } catch (error) {

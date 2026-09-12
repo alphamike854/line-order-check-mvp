@@ -53,7 +53,7 @@ async function resolvePointRoundRead(
 ) {
   const { data, error } = await supabase
     .from("settlement_summary_group_rounds")
-    .select("id,round_no,status")
+    .select("id,round_no,business_date,daily_round_no,status")
     .eq("settlement_session_id", sessionId)
     .eq("summary_group_id", summaryGroupId)
     .in("status", ["OPEN", "CLOSED"])
@@ -109,6 +109,8 @@ async function pointPayload(
       status: null,
       round_id: null,
       round_no: null,
+      business_date: null,
+      daily_round_no: null,
       round_status: null,
       eligible_line_groups: [],
     };
@@ -148,6 +150,8 @@ async function pointPayload(
       status: null,
       round_id: null,
       round_no: null,
+      business_date: null,
+      daily_round_no: null,
       round_status: null,
       eligible_line_groups: [],
     };
@@ -353,6 +357,10 @@ async function pointPayload(
     status: statusResult.data ?? null,
     round_id: roundRead.round?.id ?? null,
     round_no: roundRead.round?.round_no ?? null,
+    business_date:
+      roundRead.round?.business_date ?? null,
+    daily_round_no:
+      roundRead.round?.daily_round_no ?? null,
     round_status: roundRead.round?.status ?? null,
   };
 }

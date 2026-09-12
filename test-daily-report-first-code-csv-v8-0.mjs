@@ -33,8 +33,31 @@ assert.match(html, /id="exportReportCsvButton"/);
 assert.match(app, /<th>รหัสแรก<\/th>/);
 assert.match(app, /function buildDailyReportCsv\(/);
 assert.match(app, /\\uFEFF/);
-assert.match(app, /daily-report-\$\{payload\.session\.business_date/);
-assert.match(reportFn, /first_code:firstCode/);
+assert.match(
+  app,
+  /daily-report-\$\{datePart\}-\$\{status\}\.csv/,
+);
+
+assert.doesNotMatch(
+  app,
+  /daily-report-\$\{payload\.session\.business_date/,
+);
+
+assert.match(
+  app,
+  /group\.business_date/,
+);
+
+assert.match(
+  app,
+  /group\.daily_round_no/,
+);
+
+assert.match(
+  app,
+  /reportStatusLabel\(group\.round_status\)/,
+);
+assert.match(reportFn, /first_code\s*:\s*firstCode/);
 assert.match(reportFn, /raw_text,normalized_text,ocr_text,first_order_code/);
 assert.match(migration, /add column if not exists first_order_code text/);
 assert.doesNotMatch(migration, /update public\.messages/);

@@ -480,7 +480,7 @@ assert.match(
 
 assert.match(
   freshness,
-  /messageQuery\.eq\(\s*"summary_group_id"/s,
+  /scopedMessageQuery\s*=\s*scopedMessageQuery\.eq\(\s*"summary_group_id"/s,
 );
 
 console.log(
@@ -490,12 +490,12 @@ console.log(
 
 assert.match(
   accounting,
-  /settlement_point_promotions/,
+  /accounting_round_point_context/,
 );
 
 assert.match(
   accounting,
-  /settlement_summary_group_actual_special_point_codes/,
+  /pointContext\.actual_special_point_codes/,
 );
 
 assert.doesNotMatch(
@@ -504,7 +504,7 @@ assert.doesNotMatch(
 );
 
 console.log(
-  "PASS P3A2-08 Accounting remains outside P3A2",
+  "PASS P3A2-08 Accounting follows later exact-Round Point/Promotion cutover",
 );
 
 

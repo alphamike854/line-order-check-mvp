@@ -20,6 +20,8 @@ async function loadSummaryGroupStates(openSession) {
             "id",
             "summary_group_id",
             "round_no",
+            "business_date",
+            "daily_round_no",
             "status",
             "opened_at",
             "opened_by",
@@ -90,6 +92,18 @@ async function loadSummaryGroupStates(openSession) {
 
       round_no:
         openRound?.round_no
+        ?? latestRound?.round_no
+        ?? null,
+
+      business_date:
+        openRound?.business_date
+        ?? latestRound?.business_date
+        ?? null,
+
+      daily_round_no:
+        openRound?.daily_round_no
+        ?? latestRound?.daily_round_no
+        ?? openRound?.round_no
         ?? latestRound?.round_no
         ?? null,
 
