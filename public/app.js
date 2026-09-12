@@ -8204,7 +8204,7 @@ function staffVerificationCaptureContinuity(
     sort:
       String(
         workbench?._verificationTimelineSort
-        ?? "LATEST",
+        ?? "OLDEST",
       ),
   };
 }
@@ -8255,7 +8255,7 @@ function staffVerificationRestoreContinuity(
 
   workbench._verificationTimelineSort =
     state.sort
-    ?? "LATEST";
+    ?? "OLDEST";
 
   staffVerificationRenderTimeline(
     workbench,
@@ -8504,6 +8504,9 @@ function staffVerificationTimelineIssueSummary(
 function staffVerificationTimelineItemSummary(
   item,
 ) {
+  // Review operational clarity v1:
+  // Show all parsed codes in the same order
+  // they appear in the original message.
   const items =
     Array.isArray(
       item?.items,
@@ -8515,30 +8518,30 @@ function staffVerificationTimelineItemSummary(
     return "";
   }
 
-  const visible =
-    items
-      .slice(0, 5)
-      .map(
-        (entry) =>
-          `${staffVerificationItemKey(
-            entry,
-          )} ${formatNumber(
-            Number(
-              entry?.quantity
-              ?? 0,
-            ),
-          )}`,
-      );
-
-  if (items.length > 5) {
-    visible.push(
-      `+${formatNumber(
-        items.length - 5,
-      )} รายการ`,
+  const sourceText =
+    staffVerificationTimelineSourceText(
+      item,
     );
-  }
 
-  return visible.join(" · ");
+  const displayItems =
+    staffVerificationSourceDisplayItems(
+      items,
+      sourceText,
+    );
+
+  return displayItems
+    .map(
+      (entry) =>
+        `${staffVerificationItemKey(
+          entry,
+        )} = ${formatNumber(
+          Number(
+            entry?.quantity
+            ?? 0,
+          ),
+        )}`,
+    )
+    .join(" · ");
 }
 
 
@@ -8684,7 +8687,7 @@ function staffVerificationTimelineBadgesHtml(
 
     badges.push(`
       <span class="verification-queue-badge high-total">
-        🟠 ยอดสูง${
+        🟠 ยอดสูง · ระบบอ่านแล้ว${
           highTotalLabel
             ? ` · ${escapeHtml(
                 highTotalLabel,
@@ -9125,7 +9128,7 @@ function staffVerificationTimelineSortedItems(
   const sortMode =
     workbench
       ?._verificationTimelineSort
-    ?? "LATEST";
+    ?? "OLDEST";
 
   filtered.sort(
     (left, right) => {
@@ -9306,6 +9309,18 @@ function staffVerificationUpdateTimelineControls(
     staffVerificationTimelineCounts(
       workbench,
     );
+
+  const sortControl =
+    workbench.querySelector(
+      ".verification-timeline-sort",
+    );
+
+  if (sortControl) {
+    sortControl.value =
+      workbench
+        ._verificationTimelineSort
+      ?? "OLDEST";
+  }
 
   const countByFilter = {
     ALL:
@@ -10244,7 +10259,7 @@ function appendStaffVerificationQueue(
     new Set();
 
   workbench._verificationTimelineSort =
-    "LATEST";
+    "OLDEST";
 
   staffVerificationMergeTimelineItems(
     workbench,

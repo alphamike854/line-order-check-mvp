@@ -2464,3 +2464,16 @@ body{background:#f3f6fa}
   border-radius: 8px;
   background: #f8fafc;
 }
+
+
+/* Review operational clarity v1 */
+.verification-timeline-result {
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.verification-timeline-item.high-total:not(.needs-fix)
+  .verification-timeline-result {
+  font-weight: 650;
+}
