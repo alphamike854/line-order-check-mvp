@@ -2713,3 +2713,72 @@ body{background:#f3f6fa}
     padding: 10px;
   }
 }
+
+/* Review Operational Card Identity + Single Visible Timeline v3 */
+
+/*
+ * The live Review cards remain authoritative lifecycle DOM for
+ * claim / Preview / Apply and are mounted into the selected Timeline card.
+ *
+ * Hide the duplicate legacy list only when the Timeline Workbench exists.
+ * If Workbench construction ever fails, the legacy list remains available
+ * as a safe fallback.
+ */
+#staffVerificationWorkbench
+  ~ #staffLiveReviewQueue {
+  display: none !important;
+}
+
+/* Give each operational card a clearer visual boundary. */
+.verification-timeline-item
+  + .verification-timeline-item {
+  margin-top: 12px;
+}
+
+.verification-timeline-card-identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 7px;
+}
+
+.verification-card-reference,
+.verification-card-code,
+.verification-card-code-more {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.verification-card-reference {
+  border: 1px solid #c8d7e6;
+  background: #eef4fa;
+  color: #173a5e;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.verification-card-code {
+  border: 1px solid #b9cddd;
+  background: #fff;
+  color: #173a5e;
+  font-weight: 800;
+}
+
+.verification-card-code.unresolved {
+  border-style: dashed;
+  color: #6b7280;
+  font-weight: 700;
+}
+
+.verification-card-code-more {
+  color: #526277;
+  background: #f4f7fa;
+  font-weight: 700;
+}

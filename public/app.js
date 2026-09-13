@@ -9143,6 +9143,81 @@ function staffVerificationInlineOriginalHtml(
 
 
 
+/* Review Operational Card Identity + Single Visible Timeline v3 */
+function staffVerificationTimelineCardIdentity(
+  item,
+) {
+  const items =
+    Array.isArray(
+      item?.items,
+    )
+      ? item.items
+      : [];
+
+  const sourceText =
+    staffVerificationTimelineSourceText(
+      item,
+    );
+
+  const displayItems =
+    staffVerificationSourceDisplayItems(
+      items,
+      sourceText,
+    );
+
+  const codes =
+    displayItems
+      .map(
+        (entry) =>
+          staffVerificationItemKey(
+            entry,
+          ),
+      )
+      .filter(Boolean);
+
+  const firstCode =
+    codes[0]
+    ?? "";
+
+  const extraCodeCount =
+    Math.max(
+      0,
+      codes.length - 1,
+    );
+
+  /*
+   * Stable short reference for operators.
+   * It identifies the source message without exposing
+   * the full technical UUID and does not change when
+   * Timeline sort/filter changes.
+   */
+  const shortRef =
+    String(
+      item?.message_record_id
+      ?? "",
+    )
+      .replace(
+        /[^A-Za-z0-9]/gu,
+        "",
+      )
+      .slice(
+        0,
+        8,
+      )
+      .toUpperCase();
+
+  return {
+    shortRef:
+      shortRef
+      || "--------",
+
+    firstCode,
+
+    extraCodeCount,
+  };
+}
+
+
 function staffVerificationTimelineItemHtml(
   item,
   workbench,
@@ -9215,6 +9290,11 @@ function staffVerificationTimelineItemHtml(
       ?? "",
     )
     === messageRecordId;
+
+  const cardIdentity =
+    staffVerificationTimelineCardIdentity(
+      item,
+    );
 
   let sourceContent = "";
 
@@ -9293,6 +9373,43 @@ function staffVerificationTimelineItemHtml(
     >
       <div class="verification-queue-item-head">
         <div class="verification-timeline-title">
+          <div class="verification-timeline-card-identity">
+            <span class="verification-card-reference">
+              รายการ #${escapeHtml(
+                cardIdentity.shortRef,
+              )}
+            </span>
+
+            ${
+              cardIdentity.firstCode
+                ? `
+                  <span class="verification-card-code">
+                    ${escapeHtml(
+                      cardIdentity.firstCode,
+                    )}
+                  </span>
+                `
+                : `
+                  <span class="verification-card-code unresolved">
+                    รหัสยังไม่ชัดเจน
+                  </span>
+                `
+            }
+
+            ${
+              cardIdentity.extraCodeCount > 0
+                ? `
+                  <span class="verification-card-code-more">
+                    +${formatNumber(
+                      cardIdentity.extraCodeCount,
+                    )}
+                    รหัส
+                  </span>
+                `
+                : ""
+            }
+          </div>
+
           <strong>
             ${escapeHtml(groupName)}
           </strong>
