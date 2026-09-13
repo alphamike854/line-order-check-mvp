@@ -3011,3 +3011,228 @@ body{background:#f3f6fa}
     border-bottom: 1px solid #d5dee8;
   }
 }
+
+/* Review Source Identity + Single Working Card v5 */
+
+/*
+ * The Timeline is the one visible current-round work surface.
+ *
+ * Live Review remains in DOM because claim / Preview / Apply
+ * still use its authoritative lifecycle nodes.  However, while
+ * the Timeline Workbench exists, its staging container must not
+ * appear as another user-facing list.
+ *
+ * :has() makes this independent of exact sibling nesting.
+ */
+#reviewList:has(#staffVerificationWorkbench)
+  #staffLiveReviewQueue {
+  display: none !important;
+}
+
+
+/*
+ * Give the Timeline a neutral canvas so each white message card
+ * reads as a distinct operational unit.
+ */
+.verification-timeline-shell {
+  padding: 12px;
+  border: 1px solid #d6e0e9;
+  border-radius: 18px;
+  background: #eef3f7;
+}
+
+.verification-timeline-items {
+  gap: 20px;
+  padding: 2px;
+}
+
+
+/*
+ * Stronger card boundary.
+ *
+ * Status accent remains meaningful, but the base card itself
+ * must be clearly separable even when every item has the same
+ * status.
+ */
+.verification-timeline-item {
+  border-width: 2px;
+  border-color: #c4d0dc;
+
+  box-shadow:
+    0 4px 12px
+    rgba(23, 58, 94, 0.10);
+}
+
+.verification-timeline-item:not(.selected):hover {
+  border-color: #9eb2c6;
+
+  box-shadow:
+    0 6px 16px
+    rgba(23, 58, 94, 0.13);
+}
+
+
+/*
+ * Card header rhythm:
+ *
+ * Row 1 = stable identity / first code
+ * Row 2 = LINE group / source event time
+ *
+ * This provides a repeatable scan pattern down the page.
+ */
+.verification-timeline-title {
+  display: grid;
+  grid-template-columns:
+    minmax(0, auto)
+    minmax(0, 1fr);
+
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 7px;
+}
+
+.verification-timeline-card-identity {
+  grid-column: 1 / -1;
+  width: 100%;
+  margin: 0;
+  padding-bottom: 7px;
+
+  border-bottom:
+    1px solid
+    rgba(114, 137, 159, 0.24);
+}
+
+.verification-timeline-title
+  > strong {
+  min-width: 0;
+}
+
+.verification-timeline-title
+  > strong
+  + span {
+  position: relative;
+  padding-left: 13px;
+}
+
+.verification-timeline-title
+  > strong
+  + span::before {
+  content: "•";
+  position: absolute;
+  left: 0;
+  color: #8292a3;
+}
+
+.verification-timeline-badges {
+  gap: 8px;
+}
+
+
+/*
+ * Selected = Working Card.
+ *
+ * UI-2 already hides the collapsed body when selected.
+ * Reinforce that contract after all later style layers.
+ */
+.verification-timeline-item.selected
+  > .verification-timeline-collapsed-body {
+  display: none !important;
+}
+
+.verification-timeline-item.selected
+  > .verification-inline-workspace {
+  display: grid !important;
+  grid-template-columns:
+    minmax(0, 1fr)
+    minmax(0, 1fr);
+
+  gap: 0;
+  margin-top: 0;
+  padding-top: 0;
+
+  border-top: 0;
+}
+
+.verification-timeline-item.selected
+  .verification-inline-original,
+.verification-timeline-item.selected
+  .verification-inline-action {
+  min-width: 0;
+  padding: 16px;
+}
+
+.verification-timeline-item.selected
+  .verification-inline-original {
+  background: #f5f8fb;
+  border-right: 1px solid #d5dee8;
+}
+
+.verification-timeline-item.selected
+  .verification-inline-action {
+  background: #fff;
+}
+
+
+/*
+ * Full source must remain structurally readable.
+ */
+.verification-inline-original
+  .verification-timeline-source,
+.verification-inline-original
+  .verification-timeline-image-ocr,
+.verification-inspector-source-first,
+.live-review-source-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+
+/*
+ * Footer belongs to the Timeline as a whole, not to the
+ * currently selected card.
+ */
+.verification-timeline-footer {
+  margin-top: 10px;
+  padding: 8px 4px 2px;
+}
+
+
+/* Narrow screens: one Working Card, stacked vertically. */
+@media (max-width: 900px) {
+  .verification-timeline-shell {
+    padding: 8px;
+  }
+
+  .verification-timeline-items {
+    gap: 14px;
+  }
+
+  .verification-timeline-title {
+    grid-template-columns:
+      minmax(0, 1fr);
+  }
+
+  .verification-timeline-title
+    > strong
+    + span {
+    padding-left: 0;
+  }
+
+  .verification-timeline-title
+    > strong
+    + span::before {
+    content: none;
+  }
+
+  .verification-timeline-item.selected
+    > .verification-inline-workspace {
+    grid-template-columns:
+      minmax(0, 1fr);
+  }
+
+  .verification-timeline-item.selected
+    .verification-inline-original {
+    border-right: 0;
+    border-bottom: 1px solid #d5dee8;
+  }
+}

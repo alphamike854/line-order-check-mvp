@@ -9144,6 +9144,68 @@ function staffVerificationInlineOriginalHtml(
 
 
 /* Review Operational Card Identity + Single Visible Timeline v3 */
+
+/* Review Source Identity + Single Working Card v5 */
+function staffVerificationFirstSourceCodeLabel(
+  sourceText,
+) {
+  const lines =
+    String(
+      sourceText
+      ?? "",
+    )
+      .split(/\r?\n/u)
+      .map(
+        (line) =>
+          line.trim(),
+      )
+      .filter(Boolean);
+
+  for (const originalLine of lines) {
+    /*
+     * Do not accidentally promote a standalone short date
+     * into an operator-facing order-code identity.
+     */
+    if (
+      /^\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?$/u
+        .test(originalLine)
+    ) {
+      continue;
+    }
+
+    const line =
+      originalLine.replace(
+        /^[^\p{L}\p{N}]+/u,
+        "",
+      );
+
+    /*
+     * Conservative source fallback:
+     *
+     *   338
+     *   338 833 383 ...
+     *   01=20
+     *   A 01=20
+     *   E123=10
+     *   H0=5
+     *
+     * This value is only a visual card identity.
+     * It is NOT trusted parser truth and does not mutate data.
+     */
+    const match =
+      line.match(
+        /^(?:[ABEFGHL]\s*)?(\d{1,3})(?=$|[\s=/*xX,\-])/iu,
+      );
+
+    if (match?.[1]) {
+      return match[1];
+    }
+  }
+
+  return "";
+}
+
+
 function staffVerificationTimelineCardIdentity(
   item,
 ) {
@@ -9177,7 +9239,9 @@ function staffVerificationTimelineCardIdentity(
 
   const firstCode =
     codes[0]
-    ?? "";
+    ?? staffVerificationFirstSourceCodeLabel(
+      sourceText,
+    );
 
   const extraCodeCount =
     Math.max(
