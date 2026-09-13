@@ -13185,7 +13185,7 @@ async function loadReviews() {
             </span>
           </div>
 
-          <div class="review-claim-state"></div>
+
 
 
           <div class="reason live-review-reason">
@@ -13204,6 +13204,9 @@ async function loadReviews() {
             <div class="live-review-card-pane-heading">
               ตรวจ / แก้ไขรายการ
             </div>
+
+            <!-- Review Inline Claim Control v10 -->
+            <div class="review-claim-state"></div>
 
             <label class="editor-label live-review-editor-label">
             ข้อความที่ต้องตรวจ
