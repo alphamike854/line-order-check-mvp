@@ -10631,6 +10631,24 @@ function bindStaffVerificationWorkbench(
   workbench.addEventListener(
     "click",
     async (event) => {
+      /*
+       * Review Inline Interaction Isolation v8
+       *
+       * The selected Timeline row contains the authoritative
+       * Review/Verification workspace. Controls inside that
+       * workspace own their own lifecycle and must not trigger
+       * Timeline row selection again through event bubbling.
+       */
+      const inlineWorkspace =
+        event.target.closest(
+          ".verification-inline-workspace",
+        );
+
+      if (inlineWorkspace) {
+        return;
+      }
+
+
       const filterButton =
         event.target.closest(
           "[data-verification-filter]",
