@@ -5207,6 +5207,10 @@ async function applyReview(card) {
   }
 
   const reviewId = Number(card.dataset.reviewId);
+  const messageRecordId =
+    staffVerificationMessageRecordId(
+      card,
+    );
   const correctedText = card.querySelector(".review-editor").value;
   const preview = card._reviewPreview;
   if (!preview || preview.correctedText !== correctedText) {
@@ -5246,7 +5250,19 @@ async function applyReview(card) {
       );
     card._reviewPreview = null;
     toast(`แก้ Review สำเร็จ ${formatNumber(payload.items?.length)} รายการ`);
-    removeCompletedReviewCard(card);
+
+    /*
+     * Review Post-Resolution Refresh v11
+     *
+     * Canonical server truth changed. Reload the Workbench immediately
+     * so Timeline reflects the resolved message without a manual refresh.
+     * Existing continuity handling preserves scroll/filter/sort and moves
+     * selection naturally if the resolved row no longer matches a filter.
+     */
+    await reloadStaffVerificationQueuePreservingPosition(
+      card,
+      messageRecordId,
+    );
 
     await loadDashboard({
       silent: true,
@@ -5295,6 +5311,10 @@ async function ignoreReview(event) {
     return;
   }
   const reviewId = Number(card.dataset.reviewId);
+  const messageRecordId =
+    staffVerificationMessageRecordId(
+      card,
+    );
   if (!window.confirm("ยืนยันว่าข้อความนี้ไม่ใช่ออเดอร์และให้ข้าม? ถ้ามีรายการ PARTIAL ที่เคยสร้างไว้ ระบบจะถอนรายการของข้อความนี้ออก")) return;
   event.currentTarget.disabled = true;
   try {
@@ -5320,7 +5340,11 @@ async function ignoreReview(event) {
       },
     );
     toast("ข้าม Review แล้ว");
-    removeCompletedReviewCard(card);
+
+    await reloadStaffVerificationQueuePreservingPosition(
+      card,
+      messageRecordId,
+    );
 
     await loadDashboard({
       silent: true,
