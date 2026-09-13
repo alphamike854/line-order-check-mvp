@@ -2782,3 +2782,232 @@ body{background:#f3f6fa}
   background: #f4f7fa;
   font-weight: 700;
 }
+
+/* Review Scanable Cards + Unified Split Review v4 */
+
+/*
+ * Timeline scanning hierarchy
+ *
+ * Each source message must read as one clearly bounded unit.
+ * Status accents remain secondary to the card boundary itself.
+ */
+.verification-timeline-items {
+  gap: 14px;
+  padding: 6px 8px 16px;
+}
+
+.verification-timeline-item {
+  --timeline-card-pad-y: 11px;
+  --timeline-card-pad-x: 13px;
+
+  position: relative;
+  overflow: hidden;
+  margin: 0 !important;
+  padding:
+    var(--timeline-card-pad-y)
+    var(--timeline-card-pad-x);
+
+  border: 1px solid #bcc9d6;
+  border-radius: 16px;
+  background: #fff;
+
+  box-shadow:
+    0 2px 8px
+    rgba(23, 58, 94, 0.08);
+}
+
+.verification-timeline-item
+  + .verification-timeline-item {
+  margin-top: 0 !important;
+}
+
+/*
+ * A dedicated header band gives the eye a repeatable
+ * start-point when scanning a long Timeline.
+ */
+.verification-timeline-item
+  > .verification-queue-item-head {
+  margin:
+    calc(
+      var(--timeline-card-pad-y)
+      * -1
+    )
+    calc(
+      var(--timeline-card-pad-x)
+      * -1
+    )
+    11px;
+
+  padding: 10px 13px;
+
+  background: #eef3f7;
+  border-bottom: 1px solid #d4dee7;
+}
+
+/* Needs-fix = action required. */
+.verification-timeline-item.needs-fix {
+  border-color: #d7a098;
+
+  box-shadow:
+    inset 5px 0 0 #b94a3a,
+    0 3px 10px
+    rgba(95, 36, 28, 0.10);
+}
+
+.verification-timeline-item.needs-fix
+  > .verification-queue-item-head {
+  background: #fff3f1;
+  border-bottom-color: #ebcbc6;
+}
+
+/* High Total Auto = audit attention, not correction. */
+.verification-timeline-item.high-total:not(.needs-fix) {
+  border-color: #dfbd83;
+
+  box-shadow:
+    inset 5px 0 0 #d58a23,
+    0 3px 10px
+    rgba(117, 76, 24, 0.10);
+}
+
+.verification-timeline-item.high-total:not(.needs-fix)
+  > .verification-queue-item-head {
+  background: #fff8eb;
+  border-bottom-color: #ead5ad;
+}
+
+/* Current working card. */
+.verification-timeline-item.selected {
+  border-color: #789bbd;
+
+  outline: none;
+
+  box-shadow:
+    0 0 0 2px
+    rgba(63, 111, 157, 0.16),
+    0 5px 16px
+    rgba(23, 58, 94, 0.12);
+}
+
+
+/*
+ * Live Review fallback / lifecycle queue
+ *
+ * If this queue is visible, every Review is one card:
+ * left = source/reason
+ * right = correction/actions.
+ */
+#staffLiveReviewQueue
+  .staff-live-review-items {
+  display: grid;
+  gap: 16px;
+}
+
+#staffLiveReviewQueue
+  .staff-live-review-items
+  > .review-card {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1fr)
+    minmax(0, 1fr);
+
+  gap: 0;
+
+  padding: 0;
+  overflow: hidden;
+
+  border: 1px solid #bcc9d6;
+  border-radius: 16px;
+
+  background: #fff;
+
+  box-shadow:
+    0 3px 12px
+    rgba(23, 58, 94, 0.09);
+}
+
+#staffLiveReviewQueue
+  .live-review-card-left,
+#staffLiveReviewQueue
+  .live-review-card-right {
+  min-width: 0;
+  padding: 16px;
+}
+
+#staffLiveReviewQueue
+  .live-review-card-left {
+  background: #f5f8fb;
+  border-right: 1px solid #d5dee8;
+}
+
+#staffLiveReviewQueue
+  .live-review-card-right {
+  background: #fff;
+}
+
+.live-review-card-pane-heading {
+  margin: 0 0 12px;
+
+  color: #173a5e;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+#staffLiveReviewQueue
+  .live-review-card-left
+  .review-meta {
+  margin-top: 10px;
+}
+
+#staffLiveReviewQueue
+  .live-review-card-right
+  .live-review-editor-label {
+  margin-top: 0;
+}
+
+
+/*
+ * When the authoritative legacy Review card is mounted into
+ * the selected Timeline card, Timeline already renders
+ * the original/source pane on the left.
+ *
+ * Keep only the action pane from the legacy card.
+ */
+.verification-inline-action-host
+  .review-card {
+  display: block;
+}
+
+.verification-inline-action-host
+  .live-review-card-left {
+  display: none !important;
+}
+
+.verification-inline-action-host
+  .live-review-card-right {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+
+/* Mobile / narrow operator screens. */
+@media (max-width: 900px) {
+  .verification-timeline-item {
+    --timeline-card-pad-y: 10px;
+    --timeline-card-pad-x: 11px;
+  }
+
+  #staffLiveReviewQueue
+    .staff-live-review-items
+    > .review-card {
+    grid-template-columns:
+      minmax(0, 1fr);
+  }
+
+  #staffLiveReviewQueue
+    .live-review-card-left {
+    border-right: 0;
+    border-bottom: 1px solid #d5dee8;
+  }
+}

@@ -12855,6 +12855,8 @@ async function appendStaffPostCloseReviewQueue(
 
 
 
+/* Review Scanable Cards + Unified Split Review v4 */
+
 async function loadReviews() {
   const list = $("#reviewList");
 
@@ -12986,7 +12988,13 @@ async function loadReviews() {
           class="review-card"
           data-review-id="${escapeHtml(item.id)}"
         >
-          ${reviewImageEvidenceHtml(item)}
+          <!-- Review Scanable Cards + Unified Split Review v4 -->
+          <section class="live-review-card-left">
+            <div class="live-review-card-pane-heading">
+              ข้อมูลเดิม
+            </div>
+
+            ${reviewImageEvidenceHtml(item)}
 
           ${
             staffVerificationFullSourceText(item)
@@ -13034,7 +13042,14 @@ async function loadReviews() {
             </div>
           </div>
 
-          <label class="editor-label live-review-editor-label">
+          </section>
+
+          <section class="live-review-card-right">
+            <div class="live-review-card-pane-heading">
+              ตรวจ / แก้ไขรายการ
+            </div>
+
+            <label class="editor-label live-review-editor-label">
             ข้อความที่ต้องตรวจ
 
             <textarea
@@ -13099,6 +13114,7 @@ async function loadReviews() {
               </div>
             </div>
           </details>
+          </section>
         </article>
       `,
         )
