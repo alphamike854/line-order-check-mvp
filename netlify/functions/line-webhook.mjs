@@ -204,6 +204,95 @@ async function markWebhookFailed(webhookEventId, error) {
   }
 }
 
+
+async function enqueueLineMessageMirrorBestEffort(message) {
+  const mirrorEnabled =
+    String(
+      process.env.LINE_MESSAGE_MIRROR_ENABLED
+        ?? "",
+    )
+      .trim()
+      .toLowerCase()
+      === "true";
+
+  if (!mirrorEnabled) {
+    return {
+      queued: false,
+      skipped: "MIRROR_DISABLED",
+    };
+  }
+
+  if (
+    !message?.id
+    || !message?.summary_group_round_id
+  ) {
+    return {
+      queued: false,
+      skipped: "NOT_ADMITTED_TO_WORKING_ROUND",
+    };
+  }
+
+  if (
+    message.message_type !== "text"
+    && message.message_type !== "image"
+  ) {
+    return {
+      queued: false,
+      skipped: "UNSUPPORTED_MESSAGE_TYPE",
+    };
+  }
+
+  try {
+    const {
+      data,
+      error,
+    } = await supabase.rpc(
+      "enqueue_line_message_mirror",
+      {
+        p_message_record_id:
+          message.id,
+      },
+    );
+
+    if (error) {
+      console.error(
+        "LINE mirror enqueue failed",
+        message.webhook_event_id
+          ?? message.id,
+        error,
+      );
+
+      return {
+        queued: false,
+        error:
+          error.message
+          ?? String(error),
+      };
+    }
+
+    return {
+      queued: true,
+      result: data ?? null,
+    };
+  } catch (error) {
+    // Mirror transport is deliberately secondary.
+    // Never make Parser/OCR/Review fail because mirror enqueue failed.
+    console.error(
+      "LINE mirror enqueue exception",
+      message.webhook_event_id
+        ?? message.id,
+      error,
+    );
+
+    return {
+      queued: false,
+      error:
+        error?.message
+        ?? String(error),
+    };
+  }
+}
+
 async function findMessageByWebhookEvent(webhookEventId) {
   const { data, error } = await supabase
     .from("messages")
@@ -481,6 +570,15 @@ async function handleTextMessage(
     };
   }
 
+  // Mirror follows the same authoritative Round admission boundary
+  // as the order system. A message that reached this point owns an
+  // immutable summary_group_round_id assigned at DB admission time.
+  //
+  // Mirror failure remains isolated from Parser/OCR/Review.
+  await enqueueLineMessageMirrorBestEffort(
+    message,
+  );
+
   // Legacy pre-cutover rows without Round ownership retain
   // their historical Review fallback.
   if (
@@ -678,6 +776,15 @@ async function handleImageMessage(
       reason: message.reason,
     };
   }
+
+  // Mirror follows the same authoritative Round admission boundary
+  // as the order system. A message that reached this point owns an
+  // immutable summary_group_round_id assigned at DB admission time.
+  //
+  // Mirror failure remains isolated from Parser/OCR/Review.
+  await enqueueLineMessageMirrorBestEffort(
+    message,
+  );
 
   // Legacy pre-cutover rows without Round ownership retain
   // historical Review behavior.
