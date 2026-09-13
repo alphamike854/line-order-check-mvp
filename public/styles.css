@@ -3706,3 +3706,53 @@ body{background:#f3f6fa}
       #d4dee8;
   }
 }
+
+
+/* Review Single Visible Working Round v7
+ *
+ * Operator contract:
+ * - Timeline is the only visible current Working Round surface.
+ * - Live Review DOM remains internal staging for claim/preview/apply.
+ * - Post-close archive UI remains internal infrastructure.
+ * - CLOSED latest round stays editable through the same Timeline.
+ * - Opening the next round changes the authoritative latest round.
+ */
+
+#staffLiveReviewQueue,
+#staffLiveReviewQueue.review-secondary-details,
+#staffVerificationWorkbench
+  ~ #staffLiveReviewQueue,
+#reviewList:has(#staffVerificationWorkbench)
+  #staffLiveReviewQueue {
+  display: none !important;
+}
+
+/*
+ * Historical/post-close Review is not a second operator workflow.
+ *
+ * The archive and its lifecycle remain intact internally, but the
+ * normal Review screen must not expose another queue beneath Timeline.
+ */
+#postCloseReviewQueue {
+  display: none !important;
+}
+
+/*
+ * If an authoritative Review card is mounted into the selected
+ * Timeline card, it becomes visible there even though its staging
+ * container is hidden.
+ */
+.verification-inline-action-host
+  > #staffVerificationQueue,
+.verification-inline-action-host
+  .review-card {
+  display: block;
+}
+
+/*
+ * Timeline remains the visible working surface for both OPEN and
+ * latest CLOSED round states.
+ */
+#staffVerificationWorkbench {
+  display: block;
+}
