@@ -10456,6 +10456,45 @@ function selectStaffVerificationWorkbenchItem(
     }
   }
 
+  /*
+   * Review Workbench Scope Bridge v9
+   *
+   * An interpretation Review must never fall through into the
+   * Human Verification lifecycle. Human Verification requires a
+   * PARSED canonical message, while this item still requires
+   * parser/OCR interpretation.
+   *
+   * If its authoritative Live Review card cannot be found,
+   * fail closed and ask the operator to refresh instead.
+   */
+  if (
+    item?.needs_interpretation
+    && item?.review_id
+  ) {
+    itemsRoot.innerHTML = `
+      <div
+        class="empty compact verification-live-review-missing"
+      >
+        ไม่สามารถเปิดพื้นที่แก้ไข Review รายการนี้ได้
+        กรุณารีเฟรชหน้าตรวจรายการแล้วลองอีกครั้ง
+      </div>
+    `;
+
+    staffVerificationRenderInspectorFooter(
+      footer,
+      {
+        liveReview: true,
+      },
+    );
+
+    staffVerificationMountInlineWorkspaceRoot(
+      workbench,
+      messageRecordId,
+    );
+
+    return;
+  }
+
   root._staffVerificationActor =
     workbench
       ._verificationWorkbenchActor
@@ -12964,12 +13003,47 @@ async function loadReviews() {
       ),
     ]);
 
+    /*
+     * Review Workbench Scope Bridge v9
+     *
+     * Timeline is a union of several server-authorized Workbench
+     * feeds. Live Review staging must use the same authorization
+     * universe; otherwise a Review present in verification/attention
+     * can appear in Timeline without its authoritative Review card.
+     *
+     * work_items is placed last intentionally so its claim metadata
+     * remains authoritative when the same Review appears in several
+     * feeds.
+     */
+    const reviewScopeItems = [
+      ...(
+        workbenchPayload.verification_items
+        || []
+      ),
+      ...(
+        workbenchPayload.attention_items
+        || []
+      ),
+      ...(
+        workbenchPayload.high_total_items
+        || []
+      ),
+      ...(
+        workbenchPayload.work_items
+        || []
+      ),
+    ].filter(
+      (item) =>
+        item?.review_id !== null
+        && item?.review_id !== undefined
+        && String(
+          item.review_id,
+        ).trim(),
+    );
+
     const workByReviewId =
       new Map(
-        (
-          workbenchPayload.work_items
-          || []
-        ).map(
+        reviewScopeItems.map(
           (item) => [
             String(
               item.review_id,
