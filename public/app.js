@@ -4126,32 +4126,223 @@ function reviewImageEvidenceHtml(item) {
     </div>`;
 }
 
-function previewItemsHtml(preview) {
-  const statusClass = preview.can_apply ? "ok" : "warn";
-  const previewItems = preview.items || [];
-  const itemCount = previewItems.length;
-  const totalQuantity = previewItems.reduce(
-    (sum, item) => sum + Number(item.quantity || 0),
-    0
-  );
+
+function previewItemsHtml(
+  preview,
+  originalTotal = null,
+) {
+  const statusClass =
+    preview?.can_apply
+      ? "ok"
+      : "warn";
+
+  const previewItems =
+    Array.isArray(
+      preview?.items,
+    )
+      ? preview.items
+      : [];
+
+  const itemCount =
+    previewItems.length;
+
+  const totalQuantity =
+    previewItems.reduce(
+      (sum, item) =>
+        sum
+        + Number(
+          item?.quantity
+          ?? 0,
+        ),
+      0,
+    );
+
+  // Preserve the original Review Preview meaning:
+  // PARSED = complete total; otherwise only the readable portion.
   const totalLabel =
-    preview.status === "PARSED"
+    preview?.status === "PARSED"
       ? "ยอดรวม"
       : "ยอดที่อ่านได้";
-  const errors = (preview.errors || []).map((x) => `<div>${escapeHtml(x.code)}${x.detail ? ` — ${escapeHtml(x.detail)}` : ""}</div>`).join("");
-  const items = previewItems.map((x) => `<span class="item-chip">${escapeHtml(x.category)}${escapeHtml(x.code)} = ${formatNumber(x.quantity)}</span>`).join("");
+
+  const numericOriginal =
+    Number(
+      originalTotal,
+    );
+
+  const hasOriginal =
+    originalTotal != null
+    && Number.isFinite(
+      numericOriginal,
+    );
+
+  const delta =
+    hasOriginal
+      ? (
+          totalQuantity
+          - numericOriginal
+        )
+      : null;
+
+  const deltaLabel =
+    delta == null
+      ? ""
+      : (
+          delta > 0
+            ? `+${formatNumber(delta)}`
+            : formatNumber(delta)
+        );
+
+  const errors =
+    (
+      Array.isArray(
+        preview?.errors,
+      )
+        ? preview.errors
+        : []
+    )
+      .map(
+        (error) =>
+          `<div>${escapeHtml(
+            error?.code
+            ?? "",
+          )}${
+            error?.detail
+              ? ` — ${escapeHtml(
+                  error.detail,
+                )}`
+              : ""
+          }</div>`,
+      )
+      .join("");
+
+  const items =
+    previewItems
+      .map(
+        (item) =>
+          `<span class="item-chip">${escapeHtml(
+            item?.category
+            ?? "",
+          )}${escapeHtml(
+            item?.code
+            ?? "",
+          )} = ${formatNumber(
+            item?.quantity
+            ?? 0,
+          )}</span>`,
+      )
+      .join("");
+
   return `
     <div class="preview-box ${statusClass}">
-      <div class="preview-heading">ผลตรวจ <strong>${escapeHtml(preview.status)}</strong> <span class="muted">· Parser ${escapeHtml(preview.parser_version || "ไม่ระบุ")}</span></div>
-      <div class="review-preview-summary">
-        <strong>${formatNumber(itemCount)} รายการ</strong>
-        <span>· ${escapeHtml(totalLabel)} <strong>${formatNumber(totalQuantity)}</strong></span>
+      <div class="preview-heading">
+        ผลตรวจ
+        <strong>
+          ${escapeHtml(
+            preview?.status
+            ?? "ไม่ระบุ",
+          )}
+        </strong>
+        <span class="muted">
+          · Parser
+          ${escapeHtml(
+            preview?.parser_version
+            || "ไม่ระบุ",
+          )}
+        </span>
       </div>
-      ${items ? `<div class="item-chips">${items}</div>` : ""}
-      ${errors ? `<div class="preview-errors">${errors}</div>` : ""}
-      ${preview.can_apply ? `<button class="button primary small apply-review">ยืนยันใช้ผลนี้</button>` : `<div class="muted small-text">ยังยืนยันไม่ได้ กรุณาแก้ข้อความแล้วตรวจอีกครั้ง</div>`}
-    </div>`;
+
+      <div class="review-preview-summary">
+        <span>
+          ${formatNumber(itemCount)}
+          รายการ
+        </span>
+
+        <span>
+          ${totalLabel}
+          <strong>
+            ${formatNumber(
+              totalQuantity,
+            )}
+          </strong>
+        </span>
+
+        ${
+          hasOriginal
+            ? `
+              <span>
+                ยอดเดิม
+                <strong>
+                  ${formatNumber(
+                    numericOriginal,
+                  )}
+                </strong>
+              </span>
+            `
+            : ""
+        }
+
+        <span>
+          ยอดใหม่
+          <strong>
+            ${formatNumber(
+              totalQuantity,
+            )}
+          </strong>
+        </span>
+
+        ${
+          hasOriginal
+            ? `
+              <span>
+                ผลต่าง
+                <strong>
+                  ${deltaLabel}
+                </strong>
+              </span>
+            `
+            : ""
+        }
+      </div>
+
+      ${
+        items
+          ? `
+            <div class="item-chips">
+              ${items}
+            </div>
+          `
+          : ""
+      }
+
+      ${
+        errors
+          ? `
+            <div class="preview-errors">
+              ${errors}
+            </div>
+          `
+          : ""
+      }
+
+      ${
+        preview?.can_apply
+          ? `
+            <button
+              class="button primary small apply-review"
+            >
+              ยืนยันใช้ผลนี้
+            </button>
+          `
+          : `
+            <div class="muted small-text">
+              ยังยืนยันไม่ได้ กรุณาแก้ข้อความแล้วตรวจอีกครั้ง
+            </div>
+          `
+      }
+    </div>
+  `;
 }
+
 
 function clearReviewPreview(card, message = "") {
   card._reviewPreview = null;
@@ -4830,7 +5021,41 @@ async function previewReview(event) {
       method: "POST",
       body: JSON.stringify({ review_id: reviewId, corrected_text: correctedText }),
     });
-    previewArea.innerHTML = previewItemsHtml(payload.preview);
+    const workbench =
+      staffVerificationFindWorkbench(
+        card,
+      );
+
+    const timelineRow =
+      card.closest(
+        ".verification-timeline-item[data-message-record-id]",
+      );
+
+    const originalItem =
+      workbench
+        ?._verificationWorkbenchItems
+        ?.get(
+          String(
+            timelineRow
+              ?.dataset
+              ?.messageRecordId
+            ?? "",
+          ),
+        )
+      ?? null;
+
+    const originalTotal =
+      originalItem
+        ? staffVerificationOriginalTotal(
+            originalItem,
+          )
+        : null;
+
+    previewArea.innerHTML =
+      previewItemsHtml(
+        payload.preview,
+        originalTotal,
+      );
     if (payload.preview?.can_apply && payload.preview_token) {
       card._reviewPreview = {
         correctedText,
@@ -5953,6 +6178,7 @@ function staffVerificationClaimStatusHtml(
 }
 
 
+
 function staffVerificationResolutionHtml(
   item,
   correctedText = null,
@@ -5965,11 +6191,8 @@ function staffVerificationResolutionHtml(
 
   const initialText =
     correctedText == null
-      ? String(
-          item?.text
-          ?? item?.display_text
-          ?? item?.normalized_text
-          ?? "",
+      ? staffVerificationFullSourceText(
+          item,
         )
       : String(
           correctedText,
@@ -5990,7 +6213,14 @@ function staffVerificationResolutionHtml(
         </span>
       </div>
 
-      <details class="staff-verification-correction-panel">
+      <details
+        class="staff-verification-correction-panel"
+        ${
+          item?.needs_interpretation
+            ? "open"
+            : ""
+        }
+      >
         <summary>
           แก้ไขออเดอร์
         </summary>
@@ -6033,7 +6263,6 @@ function staffVerificationResolutionHtml(
     </div>
   `;
 }
-
 
 
 function staffVerificationImageEvidenceHtml(
@@ -6121,6 +6350,9 @@ function staffVerificationImageEvidenceHtml(
 }
 
 
+/* Review Inspector source-first v1 */
+/* Review Split View v1 */
+
 function staffVerificationCardHtml(
   item,
 ) {
@@ -6144,12 +6376,9 @@ function staffVerificationCardHtml(
     || null;
 
   const sourceText =
-    item?.text
-    ?? item?.display_text
-    ?? item?.raw_text
-    ?? item?.ocr_text
-      ?? item?.normalized_text
-    ?? "";
+    staffVerificationFullSourceText(
+      item,
+    );
 
   return `
     <article
@@ -8424,16 +8653,108 @@ function staffVerificationTimelineTimestamp(
 }
 
 
+
+// Review Inline Timeline Card Workspace v2
+//
+// One message must retain one authoritative full source for:
+// - collapsed Timeline card
+// - expanded original side
+// - correction editor
+// - TEXT and IMAGE/OCR
+//
+// normalized_text is a final fallback because it is parser-facing,
+// not necessarily the closest representation of the human source.
+function staffVerificationFullSourceText(
+  item,
+) {
+  const messageType =
+    String(
+      item?.message_type
+      ?? "",
+    ).toUpperCase();
+
+  // Follow the server-side source provenance contract.
+  //
+  // IMAGE:
+  //   OCR is the source text produced from the image.
+  //
+  // TEXT:
+  //   raw_text is the original LINE message.
+  //
+  // text/display_text are read-model fallbacks for older feeds
+  // that do not expose the canonical message fields.
+  const candidates =
+    messageType === "IMAGE"
+      ? [
+          item?.ocr_text,
+          item?.normalized_text,
+          item?.raw_text,
+          item?.text,
+          item?.display_text,
+        ]
+      : [
+          item?.raw_text,
+          item?.normalized_text,
+          item?.ocr_text,
+          item?.text,
+          item?.display_text,
+        ];
+
+  for (const value of candidates) {
+    const text =
+      String(
+        value
+        ?? "",
+      );
+
+    if (text.trim()) {
+      return text;
+    }
+  }
+
+  return "";
+}
+
+
+function staffVerificationPreferFullSourceValue(
+  existingValue,
+  incomingValue,
+) {
+  const existing =
+    String(
+      existingValue
+      ?? "",
+    );
+
+  const incoming =
+    String(
+      incomingValue
+      ?? "",
+    );
+
+  if (!existing.trim()) {
+    return incomingValue;
+  }
+
+  if (!incoming.trim()) {
+    return existingValue;
+  }
+
+  return (
+    existing.length
+    >= incoming.length
+  )
+    ? existingValue
+    : incomingValue;
+}
+
+
+
 function staffVerificationTimelineSourceText(
   item,
 ) {
-  return String(
-    item?.text
-    ?? item?.display_text
-    ?? item?.raw_text
-    ?? item?.ocr_text
-      ?? item?.normalized_text
-    ?? "",
+  return staffVerificationFullSourceText(
+    item,
   )
     .replace(/\s+/gu, " ")
     .trim();
@@ -8727,6 +9048,101 @@ function staffVerificationTimelineBadgesHtml(
 }
 
 
+
+function staffVerificationInlineOriginalHtml(
+  item,
+) {
+  const messageType =
+    staffVerificationTimelineMessageType(
+      item,
+    );
+
+  const sourceText =
+    staffVerificationFullSourceText(
+      item,
+    );
+
+  const issueSummary =
+    staffVerificationTimelineIssueSummary(
+      item,
+    );
+
+  const originalTotal =
+    staffVerificationOriginalTotal(
+      item,
+    );
+
+  const sourceLabel =
+    messageType === "IMAGE"
+      ? "OCR / ข้อความที่ระบบอ่านจากภาพ"
+      : "ข้อความต้นฉบับ";
+
+  return `
+    <div class="verification-inline-original-heading">
+      ข้อมูลเดิม
+    </div>
+
+    ${
+      messageType === "IMAGE"
+        ? staffVerificationImageEvidenceHtml(
+            item,
+          )
+        : ""
+    }
+
+    <div class="verification-inline-source-block">
+      <strong>
+        ${sourceLabel}
+      </strong>
+      <div class="verification-inline-source-text">
+        ${
+          sourceText
+            ? escapeHtml(sourceText)
+            : "ไม่มีข้อความต้นฉบับ"
+        }
+      </div>
+    </div>
+
+    ${
+      issueSummary
+        ? `
+          <div class="verification-inline-issue">
+            <strong>
+              เหตุผลที่ต้องตรวจ
+            </strong>
+            <div>
+              ${escapeHtml(issueSummary)}
+            </div>
+          </div>
+        `
+        : ""
+    }
+
+    <div class="verification-inline-parser-result">
+      <strong>
+        ระบบอ่านเดิม
+      </strong>
+
+      ${staffVerificationItemsHtml(
+        item?.items
+        ?? [],
+        sourceText,
+      )}
+    </div>
+
+    <div class="verification-inline-old-total">
+      <span>ยอดเดิม</span>
+      <strong>
+        ${formatNumber(
+          originalTotal,
+        )}
+      </strong>
+    </div>
+  `;
+}
+
+
+
 function staffVerificationTimelineItemHtml(
   item,
   workbench,
@@ -8773,7 +9189,7 @@ function staffVerificationTimelineItemHtml(
     );
 
   const sourceText =
-    staffVerificationTimelineSourceText(
+    staffVerificationFullSourceText(
       item,
     );
 
@@ -8800,22 +9216,9 @@ function staffVerificationTimelineItemHtml(
     )
     === messageRecordId;
 
-  let content = "";
+  let sourceContent = "";
 
-  if (
-    item?.needs_interpretation
-    && issueSummary
-  ) {
-    content = `
-      <div class="verification-timeline-issue">
-        ${escapeHtml(
-          issueSummary,
-        )}
-      </div>
-    `;
-  } else if (
-    messageType === "IMAGE"
-  ) {
+  if (messageType === "IMAGE") {
     const itemCount =
       Array.isArray(
         item?.items,
@@ -8823,12 +9226,7 @@ function staffVerificationTimelineItemHtml(
         ? item.items.length
         : 0;
 
-    const imageText =
-      sourceText.length > 260
-        ? `${sourceText.slice(0, 260)}…`
-        : sourceText;
-
-    content = `
+    sourceContent = `
       <div class="verification-timeline-source verification-timeline-image-summary">
         ${staffVerificationImageEvidenceHtml(
           item,
@@ -8836,19 +9234,22 @@ function staffVerificationTimelineItemHtml(
             compact: true,
           },
         )}
+
         <div>
           🖼 อ่านได้
-          <strong>${formatNumber(
-            itemCount,
-          )}</strong>
+          <strong>
+            ${formatNumber(
+              itemCount,
+            )}
+          </strong>
           รายการ
         </div>
 
         ${
-          imageText
+          sourceText
             ? `
               <div class="verification-timeline-image-ocr">
-                ${escapeHtml(imageText)}
+                ${escapeHtml(sourceText)}
               </div>
             `
             : `
@@ -8860,17 +9261,9 @@ function staffVerificationTimelineItemHtml(
       </div>
     `;
   } else if (sourceText) {
-    const clipped =
-      sourceText.length > 140
-        ? `${sourceText.slice(
-            0,
-            137,
-          )}...`
-        : sourceText;
-
-    content = `
+    sourceContent = `
       <div class="verification-timeline-source">
-        ${escapeHtml(clipped)}
+        ${escapeHtml(sourceText)}
       </div>
     `;
   }
@@ -8929,39 +9322,72 @@ function staffVerificationTimelineItemHtml(
         </div>
       </div>
 
-      ${content}
+      <div class="verification-timeline-collapsed-body">
+        ${sourceContent}
 
-      ${
-        itemSummary
-          ? `
-            <div class="verification-timeline-result">
-              ${escapeHtml(
-                itemSummary,
-              )}
-            </div>
-          `
-          : ""
-      }
+        ${
+          issueSummary
+            ? `
+              <div class="verification-timeline-issue">
+                ${escapeHtml(
+                  issueSummary,
+                )}
+              </div>
+            `
+            : ""
+        }
 
-      <div class="verification-timeline-bottom">
-        <div class="verification-queue-item-meta">
-          <span>
-            ยอด
-            <strong>
-              ${formatNumber(total)}
-            </strong>
-          </span>
+        ${
+          itemSummary
+            ? `
+              <div class="verification-timeline-result">
+                ${escapeHtml(
+                  itemSummary,
+                )}
+              </div>
+            `
+            : ""
+        }
+
+        <div class="verification-timeline-bottom">
+          <div class="verification-queue-item-meta">
+            <span>
+              ยอด
+              <strong>
+                ${formatNumber(total)}
+              </strong>
+            </span>
+          </div>
+
+          <button
+            type="button"
+            class="button ghost small open-staff-verification-item"
+            data-message-record-id="${escapeHtml(
+              messageRecordId,
+            )}"
+          >
+            ${actionLabel}
+          </button>
         </div>
+      </div>
 
-        <button
-          type="button"
-          class="button ghost small open-staff-verification-item"
-          data-message-record-id="${escapeHtml(
-            messageRecordId,
-          )}"
-        >
-          ${actionLabel}
-        </button>
+      <div class="verification-inline-workspace">
+        <section class="verification-inline-original">
+          ${staffVerificationInlineOriginalHtml(
+            item,
+          )}
+        </section>
+
+        <section class="verification-inline-action">
+          <div class="verification-inline-action-heading">
+            ตรวจ / แก้ไขรายการ
+          </div>
+
+          <div
+            class="verification-inline-action-host"
+            data-verification-inline-action-host
+          ></div>
+        </section>
       </div>
     </article>
   `;
@@ -8993,6 +9419,14 @@ function staffVerificationMergeTimelineItems(
       new Set();
   }
 
+  const sourceFields = [
+    "text",
+    "display_text",
+    "raw_text",
+    "ocr_text",
+    "normalized_text",
+  ];
+
   for (const item of (
     Array.isArray(items)
       ? items
@@ -9014,14 +9448,24 @@ function staffVerificationMergeTimelineItems(
         .get(key)
       ?? {};
 
+    const merged = {
+      ...existing,
+      ...item,
+    };
+
+    for (const field of sourceFields) {
+      merged[field] =
+        staffVerificationPreferFullSourceValue(
+          existing?.[field],
+          item?.[field],
+        );
+    }
+
     workbench
       ._verificationWorkbenchItems
       .set(
         key,
-        {
-          ...existing,
-          ...item,
-        },
+        merged,
       );
 
     if (feed === "HIGH_TOTAL") {
@@ -9435,6 +9879,7 @@ function staffVerificationUpdateTimelineControls(
 }
 
 
+
 function staffVerificationRenderTimeline(
   workbench,
 ) {
@@ -9458,6 +9903,19 @@ function staffVerificationRenderTimeline(
   ) {
     return;
   }
+
+  const selectedMessageRecordId =
+    String(
+      workbench
+        ?._selectedMessageRecordId
+      ?? "",
+    );
+
+  // Move the authoritative action DOM outside the Timeline
+  // before replacing Timeline HTML, so its listeners/state survive.
+  staffVerificationRestoreInlineWorkspaceRoot(
+    workbench,
+  );
 
   const items =
     staffVerificationTimelineSortedItems(
@@ -9495,11 +9953,16 @@ function staffVerificationRenderTimeline(
   staffVerificationUpdateTimelineControls(
     workbench,
   );
+
+  if (selectedMessageRecordId) {
+    staffVerificationMountInlineWorkspaceRoot(
+      workbench,
+      selectedMessageRecordId,
+    );
+  }
 }
 
 
-/* Review Inspector source-first v1 */
-/* Review Split View v1 */
 function staffVerificationRestoreLiveReviewInspectorCard(
   workbench,
 ) {
@@ -9600,6 +10063,98 @@ function staffVerificationRenderInspectorFooter(
 }
 
 
+
+function staffVerificationRestoreInlineWorkspaceRoot(
+  workbench,
+) {
+  if (!workbench) {
+    return;
+  }
+
+  const root =
+    workbench.querySelector(
+      "#staffVerificationQueue",
+    );
+
+  const staging =
+    workbench.querySelector(
+      ".verification-split-view",
+    );
+
+  if (
+    !root
+    || !staging
+  ) {
+    return;
+  }
+
+  if (
+    root.parentElement
+    !== staging
+  ) {
+    staging.append(
+      root,
+    );
+  }
+}
+
+
+function staffVerificationMountInlineWorkspaceRoot(
+  workbench,
+  messageRecordId,
+) {
+  if (
+    !workbench
+    || !messageRecordId
+  ) {
+    return false;
+  }
+
+  const root =
+    workbench.querySelector(
+      "#staffVerificationQueue",
+    );
+
+  if (!root) {
+    return false;
+  }
+
+  const row =
+    Array.from(
+      workbench.querySelectorAll(
+        ".verification-timeline-item[data-message-record-id]",
+      ),
+    ).find(
+      (candidate) =>
+        String(
+          candidate.dataset.messageRecordId
+          ?? "",
+        )
+        === String(
+          messageRecordId,
+        ),
+    )
+    ?? null;
+
+  const host =
+    row?.querySelector(
+      "[data-verification-inline-action-host]",
+    )
+    ?? null;
+
+  if (!host) {
+    return false;
+  }
+
+  host.append(
+    root,
+  );
+
+  return true;
+}
+
+
+
 function selectStaffVerificationWorkbenchItem(
   workbench,
   messageRecordId,
@@ -9627,6 +10182,18 @@ function selectStaffVerificationWorkbenchItem(
   if (!item) {
     return;
   }
+
+  // Intentionally retain the current working position.
+  // Selection no longer scrolls to a separate Inspector.
+  void scroll;
+
+  staffVerificationRestoreLiveReviewInspectorCard(
+    workbench,
+  );
+
+  staffVerificationRestoreInlineWorkspaceRoot(
+    workbench,
+  );
 
   staffVerificationSelectTimelineRow(
     workbench,
@@ -9658,10 +10225,6 @@ function selectStaffVerificationWorkbenchItem(
   ) {
     return;
   }
-
-  staffVerificationRestoreLiveReviewInspectorCard(
-    workbench,
-  );
 
   if (
     item?.needs_interpretation
@@ -9703,15 +10266,10 @@ function selectStaffVerificationWorkbenchItem(
         },
       );
 
-      if (
-        scroll
-        && staffVerificationShouldScrollInspector()
-      ) {
-        root.scrollIntoView({
-          behavior: "smooth",
-          block: "start",
-        });
-      }
+      staffVerificationMountInlineWorkspaceRoot(
+        workbench,
+        messageRecordId,
+      );
 
       return;
     }
@@ -9736,18 +10294,13 @@ function selectStaffVerificationWorkbenchItem(
     [item],
     workbench
       ._verificationWorkbenchActor
-      ?? null,
+    ?? null,
   );
 
-  if (
-    scroll
-    && staffVerificationShouldScrollInspector()
-  ) {
-    root.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
-  }
+  staffVerificationMountInlineWorkspaceRoot(
+    workbench,
+    messageRecordId,
+  );
 }
 
 
@@ -10102,7 +10655,7 @@ function appendStaffVerificationQueue(
             </div>
 
             <div class="muted small-text">
-              Timeline เดียว · ค่าเริ่มต้นเรียงล่าสุดก่อน
+              Timeline แบบการ์ด · ค่าเริ่มต้นเรียงเก่าสุดก่อน
             </div>
           </div>
 
@@ -12319,14 +12872,14 @@ async function loadReviews() {
           ${reviewImageEvidenceHtml(item)}
 
           ${
-            item.text
+            staffVerificationFullSourceText(item)
               ? `
                 <div class="reason live-review-source verification-inspector-source-first">
                   <strong>
                     ข้อความต้นฉบับ
                   </strong>
                   <div class="live-review-source-text">
-                    ${escapeHtml(item.text)}
+                    ${escapeHtml(staffVerificationFullSourceText(item))}
                   </div>
                 </div>
               `
@@ -12371,7 +12924,7 @@ async function loadReviews() {
               class="review-editor"
               rows="5"
               placeholder="แก้หรือกรอกข้อความออเดอร์ที่ถูกต้อง"
-            >${escapeHtml(item.text || "")}</textarea>
+            >${escapeHtml(staffVerificationFullSourceText(item) || "")}</textarea>
           </label>
 
           <div class="review-actions">

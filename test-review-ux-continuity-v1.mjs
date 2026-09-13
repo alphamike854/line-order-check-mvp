@@ -177,10 +177,35 @@ const timelineSource =
     timelineSourceEnd,
   );
 
+const fullSourceStart =
+  app.indexOf(
+    "function staffVerificationFullSourceText(",
+  );
+
+const fullSourceEnd =
+  app.indexOf(
+    "function staffVerificationPreferFullSourceValue(",
+    fullSourceStart,
+  );
+
+const fullSource =
+  app.slice(
+    fullSourceStart,
+    fullSourceEnd,
+  );
+
 assert.ok(
-  timelineSource.includes(
+  fullSource.includes(
     "item?.ocr_text",
   ),
+  "shared full-source helper must retain OCR fallback",
+);
+
+assert.ok(
+  timelineSource.includes(
+    "staffVerificationFullSourceText(",
+  ),
+  "Timeline source must delegate to shared full-source helper",
 );
 
 const cardStart =
@@ -202,8 +227,9 @@ const card =
 
 assert.ok(
   card.includes(
-    "item?.ocr_text",
+    "staffVerificationFullSourceText(",
   ),
+  "Verification card must delegate to shared full-source helper",
 );
 
 assert.match(

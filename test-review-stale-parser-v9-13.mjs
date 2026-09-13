@@ -71,7 +71,7 @@ assert.match(
 
 assert.match(
   app,
-  /preview\.parser_version/,
+  /preview(?:\?\.)?parser_version/,
   "Review preview must show the parser version used for the new parse"
 );
 
@@ -89,13 +89,13 @@ assert.match(
 
 assert.match(
   app,
-  /const itemCount = previewItems\.length/,
+  /const\s+itemCount\s*=\s*previewItems\.length/,
   "Review preview must calculate item count"
 );
 
 assert.match(
   app,
-  /const totalQuantity = previewItems\.reduce/,
+  /const\s+totalQuantity\s*=\s*previewItems\.reduce/,
   "Review preview must calculate total quantity"
 );
 

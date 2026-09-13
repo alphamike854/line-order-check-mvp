@@ -2477,3 +2477,239 @@ body{background:#f3f6fa}
   .verification-timeline-result {
   font-weight: 650;
 }
+/* Review Inline Timeline Card Workspace v2 */
+
+.verification-split-view {
+  display: block;
+}
+
+/*
+  #staffVerificationQueue remains the authoritative action DOM,
+  but when it is a direct child of the old split container it is
+  only a staging node and must not appear as a separate Inspector.
+*/
+.verification-split-view
+  > #staffVerificationQueue {
+  display: none;
+}
+
+.verification-split-view
+  .verification-timeline-items {
+  max-height: 72vh;
+}
+
+.verification-timeline-source,
+.verification-timeline-image-ocr {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.verification-timeline-item {
+  min-width: 0;
+}
+
+.verification-timeline-collapsed-body {
+  display: grid;
+  gap: 7px;
+}
+
+.verification-inline-workspace {
+  display: none;
+  min-width: 0;
+  margin-top: 12px;
+  border-top: 1px solid #dce5ef;
+  padding-top: 12px;
+  cursor: default;
+}
+
+.verification-timeline-item.selected
+  .verification-timeline-collapsed-body {
+  display: none;
+}
+
+.verification-timeline-item.selected
+  .verification-inline-workspace {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1fr)
+    minmax(0, 1fr);
+  gap: 14px;
+}
+
+.verification-inline-original,
+.verification-inline-action {
+  min-width: 0;
+}
+
+.verification-inline-original {
+  padding: 12px;
+  border: 1px solid #dce5ef;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.verification-inline-action {
+  padding: 12px;
+  border: 1px solid #dce5ef;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.verification-inline-original-heading,
+.verification-inline-action-heading {
+  margin-bottom: 10px;
+  color: #173a5e;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.verification-inline-source-block,
+.verification-inline-parser-result,
+.verification-inline-issue {
+  margin-top: 10px;
+}
+
+.verification-inline-source-block
+  > strong,
+.verification-inline-parser-result
+  > strong,
+.verification-inline-issue
+  > strong {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 12px;
+}
+
+.verification-inline-source-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+  color: #253247;
+}
+
+.verification-inline-issue {
+  padding: 9px 10px;
+  border-radius: 9px;
+  background: #fff7f4;
+  color: #8d3b2e;
+}
+
+.verification-inline-old-total {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+  margin-top: 12px;
+  padding: 10px 11px;
+  border: 1px solid #dce5ef;
+  border-radius: 10px;
+  background: #fff;
+  font-variant-numeric: tabular-nums;
+}
+
+.verification-inline-old-total strong {
+  font-size: 1rem;
+}
+
+/*
+  When mounted inside a selected card, the old Inspector root becomes
+  the right-side action workspace rather than a second screen panel.
+*/
+.verification-inline-action-host
+  > #staffVerificationQueue {
+  display: block;
+  position: static;
+  top: auto;
+  width: 100%;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.verification-inline-action-host
+  > #staffVerificationQueue
+  > .preview-heading,
+.verification-inline-action-host
+  > #staffVerificationQueue
+  > .verification-workspace-hint {
+  display: none;
+}
+
+.verification-inline-action-host
+  .staff-verification-card {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* Original evidence/result is already presented on the LEFT side. */
+.verification-inline-action-host
+  .staff-verification-card
+  > .staff-verification-image-evidence,
+.verification-inline-action-host
+  .staff-verification-card
+  > .verification-inspector-source-first,
+.verification-inline-action-host
+  .staff-verification-card
+  > .review-meta,
+.verification-inline-action-host
+  .staff-verification-card
+  > .staff-verification-result {
+  display: none;
+}
+
+/* Same visual contract for legacy parser-Review cards. */
+.verification-inline-action-host
+  .verification-inspector-live-review-card
+  .review-evidence,
+.verification-inline-action-host
+  .verification-inspector-live-review-card
+  .live-review-source,
+.verification-inline-action-host
+  .verification-inspector-live-review-card
+  .review-meta,
+.verification-inline-action-host
+  .verification-inspector-live-review-card
+  .live-review-reason {
+  display: none;
+}
+
+.verification-inline-action-host
+  textarea.review-editor,
+.verification-inline-action-host
+  .staff-verification-correction {
+  width: 100%;
+  min-height: 120px;
+  height: auto;
+  field-sizing: content;
+  overflow-y: hidden;
+  resize: none;
+  box-sizing: border-box;
+}
+
+.verification-inline-action-host
+  .review-preview-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 14px;
+  margin: 8px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+@media(max-width:900px) {
+  .verification-timeline-item.selected
+    .verification-inline-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .verification-inline-original,
+  .verification-inline-action {
+    padding: 10px;
+  }
+}
