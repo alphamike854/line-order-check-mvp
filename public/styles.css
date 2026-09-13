@@ -3236,3 +3236,473 @@ body{background:#f3f6fa}
     border-bottom: 1px solid #d5dee8;
   }
 }
+
+/* Review Focused Secondary Queue v6 */
+
+/*
+ * Primary workflow:
+ * Timeline is always the first operational surface.
+ *
+ * The authoritative Live Review DOM remains available, but becomes
+ * an explicitly secondary details panel collapsed by default.
+ *
+ * These selectors intentionally override older rules that hid
+ * #staffLiveReviewQueue completely.
+ */
+#staffLiveReviewQueue.review-secondary-details,
+#staffVerificationWorkbench
+  ~ #staffLiveReviewQueue.review-secondary-details,
+#reviewList:has(#staffVerificationWorkbench)
+  #staffLiveReviewQueue.review-secondary-details {
+  display: block !important;
+}
+
+
+/* ------------------------------------------------------------
+ * Secondary queue shell
+ * ---------------------------------------------------------- */
+
+.review-secondary-details {
+  margin-top: 16px;
+  padding: 0 !important;
+
+  overflow: hidden;
+
+  border: 1px solid #cfd9e3;
+  border-radius: 16px;
+
+  background: #f8fafc;
+
+  box-shadow:
+    0 2px 8px
+    rgba(23, 58, 94, 0.06);
+}
+
+.review-secondary-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  min-height: 50px;
+  padding: 11px 14px;
+
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+
+  background: #f2f6f9;
+}
+
+.review-secondary-summary::-webkit-details-marker {
+  display: none;
+}
+
+.review-secondary-summary::before {
+  content: "▸";
+
+  flex: 0 0 auto;
+
+  color: #5d7185;
+  font-size: 16px;
+  line-height: 1;
+
+  transition:
+    transform 120ms ease;
+}
+
+.review-secondary-details[open]
+  > .review-secondary-summary::before {
+  transform: rotate(90deg);
+}
+
+.review-secondary-details[open]
+  > .review-secondary-summary {
+  border-bottom: 1px solid #d7e0e8;
+
+  background: #eaf0f5;
+}
+
+.review-secondary-summary-title {
+  min-width: 0;
+
+  color: #263f57;
+  font-size: 14px;
+  font-weight: 850;
+}
+
+.review-secondary-summary-count {
+  margin-left: auto;
+  padding: 4px 9px;
+
+  border-radius: 999px;
+
+  background: #dde6ee;
+
+  color: #4d6277;
+  font-size: 12px;
+  font-weight: 850;
+
+  font-variant-numeric: tabular-nums;
+}
+
+
+/* ------------------------------------------------------------
+ * Expanded body
+ * ---------------------------------------------------------- */
+
+.review-secondary-body {
+  padding:
+    0
+    16px
+    16px;
+}
+
+.review-secondary-intro {
+  display: grid;
+  gap: 3px;
+
+  margin:
+    0
+    -16px
+    16px;
+
+  padding:
+    11px
+    16px;
+
+  border-bottom: 1px solid #e0e7ee;
+
+  background: #fff;
+}
+
+.review-secondary-intro
+  > strong {
+  color: #314c65;
+  font-size: 13px;
+}
+
+
+/* ------------------------------------------------------------
+ * Individual Review cards
+ * ---------------------------------------------------------- */
+
+#staffLiveReviewQueue.review-secondary-details
+  .staff-live-review-items {
+  display: grid;
+  gap: 20px;
+}
+
+#staffLiveReviewQueue.review-secondary-details
+  .staff-live-review-items
+  > .review-card {
+  position: relative;
+
+  display: grid;
+
+  grid-template-columns:
+    minmax(0, 1fr)
+    minmax(0, 1fr);
+
+  gap: 0;
+
+  margin: 0;
+  padding: 0;
+
+  overflow: hidden;
+
+  border: 2px solid #c7d3df;
+  border-radius: 15px;
+
+  background: #fff;
+
+  box-shadow:
+    0 4px 13px
+    rgba(23, 58, 94, 0.09);
+}
+
+
+/*
+ * Stable visual identity for every expanded Review.
+ */
+#staffLiveReviewQueue.review-secondary-details
+  .staff-live-review-items
+  > .review-card::before {
+  content:
+    "รายการตรวจ #"
+    attr(data-review-id);
+
+  grid-column:
+    1
+    /
+    -1;
+
+  display: block;
+
+  padding:
+    9px
+    13px;
+
+  border-bottom: 1px solid #d3dde6;
+
+  background: #e9f0f5;
+
+  color: #29445d;
+  font-size: 13px;
+  font-weight: 850;
+
+  font-variant-numeric: tabular-nums;
+}
+
+
+/* ------------------------------------------------------------
+ * Left / right semantic panes
+ * ---------------------------------------------------------- */
+
+#staffLiveReviewQueue.review-secondary-details
+  .live-review-card-left,
+#staffLiveReviewQueue.review-secondary-details
+  .live-review-card-right {
+  min-width: 0;
+
+  padding:
+    15px
+    16px;
+}
+
+#staffLiveReviewQueue.review-secondary-details
+  .live-review-card-left {
+  background: #f5f8fb;
+
+  border-right:
+    1px solid
+    #d4dee8;
+}
+
+#staffLiveReviewQueue.review-secondary-details
+  .live-review-card-right {
+  background: #fff;
+}
+
+#staffLiveReviewQueue.review-secondary-details
+  .live-review-card-pane-heading {
+  margin:
+    0
+    0
+    12px;
+
+  color: #173a5e;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+
+/* ------------------------------------------------------------
+ * Original source
+ * ---------------------------------------------------------- */
+
+#staffLiveReviewQueue.review-secondary-details
+  .live-review-source {
+  margin-top: 0;
+}
+
+#staffLiveReviewQueue.review-secondary-details
+  .live-review-source-text {
+  margin-top: 7px;
+
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+
+  line-height: 1.6;
+
+  font-family:
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
+}
+
+#staffLiveReviewQueue.review-secondary-details
+  .review-meta {
+  display: flex;
+  flex-wrap: wrap;
+
+  gap:
+    6px
+    12px;
+
+  margin-top: 12px;
+
+  color: #64778a;
+  font-size: 12px;
+}
+
+
+/* ------------------------------------------------------------
+ * Claim/status
+ * ---------------------------------------------------------- */
+
+#staffLiveReviewQueue.review-secondary-details
+  .review-claim-state:not(:empty) {
+  margin-top: 11px;
+  padding:
+    8px
+    10px;
+
+  border: 1px solid #d7e1e9;
+  border-radius: 10px;
+
+  background: #fff;
+
+  font-size: 12px;
+}
+
+
+/* ------------------------------------------------------------
+ * Reason
+ * ---------------------------------------------------------- */
+
+#staffLiveReviewQueue.review-secondary-details
+  .live-review-reason {
+  margin-top: 13px;
+  padding:
+    10px
+    11px;
+
+  border: 1px solid #eccbc5;
+  border-radius: 10px;
+
+  background: #fff5f3;
+}
+
+#staffLiveReviewQueue.review-secondary-details
+  .live-review-reason-body {
+  margin-top: 6px;
+
+  line-height: 1.5;
+}
+
+
+/* ------------------------------------------------------------
+ * Correction workspace
+ * ---------------------------------------------------------- */
+
+#staffLiveReviewQueue.review-secondary-details
+  .live-review-editor-label {
+  display: grid;
+  gap: 7px;
+
+  margin: 0;
+
+  color: #29445d;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+#staffLiveReviewQueue.review-secondary-details
+  textarea.review-editor {
+  width: 100%;
+  min-height: 140px;
+
+  box-sizing: border-box;
+
+  resize: vertical;
+
+  line-height: 1.55;
+  font-weight: 500;
+}
+
+#staffLiveReviewQueue.review-secondary-details
+  .review-actions {
+  display: flex;
+  flex-wrap: wrap;
+
+  gap: 8px;
+
+  margin-top: 11px;
+}
+
+#staffLiveReviewQueue.review-secondary-details
+  .review-preview:not(:empty) {
+  margin-top: 13px;
+  padding-top: 13px;
+
+  border-top: 1px solid #e0e7ee;
+}
+
+
+/* ------------------------------------------------------------
+ * Technical metadata stays folded
+ * ---------------------------------------------------------- */
+
+#staffLiveReviewQueue.review-secondary-details
+  .live-review-technical {
+  margin-top: 15px;
+  padding-top: 10px;
+
+  border-top: 1px solid #e4eaf0;
+}
+
+#staffLiveReviewQueue.review-secondary-details
+  .live-review-technical
+  > summary {
+  cursor: pointer;
+
+  color: #65778a;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+
+/*
+ * When this authoritative card is mounted into a selected Timeline
+ * item, Timeline owns the outer card identity.
+ */
+.verification-inline-action-host
+  .review-card::before {
+  display: none !important;
+}
+
+
+/* ------------------------------------------------------------
+ * Mobile
+ * ---------------------------------------------------------- */
+
+@media (max-width: 900px) {
+  .review-secondary-body {
+    padding:
+      0
+      10px
+      10px;
+  }
+
+  .review-secondary-intro {
+    margin:
+      0
+      -10px
+      10px;
+
+    padding: 10px;
+  }
+
+  #staffLiveReviewQueue.review-secondary-details
+    .staff-live-review-items {
+    gap: 14px;
+  }
+
+  #staffLiveReviewQueue.review-secondary-details
+    .staff-live-review-items
+    > .review-card {
+    grid-template-columns:
+      minmax(0, 1fr);
+  }
+
+  #staffLiveReviewQueue.review-secondary-details
+    .live-review-card-left {
+    border-right: 0;
+
+    border-bottom:
+      1px solid
+      #d4dee8;
+  }
+}

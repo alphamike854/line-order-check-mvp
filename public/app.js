@@ -13191,24 +13191,38 @@ async function loadReviews() {
         list.innerHTML;
 
       list.innerHTML = `
-        <section
+        <!-- Review Focused Secondary Queue v6 -->
+        <details
           id="staffLiveReviewQueue"
-          class="preview-box staff-live-review-section"
+          class="preview-box staff-live-review-section review-secondary-details"
         >
-          <div class="preview-heading">
-            รายการที่ต้องตรวจแก้
-          </div>
+          <summary class="review-secondary-summary">
+            <span class="review-secondary-summary-title">
+              รายการตรวจเพิ่มเติม
+            </span>
 
-          <div class="muted small-text">
-            ข้อความที่ระบบยังอ่านไม่สมบูรณ์
-            หรือจำเป็นต้องให้เจ้าหน้าที่ตีความ
-            ต้องรับรายการก่อนแก้ไขหรือข้าม
-          </div>
+            <span class="review-secondary-summary-count">
+              ${formatNumber(items.length)} รายการ
+            </span>
+          </summary>
 
-          <div class="staff-live-review-items">
-            ${liveReviewCardsHtml}
+          <div class="review-secondary-body">
+            <div class="review-secondary-intro">
+              <strong>
+                ใช้ Timeline ด้านบนเป็นพื้นที่ตรวจและแก้ไขหลัก
+              </strong>
+
+              <div class="muted small-text">
+                ส่วนนี้เก็บ Live Review เดิมไว้สำหรับตรวจสอบ
+                หรือใช้งานกรณีจำเป็น
+              </div>
+            </div>
+
+            <div class="staff-live-review-items">
+              ${liveReviewCardsHtml}
+            </div>
           </div>
-        </section>
+        </details>
       `;
     }
 
