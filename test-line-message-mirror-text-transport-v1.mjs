@@ -31,8 +31,41 @@ function makeSupabase(
         args,
       });
 
-      const source =
+      let source =
         script[name];
+
+      if (
+        source === undefined
+        && name
+          === "get_line_message_mirror_prepared_request"
+      ) {
+        source = {
+          ok: false,
+          reason:
+            "REQUEST_NOT_PREPARED",
+        };
+      }
+
+      if (
+        source === undefined
+        && name
+          === "prepare_line_message_mirror_batch_request"
+      ) {
+        source =
+          (rpcArgs) => ({
+            ok: true,
+            already_prepared:
+              false,
+            batch_id:
+              rpcArgs.p_batch_id,
+            request_body:
+              rpcArgs.p_request_body,
+            request_sha256:
+              rpcArgs.p_request_sha256,
+            prepared_at:
+              "2026-09-14T00:00:00.000Z",
+          });
+      }
 
       if (
         source === undefined

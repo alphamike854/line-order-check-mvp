@@ -4,6 +4,12 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 
+import {
+  cleanupLineMirrorImageItems,
+  prepareLineMirrorImageItem,
+  sha256MirrorValue,
+} from "./line-message-mirror-image.mjs";
+
 export const LINE_MIRROR_PUSH_URL =
   "https://api.line.me/v2/bot/message/push";
 
@@ -173,6 +179,67 @@ export function classifyLineMirrorPushStatus(
   return "PERMANENT";
 }
 
+
+export function classifyLineMirrorImagePreparationError(
+  error,
+) {
+  const message =
+    String(
+      error?.message
+        ?? error
+        ?? "",
+    );
+
+  if (
+    message.includes(
+      "MIRROR_IMAGE_ASSET_ENSURE_REJECTED:LEASE_NOT_OWNED",
+    )
+    || message.includes(
+      "MIRROR_IMAGE_READY_TRANSITION_REJECTED",
+    )
+  ) {
+    return "LEASE";
+  }
+
+  if (
+    /MIRROR_IMAGE_(?:UNSUPPORTED_MIME|ORIGINAL_TOO_LARGE|PREVIEW_TOO_LARGE|ORIGINAL_EMPTY|PREVIEW_EMPTY|MESSAGE_ID_REQUIRED|ASSET_ID_INVALID)/.test(
+      message,
+    )
+  ) {
+    return "PERMANENT";
+  }
+
+  const downloadFailure =
+    message.match(
+      /MIRROR_IMAGE_(?:ORIGINAL|PREVIEW)_DOWNLOAD_FAILED_(\d{3})/,
+    );
+
+  if (downloadFailure) {
+    const status =
+      Number(
+        downloadFailure[1],
+      );
+
+    if (
+      [
+        400,
+        404,
+        410,
+        413,
+        415,
+        422,
+      ].includes(
+        status,
+      )
+    ) {
+      return "PERMANENT";
+    }
+
+    return "RETRYABLE";
+  }
+
+  return "RETRYABLE";
+}
 
 export function getLineMirrorRequestId(
   response,
@@ -655,6 +722,12 @@ export async function runLineMirrorDestinationWorker({
   destinationLineGroupId,
   leaseToken,
   lineChannelAccessToken,
+  destinationBaseUrl = "",
+  prepareImageItem =
+    prepareLineMirrorImageItem,
+  cleanupImageItems =
+    cleanupLineMirrorImageItems,
+  imageFetchImpl = fetch,
   fetchImpl = fetch,
   sleepImpl = sleepMirrorWorker,
   logger = console,
@@ -676,6 +749,12 @@ export async function runLineMirrorDestinationWorker({
       lineChannelAccessToken
         ?? "",
     );
+
+  const imageBaseUrl =
+    String(
+      destinationBaseUrl
+        ?? "",
+    ).trim();
 
   if (!destination) {
     throw new Error(
@@ -708,8 +787,52 @@ export async function runLineMirrorDestinationWorker({
     () =>
       currentLeaseToken;
 
+  const reacquireMirrorLease =
+    async () => {
+      const reservation =
+        await callMirrorRpc(
+          supabase,
+          "reserve_line_message_mirror_destination_worker",
+          {
+            p_destination_line_group_id:
+              destination,
+            p_lease_seconds:
+              LINE_MIRROR_LEASE_SECONDS,
+          },
+        );
+
+      if (
+        !reservation?.reserved
+        || !reservation?.lease_token
+      ) {
+        return false;
+      }
+
+      currentLeaseToken =
+        reservation.lease_token;
+
+      return true;
+    };
+
+  const ensureMirrorLease =
+    async () => {
+      const renewed =
+        await renewMirrorLease(
+          supabase,
+          destination,
+          currentLeaseToken,
+          LINE_MIRROR_LEASE_SECONDS,
+        );
+
+      if (renewed) {
+        return true;
+      }
+
+      return reacquireMirrorLease();
+    };
+
   try {
-    while (
+    workerLoop: while (
       batchesHandled
       < maxBatches
     ) {
@@ -852,15 +975,16 @@ export async function runLineMirrorDestinationWorker({
         );
       }
 
-      const nonText =
+      const unsupported =
         items.find(
           (item) =>
-            item
-              ?.message_type
-            !== "text",
+            item?.message_type
+              !== "text"
+            && item?.message_type
+              !== "image",
         );
 
-      if (nonText) {
+      if (unsupported) {
         const failed =
           await callMirrorRpc(
             supabase,
@@ -868,46 +992,624 @@ export async function runLineMirrorDestinationWorker({
             {
               p_batch_id:
                 batchId,
-
               p_lease_token:
                 currentLeaseToken,
-
               p_error:
-                "MIR2C_C_TEXT_ONLY_BLOCKED_NON_TEXT_BATCH",
+                "MIR2C_D_UNSUPPORTED_MESSAGE_TYPE",
             },
           );
 
         if (failed !== true) {
           throw new Error(
-            "MIRROR_NON_TEXT_FAIL_TRANSITION_REJECTED",
+            "MIRROR_UNSUPPORTED_TYPE_FAIL_TRANSITION_REJECTED",
           );
         }
 
         return {
           status:
             "BLOCKED_NON_TEXT",
-
           batch_id:
             batchId,
-
           batches_handled:
             batchesHandled,
         };
       }
 
-      const pushPayload =
-        buildLineMirrorTextPayload(
-          destination,
-          items,
+      const hasImage =
+        items.some(
+          (item) =>
+            item?.message_type
+              === "image",
         );
 
-      // Construct exactly once.
-      // All network retries reuse this same body string,
-      // destination and persisted retry key.
-      const requestBody =
-        JSON.stringify(
-          pushPayload,
+      let recovered =
+        await callMirrorRpc(
+          supabase,
+          "get_line_message_mirror_prepared_request",
+          {
+            p_batch_id:
+              batchId,
+            p_lease_token:
+              currentLeaseToken,
+          },
         );
+
+      if (
+        !recovered?.ok
+        && recovered?.reason
+          === "LEASE_NOT_OWNED"
+      ) {
+        const leaseReady =
+          await ensureMirrorLease();
+
+        if (!leaseReady) {
+          return {
+            status:
+              "LEASE_LOST",
+            batch_id:
+              batchId,
+            batches_handled:
+              batchesHandled,
+          };
+        }
+
+        recovered =
+          await callMirrorRpc(
+            supabase,
+            "get_line_message_mirror_prepared_request",
+            {
+              p_batch_id:
+                batchId,
+              p_lease_token:
+                currentLeaseToken,
+            },
+          );
+      }
+
+      let requestBody;
+      let requestRetryKey =
+        String(
+          retryKey,
+        );
+
+      if (recovered?.ok) {
+        const recoveredBody =
+          String(
+            recovered.request_body
+              ?? "",
+          );
+
+        const recoveredHash =
+          String(
+            recovered.request_sha256
+              ?? "",
+          )
+            .trim()
+            .toLowerCase();
+
+        const recoveredRetryKey =
+          String(
+            recovered.retry_key
+              ?? "",
+          );
+
+        if (
+          !recoveredBody
+          || !/^[0-9a-f]{64}$/.test(
+            recoveredHash,
+          )
+          || sha256MirrorValue(
+            recoveredBody,
+          ) !== recoveredHash
+        ) {
+          throw new Error(
+            "MIRROR_PREPARED_REQUEST_INTEGRITY_INVALID",
+          );
+        }
+
+        if (
+          recoveredRetryKey
+          !== String(retryKey)
+        ) {
+          throw new Error(
+            "MIRROR_PREPARED_RETRY_KEY_MISMATCH",
+          );
+        }
+
+        let recoveredPayload;
+
+        try {
+          recoveredPayload =
+            JSON.parse(
+              recoveredBody,
+            );
+        } catch {
+          throw new Error(
+            "MIRROR_PREPARED_REQUEST_JSON_INVALID",
+          );
+        }
+
+        if (
+          recoveredPayload?.to
+            !== destination
+          || !Array.isArray(
+            recoveredPayload?.messages,
+          )
+          || recoveredPayload.messages.length
+            !== items.length
+        ) {
+          throw new Error(
+            "MIRROR_PREPARED_REQUEST_SCOPE_INVALID",
+          );
+        }
+
+        requestBody =
+          recoveredBody;
+
+        requestRetryKey =
+          recoveredRetryKey;
+      } else if (
+        recovered?.reason
+          === "REQUEST_NOT_PREPARED"
+      ) {
+        if (
+          hasImage
+          && !imageBaseUrl
+        ) {
+          const failed =
+            await callMirrorRpc(
+              supabase,
+              "fail_line_message_mirror_batch",
+              {
+                p_batch_id:
+                  batchId,
+                p_lease_token:
+                  currentLeaseToken,
+                p_error:
+                  "MIR2C_C_TEXT_ONLY_BLOCKED_NON_TEXT_BATCH",
+              },
+            );
+
+          if (failed !== true) {
+            throw new Error(
+              "MIRROR_NON_TEXT_FAIL_TRANSITION_REJECTED",
+            );
+          }
+
+          return {
+            status:
+              "BLOCKED_NON_TEXT",
+            batch_id:
+              batchId,
+            batches_handled:
+              batchesHandled,
+          };
+        }
+
+        if (
+          items.length < 1
+          || items.length > 5
+        ) {
+          throw new Error(
+            "MIRROR_BATCH_ITEM_COUNT_INVALID",
+          );
+        }
+
+        const messages = [];
+
+        for (const item of items) {
+          if (
+            item?.message_type
+              === "text"
+          ) {
+            if (
+              typeof item.text_payload
+                !== "string"
+              || item.text_payload.length
+                === 0
+            ) {
+              throw new Error(
+                "MIRROR_TEXT_PAYLOAD_INVALID",
+              );
+            }
+
+            messages.push({
+              type:
+                "text",
+              text:
+                item.text_payload,
+            });
+
+            continue;
+          }
+
+          if (
+            item?.message_type
+              !== "image"
+          ) {
+            throw new Error(
+              "MIRROR_MESSAGE_TYPE_UNEXPECTED",
+            );
+          }
+
+          if (
+            item.id === null
+            || item.id === undefined
+            || !item.source_message_id
+          ) {
+            throw new Error(
+              "MIRROR_IMAGE_SOURCE_IDENTITY_MISSING",
+            );
+          }
+
+          const leaseReady =
+            await ensureMirrorLease();
+
+          if (!leaseReady) {
+            return {
+              status:
+                "LEASE_LOST",
+              batch_id:
+                batchId,
+              batches_handled:
+                batchesHandled,
+            };
+          }
+
+          let preparedImage =
+            null;
+
+          for (
+            let imageAttempt = 0;
+            imageAttempt < 2;
+            imageAttempt += 1
+          ) {
+            try {
+              preparedImage =
+                await prepareImageItem({
+                  supabase,
+                  queueId:
+                    item.id,
+                  leaseToken:
+                    currentLeaseToken,
+                  sourceMessageId:
+                    item.source_message_id,
+                  destinationBaseUrl:
+                    imageBaseUrl,
+                  lineChannelAccessToken:
+                    channelAccessToken,
+                  fetchImpl:
+                    imageFetchImpl,
+                });
+
+              break;
+            } catch (error) {
+              let classification =
+                classifyLineMirrorImagePreparationError(
+                  error,
+                );
+
+              const detail =
+                String(
+                  error?.message
+                    ?? error
+                    ?? "UNKNOWN",
+                ).slice(
+                  0,
+                  1500,
+                );
+
+              if (
+                classification
+                  === "LEASE"
+              ) {
+                const leaseReady =
+                  await ensureMirrorLease();
+
+                if (!leaseReady) {
+                  return {
+                    status:
+                      "LEASE_LOST",
+                    batch_id:
+                      batchId,
+                    batches_handled:
+                      batchesHandled,
+                  };
+                }
+
+                if (
+                  imageAttempt === 0
+                ) {
+                  continue;
+                }
+
+                classification =
+                  "RETRYABLE";
+              }
+
+              const mutationLeaseReady =
+                await ensureMirrorLease();
+
+              if (!mutationLeaseReady) {
+                return {
+                  status:
+                    "LEASE_LOST",
+                  batch_id:
+                    batchId,
+                  batches_handled:
+                    batchesHandled,
+                };
+              }
+
+              if (
+                classification
+                  === "PERMANENT"
+              ) {
+                const cancelled =
+                  await callMirrorRpc(
+                    supabase,
+                    "cancel_line_message_mirror_batch",
+                    {
+                      p_batch_id:
+                        batchId,
+                      p_lease_token:
+                        currentLeaseToken,
+                      p_reason:
+                        `LINE_IMAGE_PREPARATION_PERMANENT:${detail}`,
+                    },
+                  );
+
+                if (
+                  cancelled !== true
+                ) {
+                  throw new Error(
+                    "MIRROR_IMAGE_PREPARATION_CANCEL_TRANSITION_REJECTED",
+                  );
+                }
+
+                const terminalImageQueueIds =
+                  items
+                    .filter(
+                      (batchItem) =>
+                        batchItem?.message_type
+                          === "image",
+                    )
+                    .map(
+                      (batchItem) =>
+                        batchItem.id,
+                    );
+
+                try {
+                  const cleanup =
+                    await cleanupImageItems({
+                      supabase,
+                      queueIds:
+                        terminalImageQueueIds,
+                      logger,
+                    });
+
+                  if (
+                    cleanup?.ok
+                      === false
+                  ) {
+                    logger?.error?.(
+                      "LINE mirror terminal image cleanup incomplete",
+                      {
+                        batch_id:
+                          batchId,
+                        queue_ids:
+                          terminalImageQueueIds,
+                        error:
+                          cleanup.error
+                          ?? "UNKNOWN",
+                      },
+                    );
+                  }
+                } catch (
+                  cleanupError
+                ) {
+                  logger?.error?.(
+                    "LINE mirror terminal image cleanup threw",
+                    {
+                      batch_id:
+                        batchId,
+                      queue_ids:
+                        terminalImageQueueIds,
+                      error:
+                        cleanupError
+                          ?.message
+                        ?? String(
+                          cleanupError,
+                        ),
+                    },
+                  );
+                }
+
+                batchesHandled +=
+                  1;
+
+                continue workerLoop;
+              }
+
+              const failed =
+                await callMirrorRpc(
+                  supabase,
+                  "fail_line_message_mirror_batch",
+                  {
+                    p_batch_id:
+                      batchId,
+                    p_lease_token:
+                      currentLeaseToken,
+                    p_error:
+                      `LINE_IMAGE_PREPARATION_RETRYABLE:${detail}`,
+                  },
+                );
+
+              if (
+                failed !== true
+              ) {
+                throw new Error(
+                  "MIRROR_IMAGE_PREPARATION_FAIL_TRANSITION_REJECTED",
+                );
+              }
+
+              const renewed =
+                await renewMirrorLease(
+                  supabase,
+                  destination,
+                  currentLeaseToken,
+                  LINE_MIRROR_RETRY_LEASE_SECONDS,
+                );
+
+              if (renewed) {
+                releaseOnExit =
+                  false;
+              }
+
+              throw new Error(
+                `LINE_MIRROR_IMAGE_PREPARATION_RETRYABLE_EXHAUSTED:${detail}`,
+              );
+            }
+          }
+
+          if (!preparedImage) {
+            throw new Error(
+              "MIRROR_IMAGE_PREPARATION_RESULT_MISSING",
+            );
+          }
+
+          if (
+            preparedImage?.message?.type
+              !== "image"
+            || typeof preparedImage
+              ?.message
+              ?.originalContentUrl
+              !== "string"
+            || typeof preparedImage
+              ?.message
+              ?.previewImageUrl
+              !== "string"
+          ) {
+            throw new Error(
+              "MIRROR_IMAGE_PREPARATION_RESULT_INVALID",
+            );
+          }
+
+          messages.push(
+            preparedImage.message,
+          );
+        }
+
+        const candidateBody =
+          JSON.stringify({
+            to:
+              destination,
+            messages,
+          });
+
+        const candidateSha =
+          sha256MirrorValue(
+            candidateBody,
+          );
+
+        if (hasImage) {
+          const leaseReady =
+            await ensureMirrorLease();
+
+          if (!leaseReady) {
+            return {
+              status:
+                "LEASE_LOST",
+              batch_id:
+                batchId,
+              batches_handled:
+                batchesHandled,
+            };
+          }
+        }
+
+        let frozen =
+          await callMirrorRpc(
+            supabase,
+            "prepare_line_message_mirror_batch_request",
+            {
+              p_batch_id:
+                batchId,
+              p_lease_token:
+                currentLeaseToken,
+              p_request_body:
+                candidateBody,
+              p_request_sha256:
+                candidateSha,
+            },
+          );
+
+        if (
+          !frozen?.ok
+          && frozen?.reason
+            === "LEASE_NOT_OWNED"
+        ) {
+          const leaseReady =
+            await ensureMirrorLease();
+
+          if (!leaseReady) {
+            return {
+              status:
+                "LEASE_LOST",
+              batch_id:
+                batchId,
+              batches_handled:
+                batchesHandled,
+            };
+          }
+
+          frozen =
+            await callMirrorRpc(
+              supabase,
+              "prepare_line_message_mirror_batch_request",
+              {
+                p_batch_id:
+                  batchId,
+                p_lease_token:
+                  currentLeaseToken,
+                p_request_body:
+                  candidateBody,
+                p_request_sha256:
+                  candidateSha,
+              },
+            );
+        }
+
+        if (!frozen?.ok) {
+          throw new Error(
+            `MIRROR_PREPARE_REQUEST_REJECTED:${
+              frozen?.reason
+              ?? "UNKNOWN"
+            }`,
+          );
+        }
+
+        if (
+          frozen.request_body
+            !== candidateBody
+          || frozen.request_sha256
+            !== candidateSha
+        ) {
+          throw new Error(
+            "MIRROR_PREPARED_REQUEST_FREEZE_MISMATCH",
+          );
+        }
+
+        requestBody =
+          frozen.request_body;
+      } else {
+        throw new Error(
+          `MIRROR_PREPARED_REQUEST_RECOVERY_REJECTED:${
+            recovered?.reason
+            ?? "UNKNOWN"
+          }`,
+        );
+      }
 
       let terminal =
         false;
@@ -1032,9 +1734,7 @@ export async function runLineMirrorDestinationWorker({
                     "application/json",
 
                   "x-line-retry-key":
-                    String(
-                      retryKey,
-                    ),
+                    requestRetryKey,
                 },
 
                 body:

@@ -180,6 +180,8 @@ export async function handleLineMessageMirrorBackground(
 
       lineChannelAccessToken:
         env.LINE_CHANNEL_ACCESS_TOKEN,
+      destinationBaseUrl:
+        env.URL,
 
       logger,
     });
