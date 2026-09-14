@@ -224,7 +224,7 @@ console.log(
 );
 
 console.log(
-  "PASS UI5-05: Live Review staging is hidden whenever Timeline Workbench exists",
+  "PASS UI5-05: historical Timeline staging-hide rule remains registered; V13 owns final folded visibility",
 );
 
 console.log(

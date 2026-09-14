@@ -13476,9 +13476,15 @@ async function loadReviews() {
         )
         .join("");
 
-    if (
-      state.authMode === "STAFF"
-    ) {
+    /*
+     * Review Legacy Section Collapse v13
+     *
+     * Raw Review cards are secondary data in both DASHBOARD and STAFF.
+     * STAFF keeps Timeline as the primary workflow; both modes expose
+     * this legacy data only through a folded details shell.
+     */
+    {
+
       const liveReviewCardsHtml =
         list.innerHTML;
 
@@ -13490,7 +13496,7 @@ async function loadReviews() {
         >
           <summary class="review-secondary-summary">
             <span class="review-secondary-summary-title">
-              รายการตรวจเพิ่มเติม
+              ข้อมูลเดิม · รายการตรวจเพิ่มเติม
             </span>
 
             <span class="review-secondary-summary-count">
@@ -13501,7 +13507,11 @@ async function loadReviews() {
           <div class="review-secondary-body">
             <div class="review-secondary-intro">
               <strong>
-                ใช้ Timeline ด้านบนเป็นพื้นที่ตรวจและแก้ไขหลัก
+                ${
+                  state.authMode === "STAFF"
+                    ? "ใช้ Timeline ด้านบนเป็นพื้นที่ตรวจและแก้ไขหลัก"
+                    : "ข้อมูลเดิมสำหรับเปิดตรวจสอบเมื่อจำเป็น"
+                }
               </strong>
 
               <div class="muted small-text">

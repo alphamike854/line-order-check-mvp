@@ -152,16 +152,70 @@ assert.ok(
 );
 
 
+
+// ------------------------------------------------------------
+// V13 visibility supersession
+//
+// UI7 historical hide rules remain registered, but V13 is later
+// in source order and exposes only the folded legacy details shell.
+// Timeline/lifecycle/post-close contracts remain unchanged.
+// ------------------------------------------------------------
+
+const ui7Marker =
+  css.indexOf(
+    "Review Single Visible Working Round v7",
+  );
+
+const v13Marker =
+  css.indexOf(
+    "Review Legacy Section Collapse v13",
+  );
+
+assert.ok(
+  ui7Marker >= 0,
+  "UI7 marker missing",
+);
+
+assert.ok(
+  v13Marker > ui7Marker,
+  "V13 must supersede UI7 visibility by source order",
+);
+
+const v13Css =
+  css.slice(
+    v13Marker,
+  );
+
+assert.match(
+  v13Css,
+  /#staffLiveReviewQueue\.review-secondary-details[\s\S]*display:\s*block\s*!important/,
+);
+
+assert.match(
+  v13Css,
+  /#staffVerificationWorkbench[\s\S]*~\s*#staffLiveReviewQueue\.review-secondary-details[\s\S]*display:\s*block\s*!important/,
+);
+
+assert.match(
+  v13Css,
+  /#staffLiveReviewQueue\.review-secondary-details:not\(\[open\]\)[\s\S]*>\s*\.review-secondary-body[\s\S]*display:\s*none\s*!important/,
+);
+
+assert.match(
+  v13Css,
+  /#postCloseReviewQueue\s*\{[\s\S]*display:\s*none\s*!important/,
+);
+
 console.log(
   "PASS UI7-01: Timeline remains the single visible Working Round surface",
 );
 
 console.log(
-  "PASS UI7-02: Live Review staging is hidden from operators",
+  "PASS UI7-02: historical Live Review staging-hide rule remains registered",
 );
 
 console.log(
-  "PASS UI7-03: UI-6 secondary queue cannot reappear visually",
+  "PASS UI7-03: V13 supersedes UI7 with folded legacy access only",
 );
 
 console.log(
@@ -181,7 +235,7 @@ console.log(
 );
 
 console.log(
-  "PASS UI7-08: UI-7 visibility contract joins full regression",
+  "PASS UI7-08: UI7 lifecycle/safety contract remains under V13 visibility supersession",
 );
 
 console.log(

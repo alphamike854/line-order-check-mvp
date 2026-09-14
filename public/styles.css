@@ -3773,3 +3773,37 @@ body{background:#f3f6fa}
 .report-overall-card {
   margin-bottom: 16px;
 }
+
+/* Review Legacy Section Collapse v13
+ *
+ * Final visibility authority:
+ * - Timeline remains primary when present.
+ * - Legacy Review data remains available immediately below it.
+ * - DASHBOARD uses the same folded legacy shell.
+ * - Only the summary row is visible while closed.
+ * - Post-close archive remains hidden.
+ */
+#staffLiveReviewQueue.review-secondary-details,
+#staffVerificationWorkbench
+  ~ #staffLiveReviewQueue.review-secondary-details,
+#reviewList:has(#staffVerificationWorkbench)
+  #staffLiveReviewQueue.review-secondary-details {
+  display: block !important;
+}
+
+#staffLiveReviewQueue.review-secondary-details:not([open])
+  > .review-secondary-body {
+  display: none !important;
+}
+
+#staffLiveReviewQueue.review-secondary-details
+  > .review-secondary-summary {
+  cursor: pointer;
+}
+
+/*
+ * Historical/post-close workflow remains internal.
+ */
+#postCloseReviewQueue {
+  display: none !important;
+}
