@@ -1266,6 +1266,13 @@ export async function processEvent(destination, event) {
 
   const claim = await claimWebhookEvent(destination, event);
 
+  if (claim?.state === "DENIED") {
+    return {
+      skipped:
+        "MIRROR_DESTINATION_INGESTION_DENIED",
+    };
+  }
+
   if (claim?.state === "DONE") {
     return { skipped: "DUPLICATE_EVENT" };
   }
