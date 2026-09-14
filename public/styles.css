@@ -3756,3 +3756,20 @@ body{background:#f3f6fa}
 #staffVerificationWorkbench {
   display: block;
 }
+
+/* Production UX Truth + Fast Review v12 */
+
+/*
+ * Browser/page owns vertical scrolling.
+ * Timeline must not create a second vertical scroll surface.
+ */
+.verification-timeline-items,
+.verification-split-view
+  .verification-timeline-items {
+  max-height: none !important;
+  overflow: visible !important;
+}
+
+.report-overall-card {
+  margin-bottom: 16px;
+}

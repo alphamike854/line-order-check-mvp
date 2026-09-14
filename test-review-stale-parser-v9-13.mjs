@@ -113,8 +113,14 @@ assert.match(
 
 assert.match(
   app,
+  /function completeReviewResolutionLocally\(/,
+  "Completed Review must support local completion without rebuilding the workbench"
+);
+
+assert.match(
+  app,
   /async function reloadStaffVerificationQueuePreservingPosition\(/,
-  "Completed Review must re-read the authoritative Workbench while preserving operator continuity"
+  "Authoritative reload helper must remain available for conflict/fallback"
 );
 
 assert.match(
@@ -141,27 +147,27 @@ assert.match(
   "IGNORE must preserve the Review workbench"
 );
 
-const localRemoveCalls =
+const localCompletionCalls =
   app.match(
-    /removeCompletedReviewCard\(card\);/g
+    /completeReviewResolutionLocally\(\s*card,\s*messageRecordId,\s*\);/g
   ) || [];
 
 assert.equal(
-  localRemoveCalls.length,
-  0,
-  "CORRECT and IGNORE must not rely on stale local card removal after authoritative server resolution"
+  localCompletionCalls.length,
+  2,
+  "CORRECT and IGNORE must both complete only their resolved local item"
 );
 
-assert.match(
+assert.doesNotMatch(
   app,
-  /async function applyReview\(card\)[\s\S]{0,3400}?reloadStaffVerificationQueuePreservingPosition\(\s*card,\s*messageRecordId,/,
-  "CORRECT must immediately reload the authoritative Workbench"
+  /async function applyReview\(card\)[\s\S]{0,3400}?reloadStaffVerificationQueuePreservingPosition\(/,
+  "CORRECT must not reload the full Workbench after successful resolution"
 );
 
-assert.match(
+assert.doesNotMatch(
   app,
-  /async function ignoreReview\(event\)[\s\S]{0,2800}?reloadStaffVerificationQueuePreservingPosition\(\s*card,\s*messageRecordId,/,
-  "IGNORE must immediately reload the authoritative Workbench"
+  /async function ignoreReview\(event\)[\s\S]{0,2800}?reloadStaffVerificationQueuePreservingPosition\(/,
+  "IGNORE must not reload the full Workbench after successful resolution"
 );
 
 assert.doesNotMatch(

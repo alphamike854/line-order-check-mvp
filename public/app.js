@@ -5089,6 +5089,191 @@ function removeCompletedReviewCard(card) {
   }
 }
 
+
+function completeReviewResolutionLocally(
+  card,
+  messageRecordId,
+) {
+  const resolvedId=
+    String(
+      messageRecordId
+      || "",
+    );
+
+  if (!resolvedId) {
+    return;
+  }
+
+  const workbench=
+    staffVerificationFindWorkbench(
+      card,
+    )
+    || $("#staffVerificationWorkbench");
+
+  const timelineRoot=
+    workbench?.querySelector(
+      "[data-verification-timeline-items]",
+    )
+    ?? null;
+
+  const rows=
+    timelineRoot
+      ? [
+          ...timelineRoot.querySelectorAll(
+            ".verification-timeline-item[data-message-record-id]",
+          ),
+        ]
+      : [];
+
+  const resolvedIndex=
+    rows.findIndex(
+      row =>
+        String(
+          row?.dataset
+            ?.messageRecordId
+          || "",
+        ) === resolvedId,
+    );
+
+  const candidateIds=[];
+
+  if (resolvedIndex>=0) {
+    for (
+      let index=
+        resolvedIndex+1;
+      index<rows.length;
+      index+=1
+    ) {
+      const id=
+        String(
+          rows[index]?.dataset
+            ?.messageRecordId
+          || "",
+        );
+
+      if (
+        id
+        && id!==resolvedId
+      ) {
+        candidateIds.push(id);
+      }
+    }
+
+    for (
+      let index=
+        resolvedIndex-1;
+      index>=0;
+      index-=1
+    ) {
+      const id=
+        String(
+          rows[index]?.dataset
+            ?.messageRecordId
+          || "",
+        );
+
+      if (
+        id
+        && id!==resolvedId
+      ) {
+        candidateIds.push(id);
+      }
+    }
+  }
+
+  /*
+   * Canonical server resolution has already succeeded.
+   * This section changes browser state only and performs
+   * no additional claim-lifecycle network action.
+   */
+  if (
+    workbench
+    && workbench
+      ._verificationInspectorLiveReviewCard
+      === card
+  ) {
+    workbench
+      ._verificationInspectorLiveReviewCard =
+        null;
+  }
+
+  card?.classList?.remove(
+    "verification-inspector-live-review-card",
+  );
+
+  card?.remove?.();
+
+  if (!workbench) {
+    return;
+  }
+
+  workbench
+    ._verificationWorkbenchItems
+    ?.delete(
+      resolvedId,
+    );
+
+  workbench
+    ._verificationHighTotalIds
+    ?.delete(
+      resolvedId,
+    );
+
+  const nextId=
+    candidateIds.find(
+      id =>
+        workbench
+          ._verificationWorkbenchItems
+          ?.has(id),
+    )
+    || "";
+
+  workbench._selectedMessageRecordId="";
+
+  staffVerificationRenderTimeline(
+    workbench,
+  );
+
+  if (nextId) {
+    selectStaffVerificationWorkbenchItem(
+      workbench,
+      nextId,
+      {
+        scroll: false,
+      },
+    );
+
+    return;
+  }
+
+  const root=
+    workbench.querySelector(
+      "#staffVerificationQueue",
+    );
+
+  const itemsRoot=
+    root?.querySelector(
+      ".staff-verification-items",
+    );
+
+  const footer=
+    root?.querySelector(
+      ".staff-verification-footer",
+    );
+
+  if (itemsRoot) {
+    itemsRoot.innerHTML=
+      `<div class="empty compact">ยังไม่ได้เลือกรายการ</div>`;
+  }
+
+  if (footer) {
+    staffVerificationRenderInspectorFooter(
+      footer,
+    );
+  }
+}
+
+
 const REVIEW_RESOLUTION_CLAIM_CONFLICTS =
   new Set([
     "LEASE_VERSION_REQUIRED",
@@ -5250,20 +5435,10 @@ async function applyReview(card) {
       );
     card._reviewPreview = null;
     toast(`แก้ Review สำเร็จ ${formatNumber(payload.items?.length)} รายการ`);
-
-    /*
-     * Review Post-Resolution Refresh v11
-     *
-     * Canonical server truth changed. Reload the Workbench immediately
-     * so Timeline reflects the resolved message without a manual refresh.
-     * Existing continuity handling preserves scroll/filter/sort and moves
-     * selection naturally if the resolved row no longer matches a filter.
-     */
-    await reloadStaffVerificationQueuePreservingPosition(
+    completeReviewResolutionLocally(
       card,
       messageRecordId,
     );
-
     await loadDashboard({
       silent: true,
       preserveReviewWorkbench: true,
@@ -5340,12 +5515,10 @@ async function ignoreReview(event) {
       },
     );
     toast("ข้าม Review แล้ว");
-
-    await reloadStaffVerificationQueuePreservingPosition(
+    completeReviewResolutionLocally(
       card,
       messageRecordId,
     );
-
     await loadDashboard({
       silent: true,
       preserveReviewWorkbench: true,
@@ -14945,15 +15118,138 @@ async function changeSettlementSummaryGroup(
 }
 
 
+
+function settlementRoundBusinessDates(
+  payload,
+) {
+  return [
+    ...new Set(
+      (
+        payload?.summary_group_states
+        || []
+      )
+        .map(
+          item =>
+            String(
+              item?.business_date
+              || "",
+            ).trim(),
+        )
+        .filter(Boolean),
+    ),
+  ].sort();
+}
+
+
+function settlementSelectedRoundBusinessDate(
+  payload,
+) {
+  const selected=
+    String(
+      summaryGroupSelect?.value
+      || "ALL",
+    );
+
+  if (
+    selected
+    && selected !== "ALL"
+  ) {
+    const groupState=
+      (
+        payload?.summary_group_states
+        || []
+      ).find(
+        item =>
+          String(
+            item?.summary_group_id
+            || "",
+          ) === selected
+          && item?.business_date,
+      );
+
+    if (groupState?.business_date) {
+      return String(
+        groupState.business_date,
+      );
+    }
+  }
+
+  const dates=
+    settlementRoundBusinessDates(
+      payload,
+    );
+
+  return dates.length===1
+    ? dates[0]
+    : "";
+}
+
+
+function settlementRoundBusinessDateLabel(
+  payload,
+) {
+  const dates=
+    settlementRoundBusinessDates(
+      payload,
+    );
+
+  if (dates.length===1) {
+    return dates[0];
+  }
+
+  if (dates.length>1) {
+    return `หลายวัน ${
+      dates.join(" / ")
+    }`;
+  }
+
+  return "ไม่ทราบวันที่";
+}
+
+
 function renderSettlementStatus(payload) {
   state.settlement=payload;
   renderSettlementGroupControls(payload);
   const open=payload.open_session;
+  const roundBusinessDates=
+    settlementRoundBusinessDates(
+      payload,
+    );
+  const selectedRoundBusinessDate=
+    settlementSelectedRoundBusinessDate(
+      payload,
+    );
   $("#prepareOpenButton").classList.toggle("hidden",Boolean(open));
   if(open){
-    businessDateInput.value=open.business_date;businessDateInput.disabled=true;
+    businessDateInput.value=
+      selectedRoundBusinessDate
+      || (
+        roundBusinessDates.length===1
+          ? roundBusinessDates[0]
+          : ""
+      );
+    businessDateInput.disabled=true;
     $("#settlementStatus").textContent="พร้อมรับยอดรายกลุ่ม";
-    $("#settlementMeta").textContent=`เปิด–ปิดรับยอดจากแต่ละกลุ่มด้านล่าง · ${payload.actual_point_status?.actual_codes_ready?"Point ครบ":"Point ยังไม่ครบ"}`;
+    const roundDateMeta=
+      roundBusinessDates.length
+        ? ` · วันที่อ้างอิง ${
+            roundBusinessDates.length===1
+              ? roundBusinessDates[0]
+              : `หลายวัน ${
+                  roundBusinessDates.join(
+                    " / ",
+                  )
+                }`
+          }`
+        : "";
+
+    $("#settlementMeta").textContent=
+      `เปิด–ปิดรับยอดจากแต่ละกลุ่มด้านล่าง · ${
+        payload.actual_point_status
+          ?.actual_codes_ready
+          ? "Point ครบ"
+          : "Point ยังไม่ครบ"
+      }${roundDateMeta}`;
     $("#openSettlementEditor").classList.add("hidden");
   }else{
     businessDateInput.disabled=false;if(!businessDateInput.value)businessDateInput.value=todayBangkok();
@@ -14965,7 +15261,40 @@ function renderSettlementStatus(payload) {
 async function loadSettlement() {
   const payload=await api("/api/settlement");renderSettlementStatus(payload);
   const select=$("#reportSessionSelect");const previousSessionId=select.value;const sessions=[payload.open_session,...(payload.closed_sessions||[])].filter(Boolean);
-  select.innerHTML=sessions.map(s=>`<option value="${escapeHtml(s.id)}">${s.status==="OPEN"?"ยอดปัจจุบัน":"ปิด "+formatBangkokTime(s.closed_at)} · ${escapeHtml(s.business_date)}</option>`).join("")||`<option value="">ยังไม่มีรายงาน</option>`;
+  const currentOpenRoundDateLabel=
+    settlementRoundBusinessDateLabel(
+      payload,
+    );
+
+  select.innerHTML=
+    sessions
+      .map(
+        s=>{
+          const isCurrentOpen=
+            s.status==="OPEN"
+            && s.id===
+              payload.open_session?.id;
+
+          const dateLabel=
+            isCurrentOpen
+              ? currentOpenRoundDateLabel
+              : String(
+                  s.business_date
+                  || "",
+                );
+
+          return `<option value="${escapeHtml(s.id)}">${
+            s.status==="OPEN"
+              ? "ยอดปัจจุบัน"
+              : "ปิด "
+                + formatBangkokTime(
+                  s.closed_at,
+                )
+          } · ${escapeHtml(dateLabel)}</option>`;
+        },
+      )
+      .join("")
+    || `<option value="">ยังไม่มีรายงาน</option>`;
 
   const reportSessionId=
     previousSessionId && sessions.some(s=>s.id===previousSessionId)
@@ -15473,8 +15802,154 @@ function renderReport(payload) {
   const pointNotice=
     `<div class="report-point-state ${allReady?"ready":"pending"}"><span><strong>${escapeHtml(pointStateLabel)}</strong>${hasClosedRound&&!allReady?" · มีรอบปิดแล้ว ระบุ/แก้ไขภายหลังได้":""}</span>${pointAction}</div>`;
 
+  const overallByBusinessDate=
+    new Map();
+
+  for (
+    const group
+    of payload.groups
+  ) {
+    const businessDate=
+      String(
+        group?.business_date
+        || "UNKNOWN",
+      );
+
+    if (
+      !overallByBusinessDate
+        .has(businessDate)
+    ) {
+      overallByBusinessDate.set(
+        businessDate,
+        {
+          received_total: 0,
+          after_reduction: 0,
+          special_point_total: 0,
+          reconciliation_total: 0,
+          room_count: 0,
+          ready: true,
+        },
+      );
+    }
+
+    const total=
+      overallByBusinessDate.get(
+        businessDate,
+      );
+
+    total.received_total +=
+      Number(
+        group?.received_total
+        || 0,
+      );
+
+    total.after_reduction +=
+      Number(
+        group?.after_reduction
+        || 0,
+      );
+
+    total.special_point_total +=
+      Number(
+        group?.special_point_total
+        || 0,
+      );
+
+    total.reconciliation_total +=
+      Number(
+        group?.reconciliation_total
+        || 0,
+      );
+
+    total.room_count += 1;
+
+    const groupReady=
+      Boolean(
+        group?.point_specified
+        ?? actualSummarySet.has(
+          group?.summary_group_id,
+        ),
+      );
+
+    total.ready=
+      total.ready
+      && groupReady;
+  }
+
+  const overallSummaryHtml=
+    summaryOnly
+      ? [
+          ...overallByBusinessDate
+            .entries(),
+        ]
+          .map(
+            (
+              [
+                businessDate,
+                total,
+              ],
+            )=>{
+              const dateLabel=
+                businessDate==="UNKNOWN"
+                  ? "ไม่ทราบวันที่"
+                  : formatThaiDate(
+                      businessDate,
+                    );
+
+              return `
+                <section class="report-card report-overall-card">
+                  <div class="report-title">
+                    <div>
+                      <h3>สรุปรวมทุกห้อง</h3>
+                      <span>
+                        ${escapeHtml(dateLabel)}
+                        · ${formatNumber(total.room_count)} ห้อง
+                      </span>
+                    </div>
+                  </div>
+
+                  <div class="report-metrics report-overall-metrics">
+                    <div>
+                      <span>ยอดซื้อรวม</span>
+                      <strong>${formatNumber(total.received_total)}</strong>
+                    </div>
+
+                    <div>
+                      <span>ยอดหลังลด %</span>
+                      <strong>${formatNumber(total.after_reduction)}</strong>
+                    </div>
+
+                    <div>
+                      <span>Point พิเศษ</span>
+                      <strong>${
+                        total.ready
+                          ? formatNumber(
+                              total.special_point_total,
+                            )
+                          : "รอระบุ"
+                      }</strong>
+                    </div>
+
+                    <div class="net">
+                      <span>ยอดคงเหลือ</span>
+                      <strong>${
+                        total.ready
+                          ? formatNumber(
+                              total.reconciliation_total,
+                            )
+                          : "—"
+                      }</strong>
+                    </div>
+                  </div>
+                </section>
+              `;
+            },
+          )
+          .join("")
+      : "";
+
   root.innerHTML=
-    `<div class="report-session-heading"><strong>รายงานประจำวัน ${escapeHtml(reportDateLabel)}</strong><span>${escapeHtml(reportRoundStatusLabel)}</span></div>${pointNotice}`
+    `<div class="report-session-heading"><strong>รายงานประจำวัน ${escapeHtml(reportDateLabel)}</strong><span>${escapeHtml(reportRoundStatusLabel)}</span></div>${pointNotice}${overallSummaryHtml}`
     + payload.groups.map(g=>{
       const pointSpecified=
         Boolean(

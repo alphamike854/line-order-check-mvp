@@ -66,6 +66,14 @@ const ignoreReview =
     "// ============================================================\n// C3B-3 Human Verification Correction Browser",
   );
 
+const localCompletion =
+  section(
+    app,
+    "function completeReviewResolutionLocally(",
+    "const REVIEW_RESOLUTION_CLAIM_CONFLICTS",
+  );
+
+
 const continuity =
   section(
     app,
@@ -90,10 +98,16 @@ assert.match(
 );
 
 
-// UI11-03 — CORRECT refreshes authoritative Timeline.
+// UI11-03 — CORRECT completes the resolved item locally.
+
 assert.match(
   applyReview,
-  /reloadStaffVerificationQueuePreservingPosition\(\s*card,\s*messageRecordId,\s*\)/,
+  /completeReviewResolutionLocally\(\s*card,\s*messageRecordId,\s*\)/,
+);
+
+assert.doesNotMatch(
+  applyReview,
+  /reloadStaffVerificationQueuePreservingPosition\(/,
 );
 
 const applyResolve =
@@ -101,32 +115,43 @@ const applyResolve =
     '"/api/review-resolve"',
   );
 
-const applyRefresh =
+const applyLocal =
   applyReview.indexOf(
-    "reloadStaffVerificationQueuePreservingPosition(",
+    "completeReviewResolutionLocally(",
   );
 
 const applyDashboard =
   applyReview.indexOf(
     "await loadDashboard({",
-    applyRefresh,
+    applyLocal,
   );
 
 assert.ok(
   applyResolve >= 0
-    && applyRefresh > applyResolve
-    && applyDashboard > applyRefresh,
-  "CORRECT order must be resolve -> Workbench refresh -> dashboard",
+    && applyLocal > applyResolve
+    && applyDashboard > applyLocal,
+  "CORRECT order must be resolve -> local completion -> dashboard",
 );
 
 
-// UI11-04 — stale-DOM deletion is no longer the success mechanism.
+// UI11-04 — local completion updates only browser state.
+
+for (const token of [
+  "_verificationWorkbenchItems",
+  "_verificationHighTotalIds",
+  "staffVerificationRenderTimeline",
+  "selectStaffVerificationWorkbenchItem",
+  "card?.remove?.()",
+]) {
+  assert.ok(
+    localCompletion.includes(token),
+    `local completion helper missing ${token}`,
+  );
+}
+
 assert.doesNotMatch(
-  applyReview.slice(
-    applyResolve,
-    applyDashboard,
-  ),
-  /removeCompletedReviewCard\(/,
+  localCompletion,
+  /\bremoveCompletedReviewCard\s*\(|\breleaseReviewClaimAfterCompletion\s*\(/,
 );
 
 
@@ -137,10 +162,16 @@ assert.match(
 );
 
 
-// UI11-06 — IGNORE also refreshes authoritative Timeline.
+// UI11-06 — IGNORE uses the same local completion path.
+
 assert.match(
   ignoreReview,
-  /reloadStaffVerificationQueuePreservingPosition\(\s*card,\s*messageRecordId,\s*\)/,
+  /completeReviewResolutionLocally\(\s*card,\s*messageRecordId,\s*\)/,
+);
+
+assert.doesNotMatch(
+  ignoreReview,
+  /reloadStaffVerificationQueuePreservingPosition\(/,
 );
 
 const ignoreResolve =
@@ -148,34 +179,26 @@ const ignoreResolve =
     '"/api/review-resolve"',
   );
 
-const ignoreRefresh =
+const ignoreLocal =
   ignoreReview.indexOf(
-    "reloadStaffVerificationQueuePreservingPosition(",
+    "completeReviewResolutionLocally(",
   );
 
 const ignoreDashboard =
   ignoreReview.indexOf(
     "await loadDashboard({",
-    ignoreRefresh,
+    ignoreLocal,
   );
 
 assert.ok(
   ignoreResolve >= 0
-    && ignoreRefresh > ignoreResolve
-    && ignoreDashboard > ignoreRefresh,
-  "IGNORE order must be resolve -> Workbench refresh -> dashboard",
-);
-
-assert.doesNotMatch(
-  ignoreReview.slice(
-    ignoreResolve,
-    ignoreDashboard,
-  ),
-  /removeCompletedReviewCard\(/,
+    && ignoreLocal > ignoreResolve
+    && ignoreDashboard > ignoreLocal,
+  "IGNORE order must be resolve -> local completion -> dashboard",
 );
 
 
-// UI11-07 — continuity remains server-refresh based.
+// UI11-07 — authoritative continuity reload remains available for conflict/fallback paths.
 for (const token of [
   "staffVerificationCaptureContinuity",
   "reloadStaffVerificationQueue",
@@ -251,11 +274,11 @@ console.log(
 );
 
 console.log(
-  "PASS UI11-03: CORRECT reloads authoritative Workbench immediately",
+  "PASS UI11-03: CORRECT completes resolved item locally",
 );
 
 console.log(
-  "PASS UI11-04: CORRECT no longer relies on stale Review DOM removal",
+  "PASS UI11-04: local completion updates browser Workbench state",
 );
 
 console.log(
@@ -263,11 +286,11 @@ console.log(
 );
 
 console.log(
-  "PASS UI11-06: IGNORE reloads authoritative Workbench immediately",
+  "PASS UI11-06: IGNORE completes resolved item locally",
 );
 
 console.log(
-  "PASS UI11-07: continuity remains capture -> reload -> restore",
+  "PASS UI11-07: authoritative reload remains available for conflict/fallback",
 );
 
 console.log(
