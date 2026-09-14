@@ -10,6 +10,11 @@ import {
 } from "../../src/lib/image-ocr.mjs";
 
 const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
+import {
+  normalizeMirrorDestinations,
+  wakeLineMirrorDestinationBestEffort,
+} from "../../src/lib/line-message-mirror-transport.mjs";
+
 const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY;
@@ -270,9 +275,80 @@ async function enqueueLineMessageMirrorBestEffort(message) {
       };
     }
 
+    const result =
+      data ?? null;
+
+    const destinations =
+      normalizeMirrorDestinations(
+        result,
+      );
+
+    // Destinations are independent serialization boundaries.
+    // Wake them concurrently so one slow Netlify invocation cannot
+    // multiply Parser/OCR delay across multiple destinations.
+    const wakeResults =
+      await Promise.all(
+        destinations.map(
+          async (
+            destinationLineGroupId,
+          ) => {
+            try {
+              const wakeResult =
+                await wakeLineMirrorDestinationBestEffort({
+                  supabase,
+
+                  destinationLineGroupId,
+
+                  // Netlify runtime main-site URL.
+                  // Mirror stays disabled unless the global kill switch
+                  // above is explicitly true.
+                  baseUrl:
+                    process.env.URL,
+
+                  workerSecret:
+                    process.env.LINE_MESSAGE_MIRROR_WORKER_SECRET,
+
+                  logger:
+                    console,
+                });
+
+              return {
+                destination_line_group_id:
+                  destinationLineGroupId,
+
+                ...wakeResult,
+              };
+            } catch (wakeError) {
+              // Enqueue already succeeded. Wake failure is secondary
+              // and must never become Parser/OCR/Review failure.
+              console.error(
+                "LINE mirror wake exception",
+                destinationLineGroupId,
+                wakeError,
+              );
+
+              return {
+                destination_line_group_id:
+                  destinationLineGroupId,
+
+                woken:
+                  false,
+
+                error:
+                  wakeError?.message
+                  ?? String(
+                    wakeError,
+                  ),
+              };
+            }
+          },
+        ),
+      );
     return {
       queued: true,
-      result: data ?? null,
+      result,
+      wake_results:
+        wakeResults,
     };
   } catch (error) {
     // Mirror transport is deliberately secondary.
