@@ -35,6 +35,113 @@ export function validateLineGroup(input = {}) {
   return { line_group_id, line_group_name, summary_group_id, reduction_pct, enabled: normalizeBoolean(input.enabled, true) };
 }
 
+export function validateMirrorRoute(input = {}) {
+  const id = String(input.id ?? "").trim();
+
+  const source_line_group_id =
+    String(
+      input.source_line_group_id
+      ?? "",
+    ).trim();
+
+  const destination_line_group_id =
+    String(
+      input.destination_line_group_id
+      ?? "",
+    ).trim();
+
+  if (
+    id
+    && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)
+  ) {
+    throw new Error(
+      "INVALID_MIRROR_ROUTE_ID",
+    );
+  }
+
+  if (
+    !/^C[A-Za-z0-9_-]{8,}$/.test(
+      source_line_group_id,
+    )
+  ) {
+    throw new Error(
+      "INVALID_MIRROR_SOURCE_LINE_GROUP_ID",
+    );
+  }
+
+  if (
+    !/^C[A-Za-z0-9_-]{8,}$/.test(
+      destination_line_group_id,
+    )
+  ) {
+    throw new Error(
+      "INVALID_MIRROR_DESTINATION_LINE_GROUP_ID",
+    );
+  }
+
+  if (
+    source_line_group_id
+    === destination_line_group_id
+  ) {
+    throw new Error(
+      "INVALID_MIRROR_ROUTE_SELF",
+    );
+  }
+
+  const max_batch_size =
+    Number(
+      input.max_batch_size
+      ?? 5,
+    );
+
+  if (
+    !Number.isInteger(
+      max_batch_size,
+    )
+    || max_batch_size < 1
+    || max_batch_size > 5
+  ) {
+    throw new Error(
+      "INVALID_MIRROR_MAX_BATCH_SIZE",
+    );
+  }
+
+  const flush_after_seconds =
+    Number(
+      input.flush_after_seconds
+      ?? 30,
+    );
+
+  if (
+    !Number.isInteger(
+      flush_after_seconds,
+    )
+    || flush_after_seconds < 5
+    || flush_after_seconds > 300
+  ) {
+    throw new Error(
+      "INVALID_MIRROR_FLUSH_SECONDS",
+    );
+  }
+
+  return {
+    id:
+      id || null,
+
+    source_line_group_id,
+    destination_line_group_id,
+
+    enabled:
+      normalizeBoolean(
+        input.enabled,
+        false,
+      ),
+
+    max_batch_size,
+    flush_after_seconds,
+  };
+}
+
 export function validateAllocationRule(input = {}) {
   const summary_group_id = String(input.summary_group_id ?? "").trim().toUpperCase();
   const category = normalizeCategory(input.category);

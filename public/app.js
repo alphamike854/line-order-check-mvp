@@ -13643,6 +13643,246 @@ function setSummaryOptions(select, selected = "") {
   select.innerHTML = groups.map((g) => `<option value="${escapeHtml(g.id)}" ${g.id === selected ? "selected" : ""}>${escapeHtml(g.name)} (${escapeHtml(g.id)})</option>`).join("");
 }
 
+function mirrorConfiguredLineGroup(
+  lineGroupId,
+) {
+  return (
+    state.settings?.line_groups
+    || []
+  ).find(
+    (row) =>
+      row.line_group_id
+      === lineGroupId,
+  ) || null;
+}
+
+function mirrorLineGroupName(
+  lineGroupId,
+) {
+  const configured =
+    mirrorConfiguredLineGroup(
+      lineGroupId,
+    );
+
+  return (
+    configured?.line_group_name
+    || lineGroupId
+    || "-"
+  );
+}
+
+function setMirrorSourceOptions(
+  select,
+  selected = "",
+) {
+  const rows =
+    state.settings?.line_groups
+    || [];
+
+  select.innerHTML = [
+    `<option value="">เลือก LINE Group ต้นทาง</option>`,
+
+    ...rows.map(
+      (row) => `
+        <option
+          value="${escapeHtml(
+            row.line_group_id,
+          )}"
+          ${
+            row.line_group_id
+              === selected
+              ? "selected"
+              : ""
+          }
+        >
+          ${escapeHtml(
+            row.line_group_name
+            || row.line_group_id,
+          )}
+          ·
+          ${escapeHtml(
+            groupName(
+              row.summary_group_id,
+            ),
+          )}
+          ${row.enabled ? "" : " · ปิดรับยอด"}
+        </option>
+      `,
+    ),
+  ].join("");
+}
+
+function mirrorDestinationCandidates() {
+  const map =
+    new Map();
+
+  for (
+    const row
+    of state.settings?.line_groups
+      || []
+  ) {
+    map.set(
+      row.line_group_id,
+      {
+        line_group_id:
+          row.line_group_id,
+
+        line_group_name:
+          row.line_group_name
+          || row.line_group_id,
+
+        order_enabled:
+          Boolean(
+            row.enabled,
+          ),
+      },
+    );
+  }
+
+  for (
+    const row
+    of state.settings?.unconfigured_line_groups
+      || []
+  ) {
+    if (
+      !map.has(
+        row.line_group_id,
+      )
+    ) {
+      map.set(
+        row.line_group_id,
+        {
+          line_group_id:
+            row.line_group_id,
+
+          line_group_name:
+            "ห้อง LINE ที่พบ",
+
+          order_enabled:
+            false,
+        },
+      );
+    }
+  }
+
+  for (
+    const route
+    of state.settings?.mirror_routes
+      || []
+  ) {
+    const id =
+      route.destination_line_group_id;
+
+    if (!map.has(id)) {
+      map.set(
+        id,
+        {
+          line_group_id:
+            id,
+
+          line_group_name:
+            "Mirror destination เดิม",
+
+          order_enabled:
+            false,
+        },
+      );
+    }
+  }
+
+  return [
+    ...map.values(),
+  ].sort(
+    (a, b) =>
+      String(
+        a.line_group_name,
+      ).localeCompare(
+        String(
+          b.line_group_name,
+        ),
+        "th",
+      ),
+  );
+}
+
+function setMirrorDestinationOptions(
+  select,
+  selected = "",
+) {
+  select.innerHTML = [
+    `<option value="">เลือก LINE Group ปลายทาง</option>`,
+
+    ...mirrorDestinationCandidates()
+      .map(
+        (row) => `
+          <option
+            value="${escapeHtml(
+              row.line_group_id,
+            )}"
+            ${
+              row.line_group_id
+                === selected
+                ? "selected"
+                : ""
+            }
+          >
+            ${escapeHtml(
+              row.line_group_name,
+            )}
+            ${
+              row.order_enabled
+                ? " · ⚠ ห้องรับออเดอร์อยู่"
+                : ""
+            }
+            ·
+            ${escapeHtml(
+              row.line_group_id,
+            )}
+          </option>
+        `,
+      ),
+  ].join("");
+}
+
+function mirrorDestinationIsActiveOrderGroup(
+  lineGroupId,
+) {
+  return Boolean(
+    mirrorConfiguredLineGroup(
+      lineGroupId,
+    )?.enabled,
+  );
+}
+
+function resetMirrorRouteForm() {
+  const form =
+    $("#mirrorRouteForm");
+
+  if (!form) return;
+
+  form.reset();
+
+  form.elements.id.value =
+    "";
+
+  form.elements.enabled.checked =
+    false;
+
+  form.elements.max_batch_size.value =
+    5;
+
+  form.elements.flush_after_seconds.value =
+    30;
+
+  setMirrorSourceOptions(
+    form.elements.source_line_group_id,
+  );
+
+  setMirrorDestinationOptions(
+    form.elements.destination_line_group_id,
+  );
+}
+
 function renderSettings() {
   const s = state.settings;
   if (!s) return;
@@ -13661,11 +13901,97 @@ function renderSettings() {
   setSummaryOptions($("#lineGroupForm").elements.summary_group_id);
   setSummaryOptions($("#riskBudgetForm").elements.summary_group_id);
 
+  setMirrorSourceOptions(
+    $("#mirrorRouteForm").elements.source_line_group_id,
+  );
+
+  setMirrorDestinationOptions(
+    $("#mirrorRouteForm").elements.destination_line_group_id,
+  );
+
+  $("#mirrorTransportStatus").innerHTML =
+    s.mirror_transport_enabled
+      ? `<strong>Mirror transport พร้อมใช้งาน</strong> · สามารถเปิด route ที่ผ่านเงื่อนไขความปลอดภัยได้`
+      : `<strong>Mirror transport ทั้งระบบยังปิดอยู่</strong> · สามารถเตรียม route แบบปิดได้ แต่ยังเปิด route ไม่ได้`;
+
   $("#summaryGroupsList").innerHTML = s.summary_groups.map((row) => `
     <div class="settings-row"><span><strong>${escapeHtml(row.name)}</strong><small>${escapeHtml(row.id)}</small></span><span>${row.enabled ? "ใช้งาน" : "ปิด"}</span><button class="button ghost small edit-summary" data-id="${escapeHtml(row.id)}">แก้ไข</button></div>`).join("");
 
   $("#lineGroupsList").innerHTML = s.line_groups.map((row) => `
     <div class="settings-row"><span><strong>${escapeHtml(row.line_group_name)}</strong><small>${escapeHtml(row.line_group_id)}</small></span><span>${escapeHtml(groupName(row.summary_group_id))} · ลด ${formatNumber(row.reduction_pct || 0)}% · ${row.enabled ? "ใช้งาน" : "ปิด"}</span><button class="button ghost small edit-line" data-id="${escapeHtml(row.line_group_id)}">แก้ไข</button></div>`).join("");
+
+  $("#mirrorRoutesList").innerHTML =
+    (s.mirror_routes || []).length
+      ? (s.mirror_routes || [])
+          .map(
+            (row) => {
+              const unsafeDestination =
+                mirrorDestinationIsActiveOrderGroup(
+                  row.destination_line_group_id,
+                );
+
+              return `
+                <div class="settings-row">
+                  <span>
+                    <strong>
+                      ${escapeHtml(
+                        mirrorLineGroupName(
+                          row.source_line_group_id,
+                        ),
+                      )}
+                      →
+                      ${escapeHtml(
+                        mirrorLineGroupName(
+                          row.destination_line_group_id,
+                        ),
+                      )}
+                    </strong>
+
+                    <small>
+                      ${escapeHtml(
+                        row.source_line_group_id,
+                      )}
+                      →
+                      ${escapeHtml(
+                        row.destination_line_group_id,
+                      )}
+                    </small>
+
+                    ${
+                      unsafeDestination
+                        ? `<small>⚠ ปลายทางยังเป็นห้องรับออเดอร์ — ห้ามเปิด Mirror</small>`
+                        : ""
+                    }
+                  </span>
+
+                  <span>
+                    ${row.enabled ? "เปิด" : "ปิด"}
+                    · ชุดละ
+                    ${formatNumber(
+                      row.max_batch_size,
+                    )}
+                    ·
+                    ${formatNumber(
+                      row.flush_after_seconds,
+                    )}
+                    วินาที
+                  </span>
+
+                  <button
+                    type="button"
+                    class="button ghost small edit-mirror-route"
+                    data-id="${escapeHtml(
+                      row.id,
+                    )}"
+                  >
+                    แก้ไข
+                  </button>
+                </div>
+              `;
+            },
+          )
+          .join("")
+      : `<div class="muted">ยังไม่มีเส้นทาง Mirror</div>`;
 
   $("#pointProfilesList").innerHTML = (s.point_profiles || []).map((row) => `
     <div class="settings-row"><span><strong>${escapeHtml(row.category)} ${Number(row.special_multiplier)>0?`×${formatNumber(row.special_multiplier)}`:"ยังไม่ตั้งตัวคูณ"}</strong><small>Point พิเศษสูงสุด ${formatNumber(row.max_special_codes)} รหัส</small></span><span></span><button class="button ghost small edit-profile" data-id="${escapeHtml(row.category)}">แก้ไข</button></div>`).join("");
@@ -13687,6 +14013,51 @@ function renderSettings() {
     const row = s.line_groups.find((x) => x.line_group_id === button.dataset.id); const form = $("#lineGroupForm");
     form.elements.line_group_id.value = row.line_group_id; form.elements.line_group_name.value = row.line_group_name; setSummaryOptions(form.elements.summary_group_id, row.summary_group_id); form.elements.reduction_pct.value = row.reduction_pct || 0; form.elements.enabled.checked = row.enabled;
   }));
+
+  $$(".edit-mirror-route").forEach(
+    (button) =>
+      button.addEventListener(
+        "click",
+        () => {
+          const row =
+            (s.mirror_routes || [])
+              .find(
+                (item) =>
+                  item.id
+                  === button.dataset.id,
+              );
+
+          if (!row) return;
+
+          const form =
+            $("#mirrorRouteForm");
+
+          form.elements.id.value =
+            row.id;
+
+          setMirrorSourceOptions(
+            form.elements.source_line_group_id,
+            row.source_line_group_id,
+          );
+
+          setMirrorDestinationOptions(
+            form.elements.destination_line_group_id,
+            row.destination_line_group_id,
+          );
+
+          form.elements.max_batch_size.value =
+            row.max_batch_size;
+
+          form.elements.flush_after_seconds.value =
+            row.flush_after_seconds;
+
+          form.elements.enabled.checked =
+            Boolean(
+              row.enabled,
+            );
+        },
+      ),
+  );
   $$(".edit-profile").forEach((button)=>button.addEventListener("click",()=>{
     const row=(s.point_profiles||[]).find((x)=>x.category===button.dataset.id);const form=$("#pointProfileForm");
     form.elements.category.value=row.category;form.elements.special_multiplier.value=row.special_multiplier;form.elements.max_special_codes.value=row.max_special_codes;syncPointProfileFormSlots(form);
@@ -13723,9 +14094,32 @@ async function saveSetting(entity, values, form) {
     await api("/api/settings", { method: "POST", body: JSON.stringify({ entity, values }) });
     toast("บันทึกการตั้งค่าแล้ว");
     form.reset();
-    const checkbox = form.querySelector('input[type="checkbox"][name="enabled"]');
-    if (checkbox) checkbox.checked = true;
+
+    const checkbox =
+      form.querySelector(
+        'input[type="checkbox"][name="enabled"]',
+      );
+
+    if (checkbox) {
+      checkbox.checked =
+        entity === "MIRROR_ROUTE"
+          ? false
+          : true;
+    }
+
+    if (
+      entity === "MIRROR_ROUTE"
+      && form.elements.id
+    ) {
+      form.elements.id.value = "";
+    }
+
     await loadSettings();
+
+    if (entity === "MIRROR_ROUTE") {
+      resetMirrorRouteForm();
+    }
+
     state.groupsLoaded = false;
     summaryGroupSelect.innerHTML = `<option value="ALL">ทุกกลุ่ม</option>`;
     await loadDashboard();
@@ -13757,28 +14151,122 @@ function bindSettingForms() {
     event.preventDefault(); const f = event.currentTarget;
     saveSetting("SUMMARY_GROUP", { id: f.elements.id.value, name: f.elements.name.value, enabled: f.elements.enabled.checked }, f);
   });
+
   $("#lineGroupForm").addEventListener("submit", (event) => {
     event.preventDefault(); const f = event.currentTarget;
     saveSetting("LINE_GROUP", { line_group_id: f.elements.line_group_id.value, line_group_name: f.elements.line_group_name.value, summary_group_id: f.elements.summary_group_id.value, reduction_pct: Number(f.elements.reduction_pct.value || 0), enabled: f.elements.enabled.checked }, f);
   });
+
+  $("#mirrorRouteForm").addEventListener(
+    "submit",
+    (event) => {
+      event.preventDefault();
+
+      const f =
+        event.currentTarget;
+
+      const source =
+        f.elements.source_line_group_id.value;
+
+      const destination =
+        f.elements.destination_line_group_id.value;
+
+      if (
+        source
+        && source === destination
+      ) {
+        toast(
+          "ต้นทางและปลายทาง Mirror ต้องเป็นคนละ LINE Group",
+          true,
+        );
+
+        return;
+      }
+
+      if (
+        f.elements.enabled.checked
+        && !state.settings?.mirror_transport_enabled
+      ) {
+        toast(
+          "ยังเปิด route ไม่ได้: Mirror transport ทั้งระบบยังปิดอยู่",
+          true,
+        );
+
+        return;
+      }
+
+      if (
+        f.elements.enabled.checked
+        && mirrorDestinationIsActiveOrderGroup(
+          destination,
+        )
+      ) {
+        toast(
+          "เปิด Mirror ไม่ได้: ห้องปลายทางยังเป็นห้องรับออเดอร์ของระบบ",
+          true,
+        );
+
+        return;
+      }
+
+      saveSetting(
+        "MIRROR_ROUTE",
+        {
+          id:
+            f.elements.id.value,
+
+          source_line_group_id:
+            source,
+
+          destination_line_group_id:
+            destination,
+
+          max_batch_size:
+            Number(
+              f.elements.max_batch_size.value,
+            ),
+
+          flush_after_seconds:
+            Number(
+              f.elements.flush_after_seconds.value,
+            ),
+
+          enabled:
+            f.elements.enabled.checked,
+        },
+        f,
+      );
+    },
+  );
+
+  $("#mirrorRouteResetButton").addEventListener(
+    "click",
+    resetMirrorRouteForm,
+  );
+
   $("#pointProfileForm").elements.category.addEventListener("change", (event) => syncPointProfileFormSlots(event.currentTarget.form));
   syncPointProfileFormSlots();
+
   $("#pointProfileForm").addEventListener("submit", (event)=>{
     event.preventDefault();const f=event.currentTarget;
     saveSetting("POINT_PROFILE",{category:f.elements.category.value,special_multiplier:Number(f.elements.special_multiplier.value),max_special_codes:Number(f.elements.max_special_codes.value)},f);
   });
+
   $("#riskBudgetForm").addEventListener("submit", (event)=>{
     event.preventDefault();const f=event.currentTarget;
     saveSetting("RISK_BUDGET",{summary_group_id:f.elements.summary_group_id.value,risk_pool:f.elements.risk_pool.value,point_loss_tolerance:Number(f.elements.point_loss_tolerance.value)},f);
   });
+
   $("#warehouseLimitForm").addEventListener("submit", (event)=>{
     event.preventDefault();const f=event.currentTarget;
     saveSetting("WAREHOUSE_LIMIT",{destination:f.elements.destination.value,max_batch_quantity:Number(f.elements.max_batch_quantity.value),enabled:f.elements.enabled.checked},f);
   });
+
   $("#aliasForm").addEventListener("submit", (event) => {
     event.preventDefault(); const f = event.currentTarget;
     saveSetting("CATEGORY_ALIAS", { alias: f.elements.alias.value, canonical_category: f.elements.canonical_category.value, enabled: f.elements.enabled.checked }, f);
   });
+
   $("#reloadSettingsButton").addEventListener("click", loadSettings);
 }
 

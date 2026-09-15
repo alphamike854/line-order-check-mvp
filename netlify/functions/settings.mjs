@@ -9,6 +9,7 @@ import {
   validateAllocationRule,
   validateCategoryAlias,
   validateLineGroup,
+  validateMirrorRoute,
   validatePointProfile,
   validateRiskBudget,
   validateSummaryGroup,
@@ -28,6 +29,93 @@ async function maybeSingle(table, filters) {
 async function assertSummaryGroupExists(id) {
   const row = await maybeSingle("summary_groups", { id });
   if (!row) throw new Error("SUMMARY_GROUP_NOT_FOUND");
+}
+
+async function fetchLineGroup(id) {
+  return maybeSingle(
+    "line_groups",
+    {
+      line_group_id: id,
+    },
+  );
+}
+
+async function assertMirrorSourceExists(id) {
+  const row =
+    await fetchLineGroup(id);
+
+  if (!row) {
+    throw new Error(
+      "MIRROR_SOURCE_LINE_GROUP_NOT_FOUND",
+    );
+  }
+
+  return row;
+}
+
+async function resolveMirrorDestination(
+  id,
+  existingRoute = null,
+) {
+  const configured =
+    await fetchLineGroup(id);
+
+  if (configured) {
+    return {
+      kind: "CONFIGURED_ORDER_GROUP",
+      configured,
+    };
+  }
+
+  const {
+    data,
+    error,
+  } =
+    await supabase
+      .from("webhook_events")
+      .select("line_group_id")
+      .eq(
+        "line_group_id",
+        id,
+      )
+      .limit(1)
+      .maybeSingle();
+
+  if (error) throw error;
+
+  if (data) {
+    return {
+      kind: "OBSERVED_LINE_ROOM",
+      configured: null,
+    };
+  }
+
+  if (
+    existingRoute
+    && existingRoute.destination_line_group_id
+      === id
+  ) {
+    return {
+      kind: "EXISTING_ROUTE_DESTINATION",
+      configured: null,
+    };
+  }
+
+  throw new Error(
+    "MIRROR_DESTINATION_NOT_FOUND",
+  );
+}
+
+function mirrorTransportEnabled() {
+  return (
+    String(
+      process.env.LINE_MESSAGE_MIRROR_ENABLED
+        ?? "",
+    )
+      .trim()
+      .toLowerCase()
+    === "true"
+  );
 }
 
 async function saveSummaryGroup(values) {
@@ -90,6 +178,181 @@ async function saveLineGroup(values) {
     beforeData: before,
     afterData: saved,
     changedBy: OPERATOR,
+  });
+
+  return saved;
+}
+
+async function saveMirrorRoute(values) {
+  const row =
+    validateMirrorRoute(values);
+
+  let before = null;
+
+  if (row.id) {
+    before =
+      await maybeSingle(
+        "line_message_mirror_routes",
+        {
+          id: row.id,
+        },
+      );
+
+    if (!before) {
+      throw new Error(
+        "MIRROR_ROUTE_NOT_FOUND",
+      );
+    }
+
+    const identityChanged =
+      before.source_line_group_id
+        !== row.source_line_group_id
+      || before.destination_line_group_id
+        !== row.destination_line_group_id;
+
+    if (
+      before.enabled
+      && identityChanged
+    ) {
+      throw new Error(
+        "MIRROR_ROUTE_DISABLE_BEFORE_REMAP",
+      );
+    }
+  }
+
+  const [
+    source,
+    destination,
+  ] =
+    await Promise.all([
+      assertMirrorSourceExists(
+        row.source_line_group_id,
+      ),
+
+      resolveMirrorDestination(
+        row.destination_line_group_id,
+        before,
+      ),
+    ]);
+
+  if (row.enabled) {
+    if (!source.enabled) {
+      throw new Error(
+        "MIRROR_SOURCE_DISABLED",
+      );
+    }
+
+    if (
+      destination.configured?.enabled
+      === true
+    ) {
+      throw new Error(
+        "MIRROR_DESTINATION_ACTIVE_ORDER_GROUP",
+      );
+    }
+
+    if (!mirrorTransportEnabled()) {
+      throw new Error(
+        "MIRROR_GLOBAL_DISABLED",
+      );
+    }
+  }
+
+  const payload = {
+    source_line_group_id:
+      row.source_line_group_id,
+
+    destination_line_group_id:
+      row.destination_line_group_id,
+
+    enabled:
+      row.enabled,
+
+    max_batch_size:
+      row.max_batch_size,
+
+    flush_after_seconds:
+      row.flush_after_seconds,
+
+    updated_at:
+      new Date().toISOString(),
+  };
+
+  let response;
+
+  if (row.id) {
+    response =
+      await supabase
+        .from(
+          "line_message_mirror_routes",
+        )
+        .update(payload)
+        .eq(
+          "id",
+          row.id,
+        )
+        .select("*")
+        .single();
+  } else {
+    const duplicate =
+      await maybeSingle(
+        "line_message_mirror_routes",
+        {
+          source_line_group_id:
+            row.source_line_group_id,
+
+          destination_line_group_id:
+            row.destination_line_group_id,
+        },
+      );
+
+    if (duplicate) {
+      throw new Error(
+        "MIRROR_ROUTE_DUPLICATE",
+      );
+    }
+
+    response =
+      await supabase
+        .from(
+          "line_message_mirror_routes",
+        )
+        .insert(payload)
+        .select("*")
+        .single();
+  }
+
+  if (response.error) {
+    if (
+      response.error.code
+      === "23505"
+    ) {
+      throw new Error(
+        "MIRROR_ROUTE_DUPLICATE",
+      );
+    }
+
+    throw response.error;
+  }
+
+  const saved =
+    response.data;
+
+  await writeSettingsAudit({
+    entityType:
+      "MIRROR_ROUTE",
+
+    entityKey:
+      saved.id,
+
+    beforeData:
+      before,
+
+    afterData:
+      saved,
+
+    changedBy:
+      OPERATOR,
   });
 
   return saved;
@@ -167,6 +430,7 @@ export default async (req) => {
 
     if (entity === "SUMMARY_GROUP") saved = await saveSummaryGroup(body.values);
     else if (entity === "LINE_GROUP") saved = await saveLineGroup(body.values);
+    else if (entity === "MIRROR_ROUTE") saved = await saveMirrorRoute(body.values);
     else if (entity === "ALLOCATION_RULE") saved = await saveAllocationRule(body.values);
     else if (entity === "CATEGORY_ALIAS") saved = await saveAlias(body.values);
     else if (entity === "POINT_PROFILE") saved = await savePointProfile(body.values);
@@ -182,7 +446,16 @@ export default async (req) => {
         ? 404
         : message.startsWith("INVALID_")
           ? 400
-          : message.startsWith("SUMMARY_GROUP_REMAP_BLOCKED_")
+          : (
+              message.startsWith(
+                "SUMMARY_GROUP_REMAP_BLOCKED_",
+              )
+              || message === "MIRROR_ROUTE_DUPLICATE"
+              || message === "MIRROR_GLOBAL_DISABLED"
+              || message === "MIRROR_SOURCE_DISABLED"
+              || message === "MIRROR_DESTINATION_ACTIVE_ORDER_GROUP"
+              || message === "MIRROR_ROUTE_DISABLE_BEFORE_REMAP"
+            )
             ? 409
             : 500;
     console.error("settings failed", error);

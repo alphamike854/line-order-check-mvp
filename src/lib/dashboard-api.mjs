@@ -808,7 +808,7 @@ export async function fetchOpenReviewById(reviewId) {
 }
 
 export async function fetchSettings() {
-  const [summaryResult, lineResult, allocationResult, aliasResult, profileResult, riskBudgetResult, categoryDefinitionResult, warehouseLimitResult, eventResult] = await Promise.all([
+  const [summaryResult, lineResult, allocationResult, aliasResult, profileResult, riskBudgetResult, categoryDefinitionResult, warehouseLimitResult, mirrorRouteResult, eventResult] = await Promise.all([
     supabase.from("summary_groups").select("id,name,enabled,created_at").order("name"),
     supabase.from("line_groups").select("line_group_id,line_group_name,summary_group_id,reduction_pct,enabled,created_at,updated_at").order("line_group_name"),
     supabase.from("allocation_rules").select("summary_group_id,category,threshold,destination,enabled,created_at,updated_at").order("summary_group_id").order("category"),
@@ -817,10 +817,14 @@ export async function fetchSettings() {
     supabase.from("summary_group_risk_pool_settings").select("summary_group_id,risk_pool,point_loss_tolerance,updated_at").order("summary_group_id").order("risk_pool"),
     supabase.from("category_definitions").select("category,display_name,code_length,risk_pool,enabled,updated_at").eq("enabled",true).order("category"),
     supabase.from("warehouse_transfer_limits").select("destination,max_batch_quantity,enabled,updated_at").order("destination"),
+    supabase
+      .from("line_message_mirror_routes")
+      .select("id,source_line_group_id,destination_line_group_id,enabled,max_batch_size,flush_after_seconds,created_at,updated_at")
+      .order("created_at"),
     supabase.from("webhook_events").select("line_group_id,received_at").not("line_group_id", "is", null).order("received_at", { ascending: false }).limit(5000),
   ]);
 
-  for (const result of [summaryResult, lineResult, allocationResult, aliasResult, profileResult, riskBudgetResult, categoryDefinitionResult, warehouseLimitResult, eventResult]) {
+  for (const result of [summaryResult, lineResult, allocationResult, aliasResult, profileResult, riskBudgetResult, categoryDefinitionResult, warehouseLimitResult, mirrorRouteResult, eventResult]) {
     if (result.error) throw result.error;
   }
 
@@ -841,6 +845,17 @@ export async function fetchSettings() {
     risk_budgets: riskBudgetResult.data ?? [],
     category_definitions: categoryDefinitionResult.data ?? [],
     warehouse_limits: warehouseLimitResult.data ?? [],
+    mirror_routes:
+      mirrorRouteResult.data
+      ?? [],
+    mirror_transport_enabled:
+      String(
+        process.env.LINE_MESSAGE_MIRROR_ENABLED
+          ?? "",
+      )
+        .trim()
+        .toLowerCase()
+        === "true",
     unconfigured_line_groups: [...latestByGroup.entries()].map(([line_group_id, last_seen_at]) => ({ line_group_id, last_seen_at })),
   };
 }
