@@ -148,8 +148,8 @@ assert.match(
 
 assert.match(
   settingsApi,
-  /entityType:\s*"MIRROR_ROUTE"/,
-  "MR1-13 route save is audited",
+  /supabase\.rpc\(\s*"save_mirror_route_settings"/,
+  "MR1-13 route save delegates to transactional audited RPC",
 );
 
 assert.match(

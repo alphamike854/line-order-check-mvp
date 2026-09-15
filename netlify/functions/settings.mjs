@@ -210,12 +210,9 @@ async function saveMirrorRoute(values) {
       || before.destination_line_group_id
         !== row.destination_line_group_id;
 
-    if (
-      before.enabled
-      && identityChanged
-    ) {
+    if (identityChanged) {
       throw new Error(
-        "MIRROR_ROUTE_DISABLE_BEFORE_REMAP",
+        "MIRROR_ROUTE_IDENTITY_IMMUTABLE",
       );
     }
   }
@@ -228,7 +225,6 @@ async function saveMirrorRoute(values) {
       assertMirrorSourceExists(
         row.source_line_group_id,
       ),
-
       resolveMirrorDestination(
         row.destination_line_group_id,
         before,
@@ -258,102 +254,77 @@ async function saveMirrorRoute(values) {
     }
   }
 
-  const payload = {
-    source_line_group_id:
-      row.source_line_group_id,
+  const {
+    data,
+    error,
+  } =
+    await supabase.rpc(
+      "save_mirror_route_settings",
+      {
+        p_route_id:
+          row.id ?? null,
 
-    destination_line_group_id:
-      row.destination_line_group_id,
+        p_source_line_group_id:
+          row.source_line_group_id,
 
-    enabled:
-      row.enabled,
+        p_destination_line_group_id:
+          row.destination_line_group_id,
 
-    max_batch_size:
-      row.max_batch_size,
+        p_enabled:
+          row.enabled,
 
-    flush_after_seconds:
-      row.flush_after_seconds,
+        p_max_batch_size:
+          row.max_batch_size,
 
-    updated_at:
-      new Date().toISOString(),
-  };
+        p_flush_after_seconds:
+          row.flush_after_seconds,
 
-  let response;
+        p_changed_by:
+          OPERATOR,
+      },
+    );
 
-  if (row.id) {
-    response =
-      await supabase
-        .from(
-          "line_message_mirror_routes",
-        )
-        .update(payload)
-        .eq(
-          "id",
-          row.id,
-        )
-        .select("*")
-        .single();
-  } else {
-    const duplicate =
-      await maybeSingle(
-        "line_message_mirror_routes",
-        {
-          source_line_group_id:
-            row.source_line_group_id,
-
-          destination_line_group_id:
-            row.destination_line_group_id,
-        },
+  if (error) {
+    const message =
+      String(
+        error.message
+        ?? "",
       );
 
-    if (duplicate) {
-      throw new Error(
-        "MIRROR_ROUTE_DUPLICATE",
+    const knownErrors = [
+      "MIRROR_ROUTE_NOT_FOUND",
+      "MIRROR_ROUTE_IDENTITY_IMMUTABLE",
+      "MIRROR_ROUTE_DUPLICATE",
+      "MIRROR_ROUTE_SELF",
+      "MIRROR_ROUTE_INVALID_BATCH_SIZE",
+      "MIRROR_ROUTE_INVALID_FLUSH_SECONDS",
+      "MIRROR_SOURCE_NOT_FOUND",
+      "MIRROR_SOURCE_DISABLED",
+      "MIRROR_DESTINATION_NOT_FOUND",
+      "MIRROR_DESTINATION_ACTIVE_ORDER_GROUP",
+    ];
+
+    const known =
+      knownErrors.find(
+        (code) =>
+          message.includes(code),
       );
+
+    if (known) {
+      throw new Error(known);
     }
 
-    response =
-      await supabase
-        .from(
-          "line_message_mirror_routes",
-        )
-        .insert(payload)
-        .select("*")
-        .single();
-  }
-
-  if (response.error) {
-    if (
-      response.error.code
-      === "23505"
-    ) {
-      throw new Error(
-        "MIRROR_ROUTE_DUPLICATE",
-      );
-    }
-
-    throw response.error;
+    throw error;
   }
 
   const saved =
-    response.data;
+    data?.route;
 
-  await writeSettingsAudit({
-    entityType:
-      "MIRROR_ROUTE",
-
-    entityKey:
-      saved.id,
-
-    beforeData:
-      before,
-
-    afterData:
-      saved,
-
-    changedBy:
-      OPERATOR,
-  });
+  if (!saved?.id) {
+    throw new Error(
+      "MIRROR_ROUTE_SAVE_INVALID",
+    );
+  }
 
   return saved;
 }
@@ -453,6 +424,7 @@ export default async (req) => {
               || message === "MIRROR_ROUTE_DUPLICATE"
               || message === "MIRROR_GLOBAL_DISABLED"
               || message === "MIRROR_SOURCE_DISABLED"
+              || message === "MIRROR_ROUTE_IDENTITY_IMMUTABLE"
               || message === "MIRROR_DESTINATION_ACTIVE_ORDER_GROUP"
               || message === "MIRROR_ROUTE_DISABLE_BEFORE_REMAP"
             )
