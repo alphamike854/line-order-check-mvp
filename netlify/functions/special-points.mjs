@@ -247,17 +247,45 @@ async function pointPayload(
       )
       .maybeSingle(),
 
-    supabase
-      .from("settlement_line_group_config")
-      .select("line_group_id,line_group_name")
-      .eq("settlement_session_id", session.id)
-      .eq(
-        "summary_group_id",
-        selectedSummaryGroup,
+    (
+        useRoundRead
+          ? supabase
+              .from(
+                "settlement_line_group_round_config",
+              )
+              .select(
+                "round_id,line_group_id,line_group_name",
+              )
+              .eq(
+                "round_id",
+                roundRead.round.id,
+              )
+          : supabase
+              .from(
+                "settlement_line_group_config",
+              )
+              .select(
+                "line_group_id,line_group_name",
+              )
+              .eq(
+                "settlement_session_id",
+                session.id,
+              )
+              .eq(
+                "summary_group_id",
+                selectedSummaryGroup,
+              )
+              .eq(
+                "enabled",
+                true,
+              )
       )
-      .eq("enabled", true)
-      .order("line_group_name")
-      .order("line_group_id"),
+        .order(
+          "line_group_name",
+        )
+        .order(
+          "line_group_id",
+        ),
   ]);
 
   for (

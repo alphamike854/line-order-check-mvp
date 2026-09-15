@@ -353,46 +353,96 @@ export default async (req) => {
       && !selectedLine;
 
 
+    const applyConfigFilters =
+      (query) => {
+        let filteredQuery =
+          query;
+
+        if (selectedSummary) {
+          filteredQuery =
+            filteredQuery.eq(
+              "summary_group_id",
+              selectedSummary,
+            );
+        }
+
+        if (selectedLine) {
+          filteredQuery =
+            filteredQuery.eq(
+              "line_group_id",
+              selectedLine,
+            );
+        }
+
+        return filteredQuery;
+      };
+
+
+    let configSource =
+      "ROUND_LINEAGE";
+
     let configQuery =
-      supabase
-        .from(
-          "settlement_line_group_config",
-        )
-        .select(
-          "line_group_id,line_group_name,summary_group_id,reduction_pct",
-        )
-        .eq(
-          "settlement_session_id",
-          session.id,
-        )
-        .order(
-          "line_group_name",
-        );
-
-    if (selectedSummary) {
-      configQuery =
-        configQuery.eq(
-          "summary_group_id",
-          selectedSummary,
-        );
-    }
-
-    if (selectedLine) {
-      configQuery =
-        configQuery.eq(
-          "line_group_id",
-          selectedLine,
-        );
-    }
+      applyConfigFilters(
+        supabase
+          .from(
+            "settlement_line_group_round_config_working_context",
+          )
+          .select(
+            "round_id,line_group_id,line_group_name,summary_group_id,reduction_pct",
+          )
+          .eq(
+            "settlement_session_id",
+            session.id,
+          )
+          .order(
+            "line_group_name",
+          ),
+      );
 
 
-    const {
+    let {
       data: configRows,
       error: configError,
     } = await configQuery;
 
+
     if (configError) {
       throw configError;
+    }
+
+
+    if (
+      (configRows ?? []).length === 0
+    ) {
+      configSource =
+        "LEGACY_CURRENT_ROUTE";
+
+      configQuery =
+        applyConfigFilters(
+          supabase
+            .from(
+              "settlement_line_group_config",
+            )
+            .select(
+              "line_group_id,line_group_name,summary_group_id,reduction_pct",
+            )
+            .eq(
+              "settlement_session_id",
+              session.id,
+            )
+            .order(
+              "line_group_name",
+            ),
+        );
+
+      ({
+        data: configRows,
+        error: configError,
+      } = await configQuery);
+
+      if (configError) {
+        throw configError;
+      }
     }
 
 
@@ -520,6 +570,14 @@ export default async (req) => {
 
     const configs =
       (configRows ?? [])
+        .filter(
+          (row) =>
+            configSource !==
+              "ROUND_LINEAGE"
+            || roundIds.includes(
+              row.round_id,
+            ),
+        )
         .filter(
           (row) =>
             roundMap.has(
