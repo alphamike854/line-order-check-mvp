@@ -215,20 +215,35 @@ console.log(
   "PASS PRC-10 existing promotions payload key remains backward compatible",
 );
 
-for (const source of [
+assert.match(
   settlement,
-  accounting,
-]) {
-  assert.match(
-    source,
-    /settlement_point_promotions/,
-  );
+  /settlement_point_promotions/,
+);
 
-  assert.doesNotMatch(
-    source,
-    /settlement_summary_group_point_promotions_current/,
-  );
-}
+assert.doesNotMatch(
+  settlement,
+  /settlement_summary_group_point_promotions_current/,
+);
+
+assert.match(
+  accounting,
+  /"accounting_round_point_context"/,
+);
+
+assert.match(
+  accounting,
+  /pointContext\.promotions/,
+);
+
+assert.doesNotMatch(
+  accounting,
+  /settlement_point_promotions/,
+);
+
+assert.doesNotMatch(
+  accounting,
+  /settlement_summary_group_point_promotions_current/,
+);
 
 assert.match(
   dashboard,
@@ -241,7 +256,7 @@ assert.match(
 );
 
 console.log(
-  "PASS PRC-11 Settlement/Accounting retain compatibility paths while Dashboard delegates to P3A2",
+  "PASS PRC-11 Settlement retains compatibility path, Accounting uses Round context, and Dashboard delegates to P3A2",
 );
 
 assert.match(
