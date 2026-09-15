@@ -86,7 +86,7 @@ for (const token of [
   '.from(\n      "order_items"',
   '"staff_workbench_claim_state"',
   '"settlement_summary_group_rounds"',
-  '"settlement_line_group_config"',
+  '"settlement_line_group_round_config"',
   '"message_verifications"',
 ]) {
   assert.ok(

@@ -169,29 +169,28 @@ export async function loadStaffReviewPreviewAccess(
     );
   }
 
-  const {
-    data: configured,
-    error: configError,
-  } = await client
-    .from(
-      "settlement_line_group_config",
-    )
-    .select(
-      "line_group_id,summary_group_id",
-    )
-    .eq(
-      "settlement_session_id",
-      safeSettlementSessionId,
-    )
-    .eq(
-      "line_group_id",
-      message.line_group_id,
-    )
-    .eq(
-      "summary_group_id",
-      message.summary_group_id,
-    )
-    .maybeSingle();
+  // Accepted-message routing is owned by immutable Round lineage.
+    // Current settlement_line_group_config is future admission routing and
+    // may legitimately differ after a Round-boundary remap.
+    const {
+      data: configured,
+      error: configError,
+    } = await client
+      .from(
+        "settlement_line_group_round_config",
+      )
+      .select(
+        "round_id,line_group_id",
+      )
+      .eq(
+        "round_id",
+        message.summary_group_round_id,
+      )
+      .eq(
+        "line_group_id",
+        message.line_group_id,
+      )
+      .maybeSingle();
 
   if (configError) {
     throw configError;
