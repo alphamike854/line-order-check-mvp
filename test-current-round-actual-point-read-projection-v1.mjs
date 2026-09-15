@@ -330,6 +330,21 @@ assert.match(
 
 assert.match(
   accounting,
+  /"accounting_round_point_context"/,
+);
+
+assert.match(
+  accounting,
+  /"accounting_round_point_status"/,
+);
+
+assert.match(
+  accounting,
+  /pointContext\.actual_special_point_codes/,
+);
+
+assert.doesNotMatch(
+  accounting,
   /\.from\("settlement_summary_group_actual_special_point_codes"\)/,
 );
 
