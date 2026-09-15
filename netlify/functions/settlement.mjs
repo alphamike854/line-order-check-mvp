@@ -5,133 +5,284 @@ const OPERATOR = process.env.DASHBOARD_OPERATOR_NAME || "DASHBOARD";
 async function loadSummaryGroupStates(openSession) {
   if (!openSession?.id) return [];
 
-  const [configResult, roundResult] =
-    await Promise.all([
-      supabase
-        .from("settlement_line_group_config")
-        .select("summary_group_id")
-        .eq("settlement_session_id", openSession.id)
-        .eq("enabled", true),
+  /*
+   * Generic Summary Group Registry v14A
+   *
+   * Summary Group existence is owned by summary_groups.
+   * Settlement mapping and Round state are separate concerns.
+   *
+   * An enabled master group must therefore be visible as
+   * NOT_STARTED even before any LINE Group has been mapped.
+   *
+   * Existing mapped/round-owned groups remain visible even if
+   * their master row is later disabled, so current operational
+   * or historical state cannot disappear from the operator UI.
+   */
+  const [
+    masterResult,
+    configResult,
+    roundResult,
+  ] = await Promise.all([
+    supabase
+      .from("summary_groups")
+      .select("id,name,enabled")
+      .order("id"),
 
-      supabase
-        .from("settlement_summary_group_rounds")
-        .select(
-          [
-            "id",
-            "summary_group_id",
-            "round_no",
-            "business_date",
-            "daily_round_no",
-            "status",
-            "opened_at",
-            "opened_by",
-            "closed_at",
-            "closed_by",
-            "updated_at",
-          ].join(","),
+    supabase
+      .from("settlement_line_group_config")
+      .select("summary_group_id,line_group_id")
+      .eq(
+        "settlement_session_id",
+        openSession.id,
+      )
+      .eq("enabled", true),
+
+    supabase
+      .from("settlement_summary_group_rounds")
+      .select(
+        [
+          "id",
+          "summary_group_id",
+          "round_no",
+          "business_date",
+          "daily_round_no",
+          "status",
+          "opened_at",
+          "opened_by",
+          "closed_at",
+          "closed_by",
+          "updated_at",
+        ].join(","),
+      )
+      .eq(
+        "settlement_session_id",
+        openSession.id,
+      )
+      .order(
+        "round_no",
+        { ascending: false },
+      ),
+  ]);
+
+  if (masterResult.error) {
+    throw masterResult.error;
+  }
+
+  if (configResult.error) {
+    throw configResult.error;
+  }
+
+  if (roundResult.error) {
+    throw roundResult.error;
+  }
+
+  const masterByGroup =
+    new Map(
+      (masterResult.data ?? [])
+        .filter((row) => row?.id)
+        .map(
+          (row) => [
+            String(row.id),
+            row,
+          ],
+        ),
+    );
+
+  const enabledMasterGroupIds =
+    (masterResult.data ?? [])
+      .filter(
+        (row) =>
+          row?.id
+          && row.enabled !== false,
+      )
+      .map(
+        (row) =>
+          String(row.id),
+      );
+
+  const mappingCountByGroup =
+    new Map();
+
+  for (const row of configResult.data ?? []) {
+    const summaryGroupId =
+      String(
+        row?.summary_group_id
+        || "",
+      );
+
+    if (!summaryGroupId) {
+      continue;
+    }
+
+    mappingCountByGroup.set(
+      summaryGroupId,
+      (
+        mappingCountByGroup.get(
+          summaryGroupId,
         )
-        .eq("settlement_session_id", openSession.id)
-        .order("round_no", { ascending: false }),
-    ]);
+        ?? 0
+      ) + 1,
+    );
+  }
 
-  if (configResult.error) throw configResult.error;
-  if (roundResult.error) throw roundResult.error;
-
-  const roundsByGroup = new Map();
+  const roundsByGroup =
+    new Map();
 
   for (const row of roundResult.data ?? []) {
-    if (!row?.summary_group_id) continue;
+    if (!row?.summary_group_id) {
+      continue;
+    }
+
+    const summaryGroupId =
+      String(row.summary_group_id);
 
     const rows =
-      roundsByGroup.get(row.summary_group_id)
+      roundsByGroup.get(
+        summaryGroupId,
+      )
       ?? [];
 
     rows.push(row);
-    roundsByGroup.set(row.summary_group_id, rows);
+
+    roundsByGroup.set(
+      summaryGroupId,
+      rows,
+    );
   }
 
   const groupIds = [
-    ...new Set(
-      (configResult.data ?? [])
-        .map((row) => row.summary_group_id)
+    ...new Set([
+      ...enabledMasterGroupIds,
+
+      ...(configResult.data ?? [])
+        .map(
+          (row) =>
+            String(
+              row?.summary_group_id
+              || "",
+            ),
+        )
         .filter(Boolean),
-    ),
+
+      ...(roundResult.data ?? [])
+        .map(
+          (row) =>
+            String(
+              row?.summary_group_id
+              || "",
+            ),
+        )
+        .filter(Boolean),
+    ]),
   ].sort();
 
-  return groupIds.map((summaryGroupId) => {
-    const rounds =
-      roundsByGroup.get(summaryGroupId)
-      ?? [];
+  return groupIds.map(
+    (summaryGroupId) => {
+      const master =
+        masterByGroup.get(
+          summaryGroupId,
+        )
+        ?? null;
 
-    const openRound =
-      rounds.find(
-        (row) => row.status === "OPEN",
-      )
-      ?? null;
+      const mappedLineGroupCount =
+        mappingCountByGroup.get(
+          summaryGroupId,
+        )
+        ?? 0;
 
-    const latestRound =
-      rounds[0]
-      ?? null;
+      const rounds =
+        roundsByGroup.get(
+          summaryGroupId,
+        )
+        ?? [];
 
-    const acceptingOrders =
-      Boolean(openRound);
+      const openRound =
+        rounds.find(
+          (row) =>
+            row.status === "OPEN",
+        )
+        ?? null;
 
-    return {
-      summary_group_id: summaryGroupId,
+      const latestRound =
+        rounds[0]
+        ?? null;
 
-      accepting_orders:
-        acceptingOrders,
+      const acceptingOrders =
+        Boolean(openRound);
 
-      has_previous_round:
-        Boolean(latestRound),
+      return {
+        summary_group_id:
+          summaryGroupId,
 
-      round_id:
-        openRound?.id
-        ?? latestRound?.id
-        ?? null,
+        summary_group_name:
+          master?.name
+          ?? summaryGroupId,
 
-      round_no:
-        openRound?.round_no
-        ?? latestRound?.round_no
-        ?? null,
+        summary_group_enabled:
+          master?.enabled
+          !== false,
 
-      business_date:
-        openRound?.business_date
-        ?? latestRound?.business_date
-        ?? null,
+        mapped_line_group_count:
+          mappedLineGroupCount,
 
-      daily_round_no:
-        openRound?.daily_round_no
-        ?? latestRound?.daily_round_no
-        ?? openRound?.round_no
-        ?? latestRound?.round_no
-        ?? null,
+        has_enabled_mapping:
+          mappedLineGroupCount > 0,
 
-      round_status:
-        openRound
-          ? "OPEN"
-          : latestRound?.status
-            ?? "NOT_STARTED",
+        accepting_orders:
+          acceptingOrders,
 
-      changed_at:
-        openRound?.opened_at
-        ?? latestRound?.closed_at
-        ?? latestRound?.updated_at
-        ?? null,
+        has_previous_round:
+          Boolean(latestRound),
 
-      changed_by:
-        openRound?.opened_by
-        ?? latestRound?.closed_by
-        ?? null,
+        round_id:
+          openRound?.id
+          ?? latestRound?.id
+          ?? null,
 
-      closed_at:
-        acceptingOrders
-          ? null
-          : latestRound?.closed_at
-            ?? null,
-    };
-  });
+        round_no:
+          openRound?.round_no
+          ?? latestRound?.round_no
+          ?? null,
+
+        business_date:
+          openRound?.business_date
+          ?? latestRound?.business_date
+          ?? null,
+
+        daily_round_no:
+          openRound?.daily_round_no
+          ?? latestRound?.daily_round_no
+          ?? openRound?.round_no
+          ?? latestRound?.round_no
+          ?? null,
+
+        round_status:
+          openRound
+            ? "OPEN"
+            : latestRound?.status
+              ?? "NOT_STARTED",
+
+        changed_at:
+          openRound?.opened_at
+          ?? latestRound?.closed_at
+          ?? latestRound?.updated_at
+          ?? null,
+
+        changed_by:
+          openRound?.opened_by
+          ?? latestRound?.closed_by
+          ?? null,
+
+        closed_at:
+          acceptingOrders
+            ? null
+            : latestRound?.closed_at
+              ?? null,
+      };
+    },
+  );
 }
+
 
 async function getPayload() {
   const [{ data: open, error: openError }, { data: history, error: historyError }, {data: profiles,error:profilesError}] = await Promise.all([

@@ -13800,7 +13800,13 @@ function promotionSummaryGroups(
   const sessionGroups =
     Array.isArray(payload?.summary_group_states)
     && payload.summary_group_states.length
-      ? payload.summary_group_states.map(
+      ? payload.summary_group_states
+        .filter(
+          (item) =>
+            item?.has_enabled_mapping
+            !== false,
+        )
+        .map(
           (item) => ({
             id: String(
               item.summary_group_id || "",
@@ -14836,6 +14842,15 @@ function renderSettlementGroupControls(payload) {
         const hasPreviousRound =
           item.has_previous_round === true;
 
+        const hasEnabledMapping =
+          item.has_enabled_mapping !== false;
+
+        const mappedLineGroupCount =
+          Number(
+            item.mapped_line_group_count
+            || 0,
+          );
+
         const internalRoundNo =
           Number(item.round_no || 0);
 
@@ -14877,7 +14892,9 @@ function renderSettlementGroupControls(payload) {
           );
 
         const label =
-          groupName(id) || id;
+          item.summary_group_name
+          || groupName(id)
+          || id;
 
         const stateText =
           accepting
@@ -14885,6 +14902,17 @@ function renderSettlementGroupControls(payload) {
             : hasPreviousRound
               ? `ปิดรับยอด · ${identityText}`
               : "ยังไม่เปิดรอบ";
+
+        const mappingText =
+          hasEnabledMapping
+            ? (
+                mappedLineGroupCount > 0
+                  ? ` · LINE Group ${formatNumber(
+                      mappedLineGroupCount,
+                    )} กลุ่ม`
+                  : ""
+              )
+            : " · ยังไม่มี LINE Group ที่เปิดใช้งาน";
 
         const staleText =
           staleOpen
@@ -14912,7 +14940,7 @@ function renderSettlementGroupControls(payload) {
                 accepting ? "open" : "closed"
               }"
             >
-              ${escapeHtml(stateText)}${escapeHtml(staleText)}${escapeHtml(changedText)}
+              ${escapeHtml(stateText)}${escapeHtml(mappingText)}${escapeHtml(staleText)}${escapeHtml(changedText)}
             </span>
 
             <button
@@ -14927,9 +14955,19 @@ function renderSettlementGroupControls(payload) {
               data-has-previous-round="${
                 hasPreviousRound ? "true" : "false"
               }"
+              ${
+                !accepting
+                && !hasEnabledMapping
+                  ? `disabled
+                     title="ต้องผูก LINE Group ที่เปิดใช้งานก่อน"`
+                  : ""
+              }
             >
               ${
-                  accepting
+                !accepting
+                && !hasEnabledMapping
+                  ? "รอผูก LINE Group"
+                  : accepting
                     ? "ปิดรับยอด"
                     : hasPreviousRound
                       ? (
@@ -14939,7 +14977,7 @@ function renderSettlementGroupControls(payload) {
                             : "เปิดรอบใหม่"
                         )
                       : "เปิดรอบแรก"
-                }
+              }
             </button>
           </div>
         `;
@@ -14996,6 +15034,33 @@ async function changeSettlementSummaryGroup(
   const label =
     groupName(summaryGroupId)
     || summaryGroupId;
+
+  const currentGroupState =
+    (
+      state.settlement?.summary_group_states
+      || []
+    ).find(
+      (item) =>
+        String(
+          item?.summary_group_id
+          || "",
+        ) === summaryGroupId,
+    )
+    || null;
+
+  if (
+    !currentlyAccepting
+    && currentGroupState?.has_enabled_mapping
+      === false
+  ) {
+    toast(
+      `ยังเปิดรับยอด ${label} ไม่ได้: `
+      + `ยังไม่มี LINE Group ที่เปิดใช้งานผูกกับกลุ่มนี้`,
+      true,
+    );
+
+    return;
+  }
 
   if (
     currentlyAccepting
