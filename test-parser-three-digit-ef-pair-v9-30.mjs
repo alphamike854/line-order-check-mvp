@@ -44,7 +44,7 @@ function assertParsed(
 
 assert.equal(
   PARSER_VERSION,
-  "1.7.24",
+  "1.7.25",
 );
 
 

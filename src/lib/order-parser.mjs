@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.7.24";
+const PARSER_VERSION = "1.7.25";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -1620,6 +1620,213 @@ function splitThreeDigitCodeList(line) {
   const residue = raw.replace(/\d{3}/g, "").replace(/[\s,/:.]/g, "");
   return residue ? null : parts;
 }
+
+// ------------------------------------------------------------
+// Mixed-width shared trailing quantity pair.
+//
+// Confirmed production grammar:
+//
+//   930
+//   039
+//   903
+//   ...
+//   90
+//   09=50x50
+//
+// The explicit 2-digit terminal block disambiguates the pair.
+// The same pair applies to the immediately preceding explicit
+// 3-digit block:
+//
+//   3-digit block => E/F
+//   2-digit block => A/B
+//
+// Safety boundaries:
+// - at least 2 explicit 3-digit codes
+// - at least 2 explicit 2-digit codes
+// - the 2-digit block must end with an explicit =QxQ pair
+// - bare QxQ after multiple 3-digit codes remains unsupported
+// - one trailing 2-digit code is not enough evidence
+// - no permutation generation is inferred
+// ------------------------------------------------------------
+function normalizeMixedWidthSharedTrailingPair(text) {
+  const lines =
+    String(text || "").split("\n");
+
+  const out = [];
+  let index = 0;
+
+  const splitStrictTwoDigitCodeList = (raw) => {
+    const value =
+      String(raw || "").trim();
+
+    if (!value) return null;
+
+    const parts =
+      value
+        .split(/[\s,/:.]+/u)
+        .filter(Boolean);
+
+    if (
+      !parts.length
+      || parts.some(
+        (part) =>
+          !/^\d{2}$/u.test(part)
+      )
+    ) {
+      return null;
+    }
+
+    const residue =
+      value
+        .replace(/\d{2}/gu, "")
+        .replace(/[\s,/:.]/gu, "");
+
+    return residue
+      ? null
+      : parts;
+  };
+
+  const parseTerminalTwoDigitPair = (raw) => {
+    const value =
+      String(raw || "").trim();
+
+    const match = value.match(
+      /^(\d{2}(?:[\s,/:.]+\d{2})*)\s*=\s*((?:\d{1,3}(?:,\d{3})+|\d+)\s*[xX*]\s*(?:\d{1,3}(?:,\d{3})+|\d+))$/u
+    );
+
+    if (!match) return null;
+
+    const codes =
+      splitStrictTwoDigitCodeList(
+        match[1]
+      );
+
+    if (!codes) return null;
+
+    return {
+      codes,
+      quantity: match[2],
+    };
+  };
+
+  while (index < lines.length) {
+    const firstThree =
+      splitThreeDigitCodeList(
+        String(lines[index] || "").trim()
+      );
+
+    if (!firstThree) {
+      out.push(lines[index]);
+      index += 1;
+      continue;
+    }
+
+    const threeStart = index;
+    const threeCodes = [];
+    let cursor = index;
+
+    while (cursor < lines.length) {
+      const codes =
+        splitThreeDigitCodeList(
+          String(lines[cursor] || "").trim()
+        );
+
+      if (!codes) break;
+
+      threeCodes.push(...codes);
+      cursor += 1;
+    }
+
+    // Keep the existing single-pending-3-digit grammar untouched.
+    if (threeCodes.length < 2) {
+      out.push(
+        ...lines.slice(
+          threeStart,
+          cursor
+        )
+      );
+
+      index = cursor;
+      continue;
+    }
+
+    const twoStart = cursor;
+    const twoCodes = [];
+
+    let terminalIndex = -1;
+    let terminal = null;
+
+    while (cursor < lines.length) {
+      const raw =
+        String(lines[cursor] || "").trim();
+
+      const bareTwoCodes =
+        splitStrictTwoDigitCodeList(raw);
+
+      if (bareTwoCodes) {
+        twoCodes.push(
+          ...bareTwoCodes
+        );
+
+        cursor += 1;
+        continue;
+      }
+
+      const candidate =
+        parseTerminalTwoDigitPair(raw);
+
+      if (candidate) {
+        terminal = candidate;
+        terminalIndex = cursor;
+
+        twoCodes.push(
+          ...candidate.codes
+        );
+      }
+
+      break;
+    }
+
+    if (
+      terminal
+      && twoCodes.length >= 2
+    ) {
+      // Convert only the 3-digit side to canonical E/F pair grammar.
+      // The original 2-digit block is retained unchanged and will be
+      // consumed by the existing A/B parser.
+      out.push(
+        `${threeCodes.join(" ")}=${terminal.quantity}`
+      );
+
+      out.push(
+        ...lines.slice(
+          twoStart,
+          terminalIndex + 1
+        )
+      );
+
+      index =
+        terminalIndex + 1;
+
+      continue;
+    }
+
+    // Narrow contract did not match.
+    // Restore the original 3-digit portion exactly and allow all
+    // historical parser/review safeguards to handle the remainder.
+    out.push(
+      ...lines.slice(
+        threeStart,
+        twoStart
+      )
+    );
+
+    index = twoStart;
+  }
+
+  return out.join("\n");
+}
+
 
 function coalesceThreeDigitLines(lines) {
   const out = [];
@@ -4556,6 +4763,11 @@ function parseOrder(inputText, config = {}) {
   const orderNormalized =
     normalizeTrailingOrderDecoration(normalized);
 
+  const mixedWidthSharedPairNormalized =
+    normalizeMixedWidthSharedTrailingPair(
+      orderNormalized
+    );
+
   const parserText = normalizeThreeDigitVocabularyHeaders(
     normalizeReviewA5Grammar(
       normalizeCollectiveReviewGrammar(
@@ -4567,7 +4779,7 @@ function parseOrder(inputText, config = {}) {
                   normalizeTrailingTwoDigitDirectionQuantityBlocks(
                     normalizeStandaloneBlgPairBlocks(
                       normalizeContextualShortDateMetadata(
-                        orderNormalized
+                        mixedWidthSharedPairNormalized
                       )
                     )
                   )
