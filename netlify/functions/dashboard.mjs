@@ -50,8 +50,6 @@ export default async (req) => {
       }
     );
 
-    const riskSnapshotResult=await riskSnapshotQuery;
-
     let messagesQueryPromise=
       Promise.resolve({
         data:[],
@@ -90,7 +88,8 @@ export default async (req) => {
         messagesQuery;
     }
 
-        const [
+    const [
+      riskSnapshotResult,
       messagesResult,
       profileResult,
       pointContext,
@@ -101,7 +100,9 @@ export default async (req) => {
       unsends,
       batchFreshResult,
     ]=await Promise.all([
+      riskSnapshotQuery,
       messagesQueryPromise,
+
       supabase
         .from("settlement_point_profiles")
         .select(
@@ -112,11 +113,13 @@ export default async (req) => {
           session.id
         )
         .order("category"),
+
       loadDashboardPointContext({
         supabase,
         settlementSessionId:session.id,
         summaryGroupId,
       }),
+
       supabase
         .from("warehouse_transfer_limits")
         .select(
@@ -124,6 +127,7 @@ export default async (req) => {
         )
         .eq("enabled",true)
         .order("destination"),
+
       supabase
         .from("summary_group_risk_pool_settings")
         .select(
@@ -131,6 +135,7 @@ export default async (req) => {
         )
         .order("summary_group_id")
         .order("risk_pool"),
+
       supabase
         .from("settings_change_events")
         .select("changed_at")
@@ -139,15 +144,18 @@ export default async (req) => {
           {ascending:false}
         )
         .limit(1),
+
       fetchOpenReviewCount(
         messageRoundIds,
         summaryGroupId,
         session.id
       ),
+
       fetchUnsends(
         messageRoundIds,
         summaryGroupId
       ),
+
       supabase
         .from("settlement_transfer_batches")
         .select("confirmed_at")
