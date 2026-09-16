@@ -29,7 +29,19 @@ export default async (req) => {
     const summaryGroupId=normalizeSummaryGroup(url.searchParams.get("group"));
     const [{summaryGroups,lineGroups},session]=await Promise.all([loadGroupConfig(),fetchOpenSettlementSession()]);
     if(!session){
-      return json({ok:true,settlement_session:null,business_date:null,selected_summary_group:summaryGroupId??"ALL",generated_at:new Date().toISOString(),summary_groups:summaryGroups,line_groups:lineGroups,metrics:{messages_total:0,parsed:0,pending:0,review_open:0,gross_received:0,adjusted_received:0,point_reserve_total:0,risk_point_total:0,safety_margin:0,point_loss_tolerance:0,risk_budget:0,excess_point_risk:0,transfer_required_total:0,distribution_incomplete:false,confirmed_cut_total:0,risk_pct:0,last_event_at:null},risk_codes:[],category_risk:[],overall_risk:[],risk_pools:[],distribution_plans:[],line_group_risk:[],line_group_risk_codes:[],line_group_distribution_plans:[],actual_special_codes:[],point_profiles:[],point_promotions:[],warehouse_limits:[],freshness:{version:"NO_OPEN_SETTLEMENT"}});
+      return json({ok:true,settlement_session:null,business_date:null,selection_required:!summaryGroupId,selected_summary_group:summaryGroupId??null,generated_at:new Date().toISOString(),summary_groups:summaryGroups,line_groups:lineGroups,metrics:{messages_total:0,parsed:0,pending:0,review_open:0,gross_received:0,adjusted_received:0,point_reserve_total:0,risk_point_total:0,safety_margin:0,point_loss_tolerance:0,risk_budget:0,excess_point_risk:0,transfer_required_total:0,distribution_incomplete:false,confirmed_cut_total:0,risk_pct:0,last_event_at:null},risk_codes:[],category_risk:[],overall_risk:[],risk_pools:[],distribution_plans:[],line_group_risk:[],line_group_risk_codes:[],line_group_distribution_plans:[],actual_special_codes:[],point_profiles:[],point_promotions:[],warehouse_limits:[],freshness:{version:"NO_OPEN_SETTLEMENT"}});
+    }
+
+
+    if (!summaryGroupId) {
+      return json({
+        ok:true,
+        selection_required:true,
+        selected_summary_group:null,
+        generated_at:new Date().toISOString(),
+        summary_groups:summaryGroups,
+        line_groups:lineGroups,
+      });
     }
 
     const roundContext=

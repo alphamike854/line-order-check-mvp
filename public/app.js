@@ -722,7 +722,11 @@ function toast(message, isError = false) {
 
 function selectedQuery() {
   const date = businessDateInput.value;
-  const group = summaryGroupSelect.value || "ALL";
+  const selectedGroup = summaryGroupSelect.value;
+  const group =
+    selectedGroup && selectedGroup !== "ALL"
+      ? selectedGroup
+      : "";
   return `date=${encodeURIComponent(date)}&group=${encodeURIComponent(group)}`;
 }
 
@@ -743,6 +747,16 @@ function stopFreshnessPolling() {
 }
 
 async function checkFreshness() {
+  const freshnessSummaryGroup =
+    summaryGroupSelect.value;
+
+  if (
+    !freshnessSummaryGroup
+    || freshnessSummaryGroup === "ALL"
+  ) {
+    return;
+  }
+
   if (document.hidden || !state.accessKey || !state.dashboard || state.freshnessPollBusy || state.dashboardStale) return;
   state.freshnessPollBusy = true;
   try {
@@ -14121,7 +14135,7 @@ async function saveSetting(entity, values, form) {
     }
 
     state.groupsLoaded = false;
-    summaryGroupSelect.innerHTML = `<option value="ALL">ทุกกลุ่ม</option>`;
+    summaryGroupSelect.innerHTML = "";
     await loadDashboard();
   } catch (error) {
     toast(`บันทึกไม่สำเร็จ: ${error.message}`, true);
@@ -16683,20 +16697,84 @@ async function loadDashboard({
   }
   try {
     const payload = await api(`/api/dashboard?${selectedQuery()}`);
+
+    if (payload.selection_required === true) {
+      const groups =
+        Array.isArray(payload.summary_groups)
+          ? payload.summary_groups
+          : [];
+
+      const preferred =
+        summaryGroupSelect.value;
+
+      summaryGroupSelect.innerHTML = "";
+
+      for (const group of groups) {
+        const option =
+          document.createElement("option");
+
+        option.value = group.id;
+        option.textContent = group.name;
+
+        summaryGroupSelect.append(option);
+      }
+
+      if (
+        summaryGroupSelect.options.length === 0
+      ) {
+        throw new Error(
+          "ยังไม่มีกลุ่มสรุปที่เปิดใช้งาน"
+        );
+      }
+
+      if (
+        preferred
+        && preferred !== "ALL"
+        && [...summaryGroupSelect.options]
+          .some(
+            (option) =>
+              option.value === preferred,
+          )
+      ) {
+        summaryGroupSelect.value =
+          preferred;
+      } else {
+        summaryGroupSelect.selectedIndex =
+          0;
+      }
+
+      state.groupsLoaded = true;
+
+      return await loadDashboard({
+        silent,
+        preserveReviewWorkbench,
+      });
+    }
+
     state.dashboard = payload;
     state.freshnessVersion = payload.freshness?.version ?? null;
     setDashboardStale(false);
     if (!businessDateInput.value) businessDateInput.value = payload.business_date || todayBangkok();
     if (!state.groupsLoaded) {
-      const current = summaryGroupSelect.value || "ALL";
-      summaryGroupSelect.innerHTML = `<option value="ALL">ทุกกลุ่ม</option>`;
+      const current = summaryGroupSelect.value;
+      summaryGroupSelect.innerHTML = "";
       for (const group of payload.summary_groups) {
         const option = document.createElement("option");
         option.value = group.id;
         option.textContent = group.name;
         summaryGroupSelect.append(option);
       }
-      if ([...summaryGroupSelect.options].some((o) => o.value === current)) summaryGroupSelect.value = current;
+      if (
+        current
+        && [...summaryGroupSelect.options]
+          .some((o) => o.value === current)
+      ) {
+        summaryGroupSelect.value = current;
+      } else if (
+        summaryGroupSelect.options.length > 0
+      ) {
+        summaryGroupSelect.selectedIndex = 0;
+      }
       state.groupsLoaded = true;
     }
     renderMetrics(payload.metrics);

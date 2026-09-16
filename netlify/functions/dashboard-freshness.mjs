@@ -47,6 +47,23 @@ export default async(req)=>{
         url.searchParams.get("group")
       );
 
+
+    if (!summaryGroupId) {
+      return new Response(
+        JSON.stringify({
+          ok:false,
+          error:"SUMMARY_GROUP_REQUIRED",
+          message:"กรุณาเลือกกลุ่มสรุปก่อนดูข้อมูล",
+        }),
+        {
+          status:400,
+          headers:{
+            "content-type":"application/json; charset=utf-8",
+          },
+        },
+      );
+    }
+
     const roundContext=
       await loadDashboardRoundContext({
         supabase,
