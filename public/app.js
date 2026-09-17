@@ -9309,7 +9309,12 @@ function staffVerificationInlineOriginalHtml(
         ${
           sourceText
             ? escapeHtml(sourceText)
-            : "ไม่มีข้อความต้นฉบับ"
+            :
+              (
+                messageType === "IMAGE"
+                  ? "ไม่พบข้อความจาก OCR"
+                  : "ไม่มีข้อความต้นฉบับ"
+              )
         }
       </div>
     </div>
@@ -13189,6 +13194,187 @@ async function appendStaffPostCloseReviewQueue(
 
 /* Review Scanable Cards + Unified Split Review v4 */
 
+/* Review IMAGE inline evidence bridge v1 */
+function staffVerificationFirstNonBlankValue(
+  ...values
+) {
+  for (const value of values) {
+    if (
+      String(
+        value
+        ?? "",
+      ).trim()
+    ) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+
+function staffVerificationEnrichImageReviewEvidence(
+  workbenchPayload,
+  reviewItems = [],
+) {
+  if (
+    !workbenchPayload
+    || typeof workbenchPayload
+      !== "object"
+  ) {
+    return workbenchPayload;
+  }
+
+  const reviewById =
+    new Map(
+      (
+        Array.isArray(
+          reviewItems,
+        )
+          ? reviewItems
+          : []
+      )
+        .map(
+          (review) => [
+            String(
+              review?.id
+              ?? "",
+            ),
+            review,
+          ],
+        )
+        .filter(
+          ([reviewId]) =>
+            Boolean(reviewId),
+        ),
+    );
+
+  if (!reviewById.size) {
+    return workbenchPayload;
+  }
+
+  const sourceFields = [
+    "ocr_text",
+    "raw_text",
+    "normalized_text",
+    "text",
+    "display_text",
+  ];
+
+  for (
+    const feedName
+    of [
+      "verification_items",
+      "attention_items",
+      "high_total_items",
+    ]
+  ) {
+    const feed =
+      workbenchPayload[
+        feedName
+      ];
+
+    if (!Array.isArray(feed)) {
+      continue;
+    }
+
+    workbenchPayload[
+      feedName
+    ] =
+      feed.map(
+        (item) => {
+          const review =
+            reviewById.get(
+              String(
+                item?.review_id
+                ?? "",
+              ),
+            );
+
+          if (!review) {
+            return item;
+          }
+
+          const merged = {
+            ...item,
+          };
+
+          /*
+           * Keep canonical Workbench source when present.
+           * Fill only missing browser presentation evidence.
+           */
+          for (
+            const field
+            of sourceFields
+          ) {
+            if (
+              String(
+                merged?.[field]
+                ?? "",
+              ).trim()
+            ) {
+              continue;
+            }
+
+            const value =
+              staffVerificationFirstNonBlankValue(
+                review?.[field],
+              );
+
+            if (value !== null) {
+              merged[field] =
+                value;
+            }
+          }
+
+          const evidenceUrl =
+            staffVerificationFirstNonBlankValue(
+              merged
+                ?.image_evidence_url,
+              review
+                ?.image_evidence_url,
+            );
+
+          if (
+            evidenceUrl
+            !== null
+          ) {
+            merged
+              .image_evidence_url =
+                evidenceUrl;
+
+            merged
+              .image_evidence_expires_in =
+                merged
+                  ?.image_evidence_expires_in
+                ?? review
+                  ?.image_evidence_expires_in
+                ?? null;
+
+            if (
+              String(
+                merged?.message_type
+                ?? review?.message_type
+                ?? "",
+              )
+                .toUpperCase()
+              === "IMAGE"
+            ) {
+              merged
+                .has_image_evidence =
+                  true;
+            }
+          }
+
+          return merged;
+        },
+      );
+  }
+
+  return workbenchPayload;
+}
+
+
 async function loadReviews() {
   const list = $("#reviewList");
 
@@ -13300,6 +13486,11 @@ async function loadReviews() {
             ),
         );
     }
+
+    staffVerificationEnrichImageReviewEvidence(
+      workbenchPayload,
+      items,
+    );
 
     if (!items.length) {
       list.innerHTML =
