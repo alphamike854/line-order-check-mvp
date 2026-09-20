@@ -16971,7 +16971,11 @@ async function loadDashboard({
     renderMetrics(payload.metrics);
     renderSummary();
     renderAllocation();
-    renderAbAdvisoryPreview();
+    renderAbAdvisoryPreview({
+      dashboard: state.dashboard,
+      selectedSummaryGroup:
+        summaryGroupSelect.value || "ALL",
+    });
     renderAfterCut();
     await loadSettlement();
     const activeTab = $(".tab.active")?.dataset.tab;
@@ -17117,7 +17121,16 @@ summaryGroupSelect.addEventListener("change", async () => {
 $$(".tab").forEach((tab) => tab.addEventListener("click", () => activateTab(tab.dataset.tab)));
 bindSettingForms();
 bindV5Controls();
-bindAbAdvisoryPreviewControls();
+bindAbAdvisoryPreviewControls({
+  getDashboard: () =>
+    state.dashboard,
+
+  getSelectedSummaryGroup: () =>
+    summaryGroupSelect.value || "ALL",
+
+  notify: (message, isError = false) =>
+    toast(message, isError),
+});
 
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) checkFreshness();

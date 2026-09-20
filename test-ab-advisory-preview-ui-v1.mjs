@@ -82,12 +82,52 @@ assert.ok(
  */
 assert.match(
   app,
-  /renderAbAdvisoryPreview\(\)/
+  /renderAbAdvisoryPreview\(\{/
 );
 
 assert.match(
   app,
-  /bindAbAdvisoryPreviewControls\(\)/
+  /dashboard:\s*state\.dashboard/
+);
+
+assert.match(
+  app,
+  /selectedSummaryGroup:[\s\S]*summaryGroupSelect\.value/
+);
+
+assert.match(
+  app,
+  /bindAbAdvisoryPreviewControls\(\{/
+);
+
+assert.match(
+  app,
+  /dashboard:\s*state\.dashboard/
+);
+
+assert.match(
+  app,
+  /selectedSummaryGroup:[\s\S]*summaryGroupSelect\.value/
+);
+
+assert.match(
+  app,
+  /getDashboard:\s*\(\)\s*=>[\s\S]*state\.dashboard/
+);
+
+assert.doesNotMatch(
+  preview,
+  /state\.dashboard/
+);
+
+assert.doesNotMatch(
+  preview,
+  /summaryGroupSelect/
+);
+
+assert.doesNotMatch(
+  preview,
+  /\btoast\s*\(/
 );
 
 /*
@@ -279,4 +319,80 @@ console.log(
 
 console.log(
   "PASS: no API / LINE / cut mutation in preview"
+);
+
+assert.match(
+  preview,
+  /function abPreviewTotalRequired\(/
+);
+
+assert.match(
+  preview,
+  /plan\?\.\[category\]/
+);
+
+assert.match(
+  preview,
+  /row\.recommended_transfer/
+);
+
+assert.match(
+  preview,
+  /function abPreviewBatchTotal\(/
+);
+
+assert.match(
+  preview,
+  /row\.quantity/
+);
+
+assert.match(
+  preview,
+  /ยอดต้องตัดทั้งหมด/
+);
+
+assert.match(
+  preview,
+  /ยอดตัดรอบนี้/
+);
+
+console.log(
+  "PASS: total required + selected batch total copy"
+);
+
+const authoritativeTotalHelperStart =
+  preview.indexOf(
+    "function abPreviewTotalRequired("
+  );
+
+const authoritativeTotalHelperEnd =
+  preview.indexOf(
+    "function abPreviewBatchTotal(",
+    authoritativeTotalHelperStart
+  );
+
+assert.ok(
+  authoritativeTotalHelperStart >= 0
+    && authoritativeTotalHelperEnd
+      > authoritativeTotalHelperStart
+);
+
+const authoritativeTotalHelper =
+  preview.slice(
+    authoritativeTotalHelperStart,
+    authoritativeTotalHelperEnd
+  );
+
+assert.match(
+  authoritativeTotalHelper,
+  /plan\?\.transfer_required_total/
+);
+
+assert.doesNotMatch(
+  authoritativeTotalHelper,
+  /recommendations|recommended_transfer/
+);
+
+console.log(
+  "PASS: Bubble 1 total uses authoritative plan transfer total"
 );

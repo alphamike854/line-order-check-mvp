@@ -209,9 +209,12 @@ function abPreviewOperationalText(
   return sections.join("\n\n");
 }
 
-function abPreviewGroupName(groupId) {
+function abPreviewGroupName(
+  groupId,
+  dashboard
+) {
   const group =
-    (state.dashboard?.summary_groups || [])
+    (dashboard?.summary_groups || [])
       .find(
         row =>
           row.id === groupId
@@ -221,9 +224,41 @@ function abPreviewGroupName(groupId) {
     || groupId;
 }
 
+function abPreviewTotalRequired(
+  plan
+) {
+  return Math.max(
+    0,
+    Math.trunc(
+      abPreviewNumber(
+        plan?.transfer_required_total
+      )
+    )
+  );
+}
+
+function abPreviewBatchTotal(
+  rows
+) {
+  return (rows || []).reduce(
+    (total, row) =>
+      total
+      + Math.max(
+        0,
+        Math.trunc(
+          abPreviewNumber(
+            row.quantity
+          )
+        )
+      ),
+    0
+  );
+}
+
 function abPreviewBuildMessages(
   summary,
-  batchLimit
+  batchLimit,
+  dashboard
 ) {
   const plan = summary?.plan;
 
@@ -231,11 +266,28 @@ function abPreviewBuildMessages(
     return null;
   }
 
+  const rows =
+    abPreviewBatchRows(
+      plan,
+      batchLimit
+    );
+
+  const totalRequired =
+    abPreviewTotalRequired(
+      plan
+    );
+
+  const batchTotal =
+    abPreviewBatchTotal(
+      rows
+    );
+
   const bubble1 = [
     `${abPreviewGroupName(
-      summary.summary_group_id
+      summary.summary_group_id,
+      dashboard
     )} | ${abPreviewTime(
-      state.dashboard?.generated_at
+      dashboard?.generated_at
     )}`,
     "",
     `ยอดรวม ${
@@ -249,16 +301,21 @@ function abPreviewBuildMessages(
       )
     }`,
     "",
+    `ยอดต้องตัดทั้งหมด ${
+      abPreviewFormat(
+        totalRequired
+      )
+    }`,
+    `ยอดตัดรอบนี้ ${
+      abPreviewFormat(
+        batchTotal
+      )
+    }`,
+    "",
     "เพดาน/รหัส",
     `บ ${abPreviewCap(plan.A)}`,
     `ล ${abPreviewCap(plan.B)}`,
   ].join("\n");
-
-  const rows =
-    abPreviewBatchRows(
-      plan,
-      batchLimit
-    );
 
   const bubble2 =
     abPreviewOperationalText(rows);
@@ -270,7 +327,10 @@ function abPreviewBuildMessages(
   };
 }
 
-function renderAbAdvisoryPreview() {
+function renderAbAdvisoryPreview({
+  dashboard = null,
+  selectedSummaryGroup = "ALL",
+} = {}) {
   const root =
     document.getElementById(
       "abAdvisoryPreview"
@@ -279,7 +339,7 @@ function renderAbAdvisoryPreview() {
   if (!root) return;
 
   const advisory =
-    state.dashboard?.ab_advisory;
+    dashboard?.ab_advisory;
 
   if (!advisory) {
     root.innerHTML =
@@ -309,7 +369,7 @@ function renderAbAdvisoryPreview() {
     Number(batchSelect?.value || 500);
 
   const selected =
-    summaryGroupSelect?.value
+    selectedSummaryGroup
     || "ALL";
 
   let summaries =
@@ -348,7 +408,8 @@ function renderAbAdvisoryPreview() {
               <strong>
                 ${abPreviewEscape(
                   abPreviewGroupName(
-                    summary.summary_group_id
+                    summary.summary_group_id,
+                    dashboard
                   )
                 )}
               </strong>
@@ -363,7 +424,8 @@ function renderAbAdvisoryPreview() {
       const messages =
         abPreviewBuildMessages(
           summary,
-          batchLimit
+          batchLimit,
+          dashboard
         );
 
       const hasItems =
@@ -382,8 +444,9 @@ function renderAbAdvisoryPreview() {
             <strong>
               ${abPreviewEscape(
                 abPreviewGroupName(
-                  summary.summary_group_id
-                )
+                    summary.summary_group_id,
+                    dashboard
+                  )
               )}
             </strong>
             <span>
@@ -471,10 +534,25 @@ async function abPreviewCopy(text) {
 }
 
 let abAdvisoryPreviewBound = false;
+let abAdvisoryPreviewContext = null;
 
-function bindAbAdvisoryPreviewControls() {
+function bindAbAdvisoryPreviewControls({
+  getDashboard,
+  getSelectedSummaryGroup,
+  notify,
+} = {}) {
   if (abAdvisoryPreviewBound) {
     return;
+  }
+
+  if (
+    typeof getDashboard !== "function"
+    || typeof getSelectedSummaryGroup !== "function"
+    || typeof notify !== "function"
+  ) {
+    throw new Error(
+      "AB_ADVISORY_PREVIEW_CONTEXT_REQUIRED"
+    );
   }
 
   const batchSelect =
@@ -491,9 +569,25 @@ function bindAbAdvisoryPreviewControls() {
     return;
   }
 
+  abAdvisoryPreviewContext = {
+    getDashboard,
+    getSelectedSummaryGroup,
+    notify,
+  };
+
   batchSelect.addEventListener(
     "change",
-    renderAbAdvisoryPreview
+    () => {
+      renderAbAdvisoryPreview({
+        dashboard:
+          abAdvisoryPreviewContext
+            .getDashboard(),
+
+        selectedSummaryGroup:
+          abAdvisoryPreviewContext
+            .getSelectedSummaryGroup(),
+      });
+    }
   );
 
   root.addEventListener(
@@ -506,12 +600,16 @@ function bindAbAdvisoryPreviewControls() {
 
       if (!button) return;
 
+      const dashboard =
+        abAdvisoryPreviewContext
+          .getDashboard();
+
       const groupId =
         button.dataset.summaryGroupId;
 
       const summary =
         (
-          state.dashboard
+          dashboard
             ?.ab_advisory
             ?.summary_groups
           || []
@@ -527,9 +625,9 @@ function bindAbAdvisoryPreviewControls() {
         abPreviewBuildMessages(
           summary,
           Number(
-            batchSelect.value
-            || 500
-          )
+            batchSelect.value || 500
+          ),
+          dashboard
         );
 
       if (!messages?.bubble2) {
@@ -548,11 +646,12 @@ function bindAbAdvisoryPreviewControls() {
           );
         }
 
-        toast(
-          "คัดลอกรายการแล้ว"
+        abAdvisoryPreviewContext.notify(
+          "คัดลอกรายการแล้ว",
+          false
         );
       } catch {
-        toast(
+        abAdvisoryPreviewContext.notify(
           "คัดลอกไม่สำเร็จ",
           true
         );
