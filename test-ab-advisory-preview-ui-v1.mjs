@@ -263,8 +263,7 @@ assert.equal(
     "08=500",
     "",
     "บล",
-    "20=500x500",
-    "40=500x500",
+    "20 40=500x500",
   ].join("\n")
 );
 
@@ -395,4 +394,385 @@ assert.doesNotMatch(
 
 console.log(
   "PASS: Bubble 1 total uses authoritative plan transfer total"
+);
+
+// ============================================================
+// A/B Advisory Preview V2
+// ============================================================
+
+assert.match(
+  html,
+  /id="abAdvisoryTemplateSelect"/
+);
+
+assert.match(
+  html,
+  /value="A">แบบ A/
+);
+
+assert.match(
+  html,
+  /value="B">แบบ B/
+);
+
+assert.match(
+  html,
+  /value="C">แบบ C/
+);
+
+assert.match(
+  styles,
+  /\.ab-advisory-preview-controls/
+);
+
+assert.match(
+  preview,
+  /function abPreviewOrderCodes\(/
+);
+
+assert.match(
+  preview,
+  /function abPreviewAuditText\(/
+);
+
+assert.match(
+  preview,
+  /function abPreviewTemplate\(/
+);
+
+assert.match(
+  preview,
+  /templateSelect\.addEventListener\(\s*"change"/
+);
+
+assert.doesNotMatch(
+  preview,
+  /\bMath\.random\s*\(/
+);
+
+assert.doesNotMatch(
+  preview,
+  /\bspin\b/i
+);
+
+
+// ------------------------------------------------------------
+// Execute presentation helpers directly.
+// ------------------------------------------------------------
+
+const {
+  runInNewContext,
+} =
+  await import(
+    "node:vm"
+  );
+
+const v2Runtime = {};
+
+runInNewContext(
+  preview,
+  v2Runtime
+);
+
+
+const normalizedArray =
+  value =>
+    Array.from(value);
+
+
+// ------------------------------------------------------------
+// Reverse-pair ordering.
+// ------------------------------------------------------------
+
+assert.deepEqual(
+  normalizedArray(
+    v2Runtime
+      .abPreviewOrderCodes(
+        [
+          "40",
+          "04",
+          "83",
+          "38",
+          "44",
+          "60",
+          "06",
+        ]
+      )
+  ),
+  [
+    "04",
+    "40",
+    "06",
+    "60",
+    "38",
+    "83",
+    "44",
+  ]
+);
+
+assert.deepEqual(
+  normalizedArray(
+    v2Runtime
+      .abPreviewOrderCodes(
+        [
+          "40",
+          "06",
+          "44",
+          "83",
+        ]
+      )
+  ),
+  [
+    "06",
+    "40",
+    "44",
+    "83",
+  ],
+  "missing reverse codes must never be manufactured"
+);
+
+assert.deepEqual(
+  normalizedArray(
+    v2Runtime
+      .abPreviewOrderCodes(
+        [
+          "21",
+          "12",
+          "03",
+          "30",
+          "11",
+          "99",
+        ]
+      )
+  ),
+  [
+    "03",
+    "30",
+    "11",
+    "12",
+    "21",
+    "99",
+  ]
+);
+
+
+// ------------------------------------------------------------
+// Presentation fixture.
+// ------------------------------------------------------------
+
+const v2Rows = [
+  {
+    category: "A",
+    code: "40",
+    quantity: 500,
+    retained_before: 7850,
+    retention_limit: 6549,
+    recommended_transfer: 1301,
+  },
+  {
+    category: "A",
+    code: "04",
+    quantity: 500,
+    retained_before: 8100,
+    retention_limit: 6549,
+    recommended_transfer: 1551,
+  },
+  {
+    category: "A",
+    code: "60",
+    quantity: 500,
+    retained_before: 7020,
+    retention_limit: 6549,
+    recommended_transfer: 471,
+  },
+  {
+    category: "A",
+    code: "06",
+    quantity: 500,
+    retained_before: 7300,
+    retention_limit: 6549,
+    recommended_transfer: 751,
+  },
+
+  {
+    category: "B",
+    code: "43",
+    quantity: 500,
+    retained_before: 7500,
+    retention_limit: 6336,
+    recommended_transfer: 1164,
+  },
+  {
+    category: "B",
+    code: "34",
+    quantity: 500,
+    retained_before: 7900,
+    retention_limit: 6336,
+    recommended_transfer: 1564,
+  },
+  {
+    category: "B",
+    code: "83",
+    quantity: 500,
+    retained_before: 6800,
+    retention_limit: 6336,
+    recommended_transfer: 464,
+  },
+  {
+    category: "B",
+    code: "38",
+    quantity: 500,
+    retained_before: 7100,
+    retention_limit: 6336,
+    recommended_transfer: 764,
+  },
+  {
+    category: "B",
+    code: "44",
+    quantity: 500,
+    retained_before: 6600,
+    retention_limit: 6336,
+    recommended_transfer: 264,
+  },
+
+  {
+    category: "A",
+    code: "39",
+    quantity: 500,
+    retained_before: 7900,
+    retention_limit: 6549,
+    recommended_transfer: 1351,
+  },
+  {
+    category: "B",
+    code: "39",
+    quantity: 500,
+    retained_before: 7100,
+    retention_limit: 6336,
+    recommended_transfer: 764,
+  },
+
+  {
+    category: "A",
+    code: "93",
+    quantity: 500,
+    retained_before: 7000,
+    retention_limit: 6549,
+    recommended_transfer: 451,
+  },
+  {
+    category: "B",
+    code: "93",
+    quantity: 500,
+    retained_before: 6900,
+    retention_limit: 6336,
+    recommended_transfer: 564,
+  },
+];
+
+assert.equal(
+  v2Runtime
+    .abPreviewOperationalText(
+      v2Rows,
+      "A"
+    ),
+  [
+    "บ",
+    "04 40 06 60=500",
+    "",
+    "ล",
+    "34 43 38 83 44=500",
+    "",
+    "บล",
+    "39 93=500x500",
+  ].join("\n")
+);
+
+assert.equal(
+  v2Runtime
+    .abPreviewOperationalText(
+      v2Rows,
+      "B"
+    ),
+  [
+    "บ =500",
+    "04 40 06 60",
+    "",
+    "ล =500",
+    "34 43 38 83 44",
+    "",
+    "บล =500x500",
+    "39 93",
+  ].join("\n")
+);
+
+assert.equal(
+  v2Runtime
+    .abPreviewOperationalText(
+      v2Rows,
+      "C"
+    ),
+  [
+    "บ",
+    "04",
+    "40",
+    "06",
+    "60=500",
+    "",
+    "ล",
+    "34",
+    "43",
+    "38",
+    "83",
+    "44=500",
+    "",
+    "บล",
+    "39",
+    "93=500x500",
+  ].join("\n")
+);
+
+
+// ------------------------------------------------------------
+// Bubble 1 audit.
+// ------------------------------------------------------------
+
+const v2Audit =
+  v2Runtime
+    .abPreviewAuditText(
+      v2Rows
+    );
+
+assert.ok(
+  v2Audit.includes(
+    "04 8,100 | เกิน 1,551"
+  )
+);
+
+assert.ok(
+  v2Audit.includes(
+    "40 7,850 | เกิน 1,301"
+  )
+);
+
+assert.ok(
+  v2Audit.indexOf(
+    "04 8,100"
+  )
+  <
+  v2Audit.indexOf(
+    "40 7,850"
+  ),
+  "Bubble 1 A codes must sort retained high -> low"
+);
+
+assert.ok(
+  v2Audit.includes(
+    "39 บ 7,900 เกิน 1,351 | ล 7,100 เกิน 764"
+  )
+);
+
+
+console.log(
+  "PASS: A/B Advisory Preview V2 audit + deterministic templates"
 );

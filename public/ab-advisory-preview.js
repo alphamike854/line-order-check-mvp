@@ -122,10 +122,42 @@ function abPreviewBatchRows(
 
       rows.push({
         category,
+
         code:
           String(row.code ?? "")
             .padStart(2, "0"),
+
         quantity,
+
+        retained_before:
+          Math.max(
+            0,
+            Math.trunc(
+              abPreviewNumber(
+                row.retained_before
+              )
+            )
+          ),
+
+        retention_limit:
+          Math.max(
+            0,
+            Math.trunc(
+              abPreviewNumber(
+                row.retention_limit
+              )
+            )
+          ),
+
+        recommended_transfer:
+          Math.max(
+            0,
+            Math.trunc(
+              abPreviewNumber(
+                row.recommended_transfer
+              )
+            )
+          ),
       });
     }
   }
@@ -133,80 +165,621 @@ function abPreviewBatchRows(
   return rows;
 }
 
-function abPreviewOperationalText(
+function abPreviewRowsByCode(
   rows = []
 ) {
-  const byCode = new Map();
+  const map = new Map();
 
   for (const row of rows) {
+    const category =
+      row?.category;
+
+    if (
+      category !== "A"
+      && category !== "B"
+    ) {
+      continue;
+    }
+
     const code =
-      String(row.code)
+      String(row.code ?? "")
         .padStart(2, "0");
 
-    if (!byCode.has(code)) {
-      byCode.set(
+    if (!map.has(code)) {
+      map.set(
         code,
-        { A: 0, B: 0 }
+        {
+          code,
+          A: null,
+          B: null,
+        }
       );
     }
 
-    byCode.get(code)[row.category] +=
-      Math.trunc(
-        abPreviewNumber(row.quantity)
-      );
+    map.get(code)[category] = {
+      quantity:
+        Math.max(
+          0,
+          Math.trunc(
+            abPreviewNumber(
+              row.quantity
+            )
+          )
+        ),
+
+      retained_before:
+        Math.max(
+          0,
+          Math.trunc(
+            abPreviewNumber(
+              row.retained_before
+            )
+          )
+        ),
+
+      retention_limit:
+        Math.max(
+          0,
+          Math.trunc(
+            abPreviewNumber(
+              row.retention_limit
+            )
+          )
+        ),
+
+      recommended_transfer:
+        Math.max(
+          0,
+          Math.trunc(
+            abPreviewNumber(
+              row.recommended_transfer
+            )
+          )
+        ),
+    };
   }
 
+  return [...map.values()];
+}
+
+
+function abPreviewCodeCompare(
+  left,
+  right
+) {
+  return (
+    Number(left) - Number(right)
+    || String(left).localeCompare(
+      String(right)
+    )
+  );
+}
+
+
+/*
+ * Bubble 2 ordering.
+ *
+ * Reverse pair is adjacent only if both
+ * codes already exist in the SAME section.
+ *
+ * Missing reverse codes are never created.
+ */
+function abPreviewOrderCodes(
+  codes = []
+) {
+  const sorted =
+    [
+      ...new Set(
+        codes.map(
+          code =>
+            String(code ?? "")
+              .padStart(2, "0")
+        )
+      ),
+    ]
+      .filter(
+        code =>
+          /^\d{2}$/.test(code)
+      )
+      .sort(
+        abPreviewCodeCompare
+      );
+
+  const available =
+    new Set(sorted);
+
+  const used =
+    new Set();
+
+  const blocks = [];
+
+  for (const code of sorted) {
+    if (used.has(code)) {
+      continue;
+    }
+
+    const reverse =
+      `${code[1]}${code[0]}`;
+
+    if (
+      reverse !== code
+      && available.has(reverse)
+      && !used.has(reverse)
+    ) {
+      const pair =
+        [code, reverse]
+          .sort(
+            abPreviewCodeCompare
+          );
+
+      blocks.push(pair);
+
+      used.add(code);
+      used.add(reverse);
+
+      continue;
+    }
+
+    blocks.push([code]);
+    used.add(code);
+  }
+
+  blocks.sort(
+    (left, right) =>
+      abPreviewCodeCompare(
+        left[0],
+        right[0]
+      )
+  );
+
+  return blocks.flat();
+}
+
+
+function abPreviewSplitRows(
+  rows = []
+) {
   const onlyA = [];
   const onlyB = [];
   const both = [];
 
-  const codes =
-    [...byCode.keys()]
-      .sort(
-        (a, b) =>
-          Number(a) - Number(b)
-          || a.localeCompare(b)
-      );
-
-  for (const code of codes) {
-    const value = byCode.get(code);
-
-    if (value.A > 0 && value.B > 0) {
-      both.push(
-        `${code}=${value.A}x${value.B}`
-      );
-    } else if (value.A > 0) {
-      onlyA.push(
-        `${code}=${value.A}`
-      );
-    } else if (value.B > 0) {
-      onlyB.push(
-        `${code}=${value.B}`
-      );
+  for (
+    const entry
+    of abPreviewRowsByCode(rows)
+  ) {
+    if (entry.A && entry.B) {
+      both.push(entry);
+    } else if (entry.A) {
+      onlyA.push(entry);
+    } else if (entry.B) {
+      onlyB.push(entry);
     }
   }
 
+  return {
+    onlyA,
+    onlyB,
+    both,
+  };
+}
+
+
+function abPreviewOrderEntries(
+  entries = []
+) {
+  const byCode =
+    new Map(
+      entries.map(
+        entry => [
+          entry.code,
+          entry,
+        ]
+      )
+    );
+
+  return abPreviewOrderCodes(
+    entries.map(
+      entry => entry.code
+    )
+  )
+    .map(
+      code =>
+        byCode.get(code)
+    )
+    .filter(Boolean);
+}
+
+
+function abPreviewTemplate(
+  value
+) {
+  const template =
+    String(value || "A")
+      .trim()
+      .toUpperCase();
+
+  return ["A", "B", "C"].includes(
+    template
+  )
+    ? template
+    : "A";
+}
+
+
+function abPreviewSectionQuantity(
+  entries,
+  category
+) {
+  const values =
+    [
+      ...new Set(
+        entries.map(
+          entry =>
+            Math.trunc(
+              abPreviewNumber(
+                entry?.[category]
+                  ?.quantity
+              )
+            )
+        )
+      ),
+    ];
+
+  return values.length === 1
+    ? String(values[0])
+    : null;
+}
+
+
+function abPreviewBothQuantity(
+  entries
+) {
+  const values =
+    [
+      ...new Set(
+        entries.map(
+          entry =>
+            `${Math.trunc(
+              abPreviewNumber(
+                entry?.A?.quantity
+              )
+            )}x${Math.trunc(
+              abPreviewNumber(
+                entry?.B?.quantity
+              )
+            )}`
+        )
+      ),
+    ];
+
+  return values.length === 1
+    ? values[0]
+    : null;
+}
+
+
+function abPreviewCompactSection(
+  label,
+  entries,
+  quantity,
+  template
+) {
+  if (!entries.length) {
+    return "";
+  }
+
+  /*
+   * Defensive fallback:
+   * if a future batch contains mixed
+   * quantities, show each code explicitly.
+   */
+  if (!quantity) {
+    return (
+      `${label}\n`
+      + entries.map(
+        entry => {
+          if (entry.A && entry.B) {
+            return (
+              `${entry.code}=`
+              + `${entry.A.quantity}`
+              + "x"
+              + `${entry.B.quantity}`
+            );
+          }
+
+          const row =
+            entry.A || entry.B;
+
+          return (
+            `${entry.code}=`
+            + `${row.quantity}`
+          );
+        }
+      ).join("\n")
+    );
+  }
+
+  const codes =
+    entries.map(
+      entry => entry.code
+    );
+
+  /*
+   * Template B
+   *
+   * บ =500
+   * 04 40 06 60
+   */
+  if (template === "B") {
+    return (
+      `${label} =${quantity}`
+      + "\n"
+      + codes.join(" ")
+    );
+  }
+
+  /*
+   * Template C
+   *
+   * บ
+   * 04
+   * 40
+   * 06
+   * 60=500
+   */
+  if (template === "C") {
+    const lines =
+      [...codes];
+
+    const last =
+      lines.length - 1;
+
+    lines[last] =
+      `${lines[last]}=${quantity}`;
+
+    return (
+      `${label}\n`
+      + lines.join("\n")
+    );
+  }
+
+  /*
+   * Template A
+   *
+   * บ
+   * 04 40 06 60=500
+   */
+  return (
+    `${label}\n`
+    + `${codes.join(" ")}=${quantity}`
+  );
+}
+
+
+function abPreviewOperationalText(
+  rows = [],
+  templateValue = "A"
+) {
+  const template =
+    abPreviewTemplate(
+      templateValue
+    );
+
+  const {
+    onlyA,
+    onlyB,
+    both,
+  } =
+    abPreviewSplitRows(rows);
+
+  const a =
+    abPreviewOrderEntries(
+      onlyA
+    );
+
+  const b =
+    abPreviewOrderEntries(
+      onlyB
+    );
+
+  const ab =
+    abPreviewOrderEntries(
+      both
+    );
+
   const sections = [];
 
-  if (onlyA.length) {
+  if (a.length) {
     sections.push(
-      `บ\n${onlyA.join("\n")}`
+      abPreviewCompactSection(
+        "บ",
+        a,
+        abPreviewSectionQuantity(
+          a,
+          "A"
+        ),
+        template
+      )
     );
   }
 
-  if (onlyB.length) {
+  if (b.length) {
     sections.push(
-      `ล\n${onlyB.join("\n")}`
+      abPreviewCompactSection(
+        "ล",
+        b,
+        abPreviewSectionQuantity(
+          b,
+          "B"
+        ),
+        template
+      )
     );
   }
 
-  if (both.length) {
+  if (ab.length) {
     sections.push(
-      `บล\n${both.join("\n")}`
+      abPreviewCompactSection(
+        "บล",
+        ab,
+        abPreviewBothQuantity(ab),
+        template
+      )
     );
   }
 
-  return sections.join("\n\n");
+  return sections
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+
+/*
+ * Bubble 1 = stable audit view.
+ *
+ * บ / ล:
+ * retained_before high -> low.
+ *
+ * บล:
+ * combined A+B retained high -> low.
+ */
+function abPreviewAuditText(
+  rows = []
+) {
+  const {
+    onlyA,
+    onlyB,
+    both,
+  } =
+    abPreviewSplitRows(rows);
+
+  const singleSort =
+    category =>
+      (left, right) =>
+        (
+          right[category]
+            .retained_before
+          -
+          left[category]
+            .retained_before
+        )
+        ||
+        abPreviewCodeCompare(
+          left.code,
+          right.code
+        );
+
+  const bothSort =
+    (left, right) =>
+      (
+        (
+          right.A.retained_before
+          + right.B.retained_before
+        )
+        -
+        (
+          left.A.retained_before
+          + left.B.retained_before
+        )
+      )
+      ||
+      abPreviewCodeCompare(
+        left.code,
+        right.code
+      );
+
+  const a =
+    [...onlyA].sort(
+      singleSort("A")
+    );
+
+  const b =
+    [...onlyB].sort(
+      singleSort("B")
+    );
+
+  const ab =
+    [...both].sort(
+      bothSort
+    );
+
+  const sections = [
+    "รหัสรอบนี้",
+  ];
+
+  if (a.length) {
+    sections.push(
+      "บ",
+
+      ...a.map(
+        entry =>
+          `${entry.code} `
+          + `${abPreviewFormat(
+            entry.A.retained_before
+          )}`
+          + " | เกิน "
+          + `${abPreviewFormat(
+            entry.A.recommended_transfer
+          )}`
+      )
+    );
+  }
+
+  if (b.length) {
+    sections.push(
+      "",
+      "ล",
+
+      ...b.map(
+        entry =>
+          `${entry.code} `
+          + `${abPreviewFormat(
+            entry.B.retained_before
+          )}`
+          + " | เกิน "
+          + `${abPreviewFormat(
+            entry.B.recommended_transfer
+          )}`
+      )
+    );
+  }
+
+  if (ab.length) {
+    sections.push(
+      "",
+      "บล",
+
+      ...ab.map(
+        entry =>
+          `${entry.code} `
+          + `บ ${abPreviewFormat(
+            entry.A.retained_before
+          )}`
+          + ` เกิน ${abPreviewFormat(
+            entry.A.recommended_transfer
+          )}`
+          + " | "
+          + `ล ${abPreviewFormat(
+            entry.B.retained_before
+          )}`
+          + ` เกิน ${abPreviewFormat(
+            entry.B.recommended_transfer
+          )}`
+      )
+    );
+  }
+
+  if (
+    !a.length
+    && !b.length
+    && !ab.length
+  ) {
+    sections.push(
+      "ไม่มีรายการ"
+    );
+  }
+
+  return sections.join("\n");
 }
 
 function abPreviewGroupName(
@@ -258,7 +831,8 @@ function abPreviewBatchTotal(
 function abPreviewBuildMessages(
   summary,
   batchLimit,
-  dashboard
+  dashboard,
+  templateValue = "A"
 ) {
   const plan = summary?.plan;
 
@@ -282,6 +856,11 @@ function abPreviewBuildMessages(
       rows
     );
 
+  const auditText =
+    abPreviewAuditText(
+      rows
+    );
+
   const bubble1 = [
     `${abPreviewGroupName(
       summary.summary_group_id,
@@ -289,36 +868,53 @@ function abPreviewBuildMessages(
     )} | ${abPreviewTime(
       dashboard?.generated_at
     )}`,
+
     "",
+
     `ยอดรวม ${
       abPreviewFormat(
         plan.gross_received
       )
     }`,
+
     `ยอดหลังหัก ${
       abPreviewFormat(
         plan.adjusted_received
       )
     }`,
+
     "",
+
     `ยอดต้องตัดทั้งหมด ${
       abPreviewFormat(
         totalRequired
       )
     }`,
+
     `ยอดตัดรอบนี้ ${
       abPreviewFormat(
         batchTotal
       )
     }`,
+
     "",
+
+    auditText,
+
+    "",
+
     "เพดาน/รหัส",
+
     `บ ${abPreviewCap(plan.A)}`,
+
     `ล ${abPreviewCap(plan.B)}`,
   ].join("\n");
 
   const bubble2 =
-    abPreviewOperationalText(rows);
+    abPreviewOperationalText(
+      rows,
+      templateValue
+    );
 
   return {
     bubble1,
@@ -346,6 +942,7 @@ function renderAbAdvisoryPreview({
       '<div class="ab-advisory-empty">'
       + 'ยังไม่มีข้อมูลเตรียมส่งออก'
       + "</div>";
+
     return;
   }
 
@@ -357,6 +954,7 @@ function renderAbAdvisoryPreview({
       '<div class="ab-advisory-error">'
       + 'คำนวณข้อเสนอส่งออกไม่สำเร็จ'
       + "</div>";
+
     return;
   }
 
@@ -365,8 +963,20 @@ function renderAbAdvisoryPreview({
       "abAdvisoryBatchSelect"
     );
 
+  const templateSelect =
+    document.getElementById(
+      "abAdvisoryTemplateSelect"
+    );
+
   const batchLimit =
-    Number(batchSelect?.value || 500);
+    Number(
+      batchSelect?.value || 500
+    );
+
+  const template =
+    abPreviewTemplate(
+      templateSelect?.value || "A"
+    );
 
   const selected =
     selectedSummaryGroup
@@ -390,21 +1000,67 @@ function renderAbAdvisoryPreview({
       '<div class="ab-advisory-empty">'
       + 'ไม่มีข้อมูล A/B ของกลุ่มนี้'
       + "</div>";
+
     return;
   }
 
   root.innerHTML =
-    summaries.map((summary) => {
-      if (
-        summary.calculation_status
-        !== "READY"
-        || !summary.plan
-      ) {
+    summaries.map(
+      summary => {
+        if (
+          summary.calculation_status
+          !== "READY"
+          || !summary.plan
+        ) {
+          return `
+            <article
+              class="ab-advisory-card"
+            >
+              <div
+                class="ab-advisory-card-head"
+              >
+                <strong>
+                  ${abPreviewEscape(
+                    abPreviewGroupName(
+                      summary.summary_group_id,
+                      dashboard
+                    )
+                  )}
+                </strong>
+              </div>
+
+              <div
+                class="ab-advisory-error"
+              >
+                ยังไม่พร้อมคำนวณ
+              </div>
+            </article>
+          `;
+        }
+
+        const messages =
+          abPreviewBuildMessages(
+            summary,
+            batchLimit,
+            dashboard,
+            template
+          );
+
+        const hasItems =
+          messages.batchRows.length > 0;
+
         return `
           <article
             class="ab-advisory-card"
+            data-summary-group-id="${
+              abPreviewEscape(
+                summary.summary_group_id
+              )
+            }"
           >
-            <div class="ab-advisory-card-head">
+            <div
+              class="ab-advisory-card-head"
+            >
               <strong>
                 ${abPreviewEscape(
                   abPreviewGroupName(
@@ -413,84 +1069,59 @@ function renderAbAdvisoryPreview({
                   )
                 )}
               </strong>
+
+              <span>
+                รอบ ${abPreviewFormat(
+                  batchLimit
+                )}
+                · แบบ ${abPreviewEscape(
+                  template
+                )}
+              </span>
             </div>
-            <div class="ab-advisory-error">
-              ยังไม่พร้อมคำนวณ
+
+            <div
+              class="ab-advisory-bubbles"
+            >
+              <pre
+                class="ab-advisory-bubble"
+              >${abPreviewEscape(
+                messages.bubble1
+              )}</pre>
+
+              <div
+                class="ab-advisory-copy-block"
+              >
+                <pre
+                  class="ab-advisory-bubble ab-advisory-bubble-copy"
+                >${abPreviewEscape(
+                  hasItems
+                    ? messages.bubble2
+                    : "ไม่มีรายการรอบนี้"
+                )}</pre>
+
+                <button
+                  type="button"
+                  class="button ghost small ab-advisory-copy-button"
+                  data-summary-group-id="${
+                    abPreviewEscape(
+                      summary.summary_group_id
+                    )
+                  }"
+                  ${
+                    hasItems
+                      ? ""
+                      : "disabled"
+                  }
+                >
+                  Copy
+                </button>
+              </div>
             </div>
           </article>
         `;
       }
-
-      const messages =
-        abPreviewBuildMessages(
-          summary,
-          batchLimit,
-          dashboard
-        );
-
-      const hasItems =
-        messages.batchRows.length > 0;
-
-      return `
-        <article
-          class="ab-advisory-card"
-          data-summary-group-id="${
-            abPreviewEscape(
-              summary.summary_group_id
-            )
-          }"
-        >
-          <div class="ab-advisory-card-head">
-            <strong>
-              ${abPreviewEscape(
-                abPreviewGroupName(
-                    summary.summary_group_id,
-                    dashboard
-                  )
-              )}
-            </strong>
-            <span>
-              รอบ ${abPreviewFormat(
-                batchLimit
-              )}
-            </span>
-          </div>
-
-          <div class="ab-advisory-bubbles">
-            <pre
-              class="ab-advisory-bubble"
-            >${abPreviewEscape(
-              messages.bubble1
-            )}</pre>
-
-            <div
-              class="ab-advisory-copy-block"
-            >
-              <pre
-                class="ab-advisory-bubble ab-advisory-bubble-copy"
-              >${abPreviewEscape(
-                hasItems
-                  ? messages.bubble2
-                  : "ไม่มีรายการรอบนี้"
-              )}</pre>
-
-              <button
-                type="button"
-                class="button ghost small ab-advisory-copy-button"
-                data-summary-group-id="${
-                  abPreviewEscape(
-                    summary.summary_group_id
-                  )
-                }"
-                ${hasItems ? "" : "disabled"}
-              >
-                Copy
-              </button>
-            </div>
-          </div>
-        </article>
-      `;
-    }).join("");
+    ).join("");
 }
 
 async function abPreviewCopy(text) {
@@ -547,7 +1178,8 @@ function bindAbAdvisoryPreviewControls({
 
   if (
     typeof getDashboard !== "function"
-    || typeof getSelectedSummaryGroup !== "function"
+    || typeof getSelectedSummaryGroup
+      !== "function"
     || typeof notify !== "function"
   ) {
     throw new Error(
@@ -560,12 +1192,21 @@ function bindAbAdvisoryPreviewControls({
       "abAdvisoryBatchSelect"
     );
 
+  const templateSelect =
+    document.getElementById(
+      "abAdvisoryTemplateSelect"
+    );
+
   const root =
     document.getElementById(
       "abAdvisoryPreview"
     );
 
-  if (!batchSelect || !root) {
+  if (
+    !batchSelect
+    || !templateSelect
+    || !root
+  ) {
     return;
   }
 
@@ -575,8 +1216,7 @@ function bindAbAdvisoryPreviewControls({
     notify,
   };
 
-  batchSelect.addEventListener(
-    "change",
+  const rerender =
     () => {
       renderAbAdvisoryPreview({
         dashboard:
@@ -587,12 +1227,22 @@ function bindAbAdvisoryPreviewControls({
           abAdvisoryPreviewContext
             .getSelectedSummaryGroup(),
       });
-    }
+    };
+
+  batchSelect.addEventListener(
+    "change",
+    rerender
+  );
+
+  templateSelect.addEventListener(
+    "change",
+    rerender
   );
 
   root.addEventListener(
     "click",
-    async (event) => {
+
+    async event => {
       const button =
         event.target.closest(
           ".ab-advisory-copy-button"
@@ -624,10 +1274,16 @@ function bindAbAdvisoryPreviewControls({
       const messages =
         abPreviewBuildMessages(
           summary,
+
           Number(
             batchSelect.value || 500
           ),
-          dashboard
+
+          dashboard,
+
+          abPreviewTemplate(
+            templateSelect.value
+          )
         );
 
       if (!messages?.bubble2) {

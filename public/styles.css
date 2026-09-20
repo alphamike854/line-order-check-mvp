@@ -3830,6 +3830,14 @@ body{background:#f3f6fa}
   font-size: 1rem;
 }
 
+.ab-advisory-preview-controls {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .ab-advisory-batch-control {
   display: flex;
   align-items: center;
