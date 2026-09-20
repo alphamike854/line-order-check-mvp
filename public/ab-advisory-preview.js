@@ -644,7 +644,11 @@ function abPreviewOperationalText(
  * combined A+B retained high -> low.
  */
 function abPreviewAuditText(
-  rows = []
+  rows = [],
+  {
+    plan = null,
+    v3 = false,
+  } = {}
 ) {
   const {
     onlyA,
@@ -703,68 +707,158 @@ function abPreviewAuditText(
       bothSort
     );
 
-  const sections = [
-    "รหัสรอบนี้",
-  ];
+  if (!v3) {
+    const sections = [
+      "รหัสรอบนี้",
+    ];
+
+    if (a.length) {
+      sections.push(
+        "บ",
+
+        ...a.map(
+          entry =>
+            `${entry.code} `
+            + `${abPreviewFormat(
+              entry.A.retained_before
+            )}`
+            + " | เกิน "
+            + `${abPreviewFormat(
+              entry.A.recommended_transfer
+            )}`
+        )
+      );
+    }
+
+    if (b.length) {
+      sections.push(
+        "",
+
+        "ล",
+
+        ...b.map(
+          entry =>
+            `${entry.code} `
+            + `${abPreviewFormat(
+              entry.B.retained_before
+            )}`
+            + " | เกิน "
+            + `${abPreviewFormat(
+              entry.B.recommended_transfer
+            )}`
+        )
+      );
+    }
+
+    if (ab.length) {
+      sections.push(
+        "",
+
+        "บล",
+
+        ...ab.map(
+          entry =>
+            `${entry.code} `
+            + `บ ${abPreviewFormat(
+              entry.A.retained_before
+            )}`
+            + ` เกิน ${abPreviewFormat(
+              entry.A.recommended_transfer
+            )}`
+            + " | "
+            + `ล ${abPreviewFormat(
+              entry.B.retained_before
+            )}`
+            + ` เกิน ${abPreviewFormat(
+              entry.B.recommended_transfer
+            )}`
+        )
+      );
+    }
+
+    if (
+      !a.length
+      && !b.length
+      && !ab.length
+    ) {
+      sections.push(
+        "ไม่มีรายการ"
+      );
+    }
+
+    return sections.join("\n");
+  }
+
+  const capA =
+    abPreviewCap(plan?.A);
+
+  const capB =
+    abPreviewCap(plan?.B);
+
+  const sections = [];
 
   if (a.length) {
     sections.push(
-      "บ",
+      `บ · ${abPreviewFormat(a.length)} รหัส · เพดาน ${capA}`,
 
       ...a.map(
         entry =>
-          `${entry.code} `
+          `${entry.code}  `
           + `${abPreviewFormat(
             entry.A.retained_before
           )}`
-          + " | เกิน "
-          + `${abPreviewFormat(
+          + `  (+${abPreviewFormat(
             entry.A.recommended_transfer
-          )}`
+          )})`
       )
     );
   }
 
   if (b.length) {
+    if (sections.length) {
+      sections.push("");
+    }
+
     sections.push(
-      "",
-      "ล",
+      `ล · ${abPreviewFormat(b.length)} รหัส · เพดาน ${capB}`,
 
       ...b.map(
         entry =>
-          `${entry.code} `
+          `${entry.code}  `
           + `${abPreviewFormat(
             entry.B.retained_before
           )}`
-          + " | เกิน "
-          + `${abPreviewFormat(
+          + `  (+${abPreviewFormat(
             entry.B.recommended_transfer
-          )}`
+          )})`
       )
     );
   }
 
   if (ab.length) {
+    if (sections.length) {
+      sections.push("");
+    }
+
     sections.push(
-      "",
-      "บล",
+      `บล · ${abPreviewFormat(ab.length)} รหัส · เพดาน บ ${capA} / ล ${capB}`,
 
       ...ab.map(
         entry =>
-          `${entry.code} `
+          `${entry.code}  `
           + `บ ${abPreviewFormat(
             entry.A.retained_before
           )}`
-          + ` เกิน ${abPreviewFormat(
+          + ` (+${abPreviewFormat(
             entry.A.recommended_transfer
-          )}`
-          + " | "
+          )})`
+          + "  "
           + `ล ${abPreviewFormat(
             entry.B.retained_before
           )}`
-          + ` เกิน ${abPreviewFormat(
+          + ` (+${abPreviewFormat(
             entry.B.recommended_transfer
-          )}`
+          )})`
       )
     );
   }
@@ -775,7 +869,7 @@ function abPreviewAuditText(
     && !ab.length
   ) {
     sections.push(
-      "ไม่มีรายการ"
+      "ไม่มีรายการรอบนี้"
     );
   }
 
@@ -856,9 +950,19 @@ function abPreviewBuildMessages(
       rows
     );
 
+  const remainingRequired =
+    Math.max(
+      0,
+      totalRequired - batchTotal
+    );
+
   const auditText =
     abPreviewAuditText(
-      rows
+      rows,
+      {
+        plan,
+        v3: true,
+      }
     );
 
   const bubble1 = [
@@ -877,7 +981,7 @@ function abPreviewBuildMessages(
       )
     }`,
 
-    `ยอดหลังหัก ${
+    `ยอดสุทธิ ${
       abPreviewFormat(
         plan.adjusted_received
       )
@@ -885,29 +989,27 @@ function abPreviewBuildMessages(
 
     "",
 
-    `ยอดต้องตัดทั้งหมด ${
+    `ต้องส่งออกทั้งหมด ${
       abPreviewFormat(
         totalRequired
       )
     }`,
 
-    `ยอดตัดรอบนี้ ${
+    `ส่งออกรอบนี้ ${
       abPreviewFormat(
         batchTotal
+      )
+    }`,
+
+    `เหลือรอส่งออก ${
+      abPreviewFormat(
+        remainingRequired
       )
     }`,
 
     "",
 
     auditText,
-
-    "",
-
-    "เพดาน/รหัส",
-
-    `บ ${abPreviewCap(plan.A)}`,
-
-    `ล ${abPreviewCap(plan.B)}`,
   ].join("\n");
 
   const bubble2 =

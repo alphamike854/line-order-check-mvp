@@ -347,12 +347,12 @@ assert.match(
 
 assert.match(
   preview,
-  /ยอดต้องตัดทั้งหมด/
+  /ต้องส่งออกทั้งหมด/
 );
 
 assert.match(
   preview,
-  /ยอดตัดรอบนี้/
+  /ส่งออกรอบนี้/
 );
 
 console.log(
@@ -776,3 +776,102 @@ assert.ok(
 console.log(
   "PASS: A/B Advisory Preview V2 audit + deterministic templates"
 );
+
+
+// Bubble V3 presentation contract.
+{
+  const {
+    default: assertBubbleV3,
+  } =
+    await import(
+      "node:assert/strict"
+    );
+
+  const {
+    readFileSync:
+      readBubbleV3Source,
+  } =
+    await import(
+      "node:fs"
+    );
+
+  const bubbleV3Source =
+    readBubbleV3Source(
+      new URL(
+        "./public/ab-advisory-preview.js",
+        import.meta.url
+      ),
+      "utf8"
+    );
+
+  for (
+    const required of [
+      "ยอดรวม",
+      "ยอดสุทธิ",
+      "ต้องส่งออกทั้งหมด",
+      "ส่งออกรอบนี้",
+      "เหลือรอส่งออก",
+      "remainingRequired",
+      "รหัส · เพดาน",
+      "recommended_transfer",
+      "v3: true",
+    ]
+  ) {
+    assertBubbleV3.ok(
+      bubbleV3Source.includes(
+        required
+      ),
+      `Bubble V3 marker missing: ${required}`
+    );
+  }
+
+  for (
+    const stale of [
+      '"เพดาน/รหัส"',
+      "`ยอดหลังหัก ${",
+      "`ยอดต้องตัดทั้งหมด ${",
+      "`ยอดตัดรอบนี้ ${",
+    ]
+  ) {
+    assertBubbleV3.ok(
+      !bubbleV3Source.includes(
+        stale
+      ),
+      `stale Bubble V2 UI marker remains: ${stale}`
+    );
+  }
+
+  assertBubbleV3.match(
+    bubbleV3Source,
+    /remainingRequired\s*=\s*Math\.max\(\s*0,\s*totalRequired\s*-\s*batchTotal/s,
+    "remaining export must derive from authoritative total minus current batch"
+  );
+
+  assertBubbleV3.match(
+    bubbleV3Source,
+    /abPreviewAuditText\(\s*rows,\s*\{\s*plan,\s*v3:\s*true,/s,
+    "Bubble 1 must render stable V3 audit presentation"
+  );
+
+  assertBubbleV3.match(
+    bubbleV3Source,
+    /`บ · \$\{abPreviewFormat\(a\.length\)\} รหัส · เพดาน \$\{capA\}`/,
+    "A-only section must show count and A cap"
+  );
+
+  assertBubbleV3.match(
+    bubbleV3Source,
+    /`ล · \$\{abPreviewFormat\(b\.length\)\} รหัส · เพดาน \$\{capB\}`/,
+    "B-only section must show count and B cap"
+  );
+
+  assertBubbleV3.match(
+    bubbleV3Source,
+    /`บล · \$\{abPreviewFormat\(ab\.length\)\} รหัส · เพดาน บ \$\{capA\} \/ ล \$\{capB\}`/,
+    "AB section must show both caps"
+  );
+
+  console.log(
+    "PASS: A/B Advisory Preview V3 Bubble 1 presentation contract"
+  );
+}
