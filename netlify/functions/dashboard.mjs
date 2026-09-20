@@ -18,10 +18,14 @@ import {
 } from "../../src/lib/dashboard-api.mjs";
 import { buildRiskDistributionPlan } from "../../src/lib/risk-engine.mjs";
 import { buildAbAdvisoryScopes } from "../../src/lib/ab-advisory-scope.mjs";
+import {
+  DEFAULT_AB_SHARED_MAX_LOSS,
+  resolveAbSharedMaxLoss,
+} from "../../src/lib/ab-advisory-loss-setting.mjs";
 
 function sum(rows, key) { return rows.reduce((total, row) => total + Number(row[key] ?? 0), 0); }
 const RISK_POOL_CATEGORIES = Object.freeze({ MAIN:new Set(["A","B","E","F","G"]), H:new Set(["H"]), L:new Set(["L"]) });
-const AB_ADVISORY_SHARED_MAX_LOSS=200000;
+const AB_ADVISORY_SHARED_MAX_LOSS=DEFAULT_AB_SHARED_MAX_LOSS;
 
 export default async (req) => {
   if (req.method !== "GET") return json({ ok:false,error:"METHOD_NOT_ALLOWED" },405);
@@ -260,6 +264,14 @@ export default async (req) => {
         || a.code.localeCompare(b.code)
     );
 
+    const abLossSetting=
+      resolveAbSharedMaxLoss({
+        rows:riskBudgetResult?.data || [],
+        summaryGroupId,
+        fallback:
+          AB_ADVISORY_SHARED_MAX_LOSS,
+      });
+
     let abAdvisory;
 
     try {
@@ -268,7 +280,7 @@ export default async (req) => {
           summaryRows:riskCodes,
           lineGroupRows:lineGroupRiskCodes,
           sharedMaxLoss:
-            AB_ADVISORY_SHARED_MAX_LOSS,
+            abLossSetting.shared_max_loss,
         });
 
       const hasNotReady=
@@ -305,7 +317,7 @@ export default async (req) => {
         calculation_error:
           error?.message??String(error),
         shared_max_loss:
-          AB_ADVISORY_SHARED_MAX_LOSS,
+          abLossSetting.shared_max_loss,
         summary_groups:[],
         line_groups:[],
       };
