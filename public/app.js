@@ -16971,6 +16971,7 @@ async function loadDashboard({
     renderMetrics(payload.metrics);
     renderSummary();
     renderAllocation();
+    renderAbAdvisoryPreview();
     renderAfterCut();
     await loadSettlement();
     const activeTab = $(".tab.active")?.dataset.tab;
@@ -17116,6 +17117,7 @@ summaryGroupSelect.addEventListener("change", async () => {
 $$(".tab").forEach((tab) => tab.addEventListener("click", () => activateTab(tab.dataset.tab)));
 bindSettingForms();
 bindV5Controls();
+bindAbAdvisoryPreviewControls();
 
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) checkFreshness();

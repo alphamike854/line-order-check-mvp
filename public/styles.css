@@ -3807,3 +3807,138 @@ body{background:#f3f6fa}
 #postCloseReviewQueue {
   display: none !important;
 }
+
+/* A/B Advisory Preview v1 */
+.ab-advisory-preview-panel {
+  margin: 0 0 16px;
+  padding: 14px;
+  border: 1px solid #dfe7f0;
+  border-radius: 14px;
+  background: #fbfcfe;
+}
+
+.ab-advisory-preview-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.ab-advisory-preview-head h3 {
+  margin: 0 0 3px;
+  font-size: 1rem;
+}
+
+.ab-advisory-batch-control {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: .82rem;
+  color: #64748b;
+}
+
+.ab-advisory-batch-control select {
+  min-width: 92px;
+}
+
+#abAdvisoryPreview {
+  display: grid;
+  gap: 12px;
+}
+
+.ab-advisory-card {
+  padding: 12px;
+  border: 1px solid #e3e9f1;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.ab-advisory-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  font-size: .85rem;
+}
+
+.ab-advisory-card-head span {
+  color: #64748b;
+}
+
+.ab-advisory-bubbles {
+  display: grid;
+  grid-template-columns:
+    minmax(0, .85fr)
+    minmax(0, 1.15fr);
+  gap: 10px;
+}
+
+.ab-advisory-bubble {
+  margin: 0;
+  padding: 12px;
+  min-height: 140px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-family:
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    monospace;
+  font-size: .86rem;
+  line-height: 1.55;
+  border: 1px solid #e3e9f1;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #172033;
+}
+
+.ab-advisory-copy-block {
+  position: relative;
+}
+
+.ab-advisory-copy-block
+.ab-advisory-bubble {
+  padding-bottom: 48px;
+}
+
+.ab-advisory-copy-button {
+  position: absolute;
+  right: 9px;
+  bottom: 9px;
+}
+
+.ab-advisory-empty,
+.ab-advisory-error {
+  padding: 12px;
+  border-radius: 10px;
+  font-size: .86rem;
+}
+
+.ab-advisory-empty {
+  background: #f8fafc;
+  color: #64748b;
+}
+
+.ab-advisory-error {
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+@media (max-width: 760px) {
+  .ab-advisory-preview-head,
+  .ab-advisory-bubbles {
+    grid-template-columns: 1fr;
+  }
+
+  .ab-advisory-preview-head {
+    display: grid;
+  }
+
+  .ab-advisory-bubble {
+    min-height: 0;
+  }
+}

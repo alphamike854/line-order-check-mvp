@@ -128,6 +128,28 @@
           </div>
         </div>
 
+        <section class="ab-advisory-preview-panel">
+          <div class="ab-advisory-preview-head">
+            <div>
+              <h3>เตรียมส่งออก</h3>
+              <p class="muted small-text">
+                ข้อเสนอเท่านั้น · ยังไม่ได้ตัดหรือส่งจริง
+              </p>
+            </div>
+
+            <label class="ab-advisory-batch-control">
+              <span>รอบ</span>
+              <select id="abAdvisoryBatchSelect">
+                <option value="500">500</option>
+                <option value="1000">1,000</option>
+                <option value="2000">2,000</option>
+              </select>
+            </label>
+          </div>
+
+          <div id="abAdvisoryPreview"></div>
+        </section>
+
         <div id="allocationRiskSummary" class="risk-summary"></div>
 
         <div class="allocation-workspace">
@@ -390,6 +412,7 @@
       <div id="toast" class="toast hidden" role="status"></div>
     </section>
   </main>
-  <script type="module" src="/app.js"></script>
+  <script src="/ab-advisory-preview.js"></script>
+<script type="module" src="/app.js"></script>
 </body>
 </html>

@@ -17,9 +17,11 @@ import {
   supabase,
 } from "../../src/lib/dashboard-api.mjs";
 import { buildRiskDistributionPlan } from "../../src/lib/risk-engine.mjs";
+import { buildAbAdvisoryScopes } from "../../src/lib/ab-advisory-scope.mjs";
 
 function sum(rows, key) { return rows.reduce((total, row) => total + Number(row[key] ?? 0), 0); }
 const RISK_POOL_CATEGORIES = Object.freeze({ MAIN:new Set(["A","B","E","F","G"]), H:new Set(["H"]), L:new Set(["L"]) });
+const AB_ADVISORY_SHARED_MAX_LOSS=200000;
 
 export default async (req) => {
   if (req.method !== "GET") return json({ ok:false,error:"METHOD_NOT_ALLOWED" },405);
@@ -257,6 +259,57 @@ export default async (req) => {
         || Number(b.order_total)-Number(a.order_total)
         || a.code.localeCompare(b.code)
     );
+
+    let abAdvisory;
+
+    try {
+      const scopes=
+        buildAbAdvisoryScopes({
+          summaryRows:riskCodes,
+          lineGroupRows:lineGroupRiskCodes,
+          sharedMaxLoss:
+            AB_ADVISORY_SHARED_MAX_LOSS,
+        });
+
+      const hasNotReady=
+        scopes.summary_groups.some(
+          (row)=>
+            row.calculation_status!=="READY"
+        );
+
+      abAdvisory={
+        calculation_status:
+          hasNotReady
+            ? "PARTIAL"
+            : "READY",
+
+        calculation_error:null,
+
+        ...scopes,
+      };
+    } catch(error) {
+      console.warn(
+        "dashboard A/B advisory failed",
+        {
+          settlement_session_id:
+            session.id,
+          selected_summary_group:
+            summaryGroupId??"ALL",
+          error:
+            error?.message??String(error),
+        }
+      );
+
+      abAdvisory={
+        calculation_status:"ERROR",
+        calculation_error:
+          error?.message??String(error),
+        shared_max_loss:
+          AB_ADVISORY_SHARED_MAX_LOSS,
+        summary_groups:[],
+        line_groups:[],
+      };
+    }
 
     const lineGroupDistributionPlans=lineGroupRisk.flatMap((risk)=>
       ["MAIN","H","L"].map((riskPool)=>{
@@ -558,7 +611,7 @@ export default async (req) => {
     return json({
       ok:true,settlement_session:session,business_date:roundContext.businessDate,business_dates:roundContext.businessDates,current_rounds:roundContext.rounds,selected_summary_group:summaryGroupId??"ALL",generated_at:new Date().toISOString(),freshness,summary_groups:summaryGroups,line_groups:lineGroups,
       metrics:{messages_total:messages.length,parsed:messages.filter(m=>m.parse_status==="PARSED").length,pending:messages.filter(m=>m.parse_status==="PENDING").length,review_open:Number(reviewOpenCount||0),gross_received:Number(metricOverall?.gross_received||0),adjusted_received:Number(metricOverall?.adjusted_received||0),point_reserve_total:Number(metricOverall?.point_reserve_total||0),risk_point_total:Number(metricOverall?.risk_point_total||0),safety_margin:Number(metricOverall?.safety_margin||0),point_loss_tolerance:Number(metricOverall?.point_loss_tolerance||0),risk_budget:Number(metricOverall?.risk_budget||0),excess_point_risk:Number(metricOverall?.excess_point_risk||0),transfer_required_total:metricOverall?.transfer_required_total==null?null:Number(metricOverall.transfer_required_total||0),distribution_incomplete:distributionIncomplete,distribution_point_pending:distributionPointPending,confirmed_cut_total:Number(metricOverall?.confirmed_cut_total||0),risk_pct:Number(metricOverall?.risk_pct||0),last_event_at:messages[0]?.event_timestamp??roundContext.rounds[0]?.opened_at??session.opened_at},
-      risk_codes:riskCodes,category_risk:categoryRisk,overall_risk:overallRisk,risk_pools:riskPools,distribution_plans:distributionPlans,line_group_risk:lineGroupRisk,line_group_risk_codes:lineGroupRiskCodes,line_group_distribution_plans:lineGroupDistributionPlans,point_profiles:profiles,point_promotions:promotions,warehouse_limits:warehouseLimits,actual_special_codes:actual,
+      ab_advisory:abAdvisory,risk_codes:riskCodes,category_risk:categoryRisk,overall_risk:overallRisk,risk_pools:riskPools,distribution_plans:distributionPlans,line_group_risk:lineGroupRisk,line_group_risk_codes:lineGroupRiskCodes,line_group_distribution_plans:lineGroupDistributionPlans,point_profiles:profiles,point_promotions:promotions,warehouse_limits:warehouseLimits,actual_special_codes:actual,
     });
   } catch(error){console.error("dashboard failed",error);return json({ok:false,error:error?.message??String(error)},500);}
 };
