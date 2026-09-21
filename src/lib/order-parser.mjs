@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.7.25";
+const PARSER_VERSION = "1.7.26";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -1622,6 +1622,158 @@ function splitThreeDigitCodeList(line) {
 }
 
 // ------------------------------------------------------------
+
+// ------------------------------------------------------------
+// F02 mixed-width independent trailing-pair boundary.
+//
+// Production examples:
+//
+//   019
+//   910
+//   15*15
+//   01
+//   10
+//   91
+//   19
+//   50*50
+//
+// and:
+//
+//   394
+//   588
+//   847
+//   998
+//   20*20
+//   15
+//   51
+//   17
+//   71
+//   77
+//   40*40
+//
+// contain TWO adjacent, independently quantified blocks:
+//
+//   bare multi-3-digit block + its E/F pair
+//   bare multi-2-digit block + its A/B pair
+//
+// Without this boundary normalization the first bare pair can
+// leak into the following 2-digit pending-code state.
+//
+// Deliberately narrow:
+// - at least TWO bare 3-digit code lines
+// - immediately followed by one standalone quantity PAIR
+// - at least TWO bare 2-digit code lines
+// - immediately followed by a second standalone quantity PAIR
+// - no direction/modifier inference
+// - no single quantities
+// - no triple quantity expressions
+//
+// Pure multi-3-digit + bare pair remains untouched and therefore
+// retains the existing fail-closed REVIEW contract.
+// ------------------------------------------------------------
+function normalizeMixedWidthIndependentTrailingPairs(text) {
+  const lines =
+    String(text || "").split("\n");
+
+  const out = [];
+
+  const pairExpression = (value) => {
+    const raw =
+      String(value || "").trim();
+
+    const match =
+      raw.match(
+        /^=?\s*((?:\d{1,3}(?:,\d{3})+|\d+)\s*[xX*×]\s*(?:\d{1,3}(?:,\d{3})+|\d+))\s*$/u
+      );
+
+    if (!match) return null;
+
+    return match[1]
+      .replace(/×/g, "x")
+      .replace(/\s+/g, "");
+  };
+
+  const readCodes = (
+    start,
+    width,
+  ) => {
+    const codes = [];
+    let index = start;
+
+    const pattern =
+      width === 3
+        ? /^\d{3}$/u
+        : /^\d{2}$/u;
+
+    while (index < lines.length) {
+      const candidate =
+        String(lines[index] || "").trim();
+
+      if (!pattern.test(candidate)) {
+        break;
+      }
+
+      codes.push(candidate);
+      index += 1;
+    }
+
+    return {
+      codes,
+      next: index,
+    };
+  };
+
+  let index = 0;
+
+  while (index < lines.length) {
+    const three =
+      readCodes(index, 3);
+
+    if (three.codes.length >= 2) {
+      const threePair =
+        pairExpression(
+          lines[three.next]
+        );
+
+      if (threePair) {
+        const two =
+          readCodes(
+            three.next + 1,
+            2,
+          );
+
+        if (two.codes.length >= 2) {
+          const twoPair =
+            pairExpression(
+              lines[two.next]
+            );
+
+          if (twoPair) {
+            out.push(
+              `${three.codes.join(",")}=${threePair}`
+            );
+
+            out.push(
+              `${two.codes.join(",")}=${twoPair}`
+            );
+
+            index =
+              two.next + 1;
+
+            continue;
+          }
+        }
+      }
+    }
+
+    out.push(lines[index]);
+    index += 1;
+  }
+
+  return out.join("\n");
+}
+
+
 // Mixed-width shared trailing quantity pair.
 //
 // Confirmed production grammar:
@@ -4763,9 +4915,14 @@ function parseOrder(inputText, config = {}) {
   const orderNormalized =
     normalizeTrailingOrderDecoration(normalized);
 
+  const mixedWidthIndependentPairNormalized =
+    normalizeMixedWidthIndependentTrailingPairs(
+      orderNormalized
+    );
+
   const mixedWidthSharedPairNormalized =
     normalizeMixedWidthSharedTrailingPair(
-      orderNormalized
+      mixedWidthIndependentPairNormalized
     );
 
   const parserText = normalizeThreeDigitVocabularyHeaders(
