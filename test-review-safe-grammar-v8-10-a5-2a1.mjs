@@ -5,7 +5,7 @@ import {
 } from "./src/lib/order-parser.mjs";
 
 assert.ok(
-  ["1.7.0", "1.7.1", "1.7.2", "1.7.3", "1.7.4", "1.7.5", "1.7.6", "1.7.7", "1.7.8", "1.7.9", "1.7.10", "1.7.11", "1.7.12", "1.7.13", "1.7.14", "1.7.15", "1.7.16", "1.7.17", "1.7.18", "1.7.19", "1.7.20", "1.7.21", "1.7.22", "1.7.23", "1.7.24", "1.7.25", "1.7.26", "1.7.27"].includes(PARSER_VERSION),
+  ["1.7.0", "1.7.1", "1.7.2", "1.7.3", "1.7.4", "1.7.5", "1.7.6", "1.7.7", "1.7.8", "1.7.9", "1.7.10", "1.7.11", "1.7.12", "1.7.13", "1.7.14", "1.7.15", "1.7.16", "1.7.17", "1.7.18", "1.7.19", "1.7.20", "1.7.21", "1.7.22", "1.7.23", "1.7.24", "1.7.25", "1.7.26", "1.7.27", "1.7.28"].includes(PARSER_VERSION),
 );
 
 function byKey(result) {
@@ -252,13 +252,29 @@ check("SAFETY-04 dash single + modifier remains outside 2A1", () => {
 // ============================================================
 // SAFETY-05
 //
-// Code-list + trailing quantity is a different grammar.
+// NN-NN-NN remains outside the dedicated Phase 2A1 branch,
+// but the generic 2-digit quantity-pair grammar may own it.
 // ============================================================
-check("SAFETY-05 NN-NN-qty remains outside 2A1", () => {
+check("SAFETY-05 NN-NN-NN hands off to generic A/B quantity pair", () => {
   const result = parseOrder("68-86-100");
 
-  assert.equal(result.items.length, 0);
-  assert.notEqual(result.status, "PARSED");
+  assert.equal(result.status, "PARSED");
+
+  const actual = result.items
+    .map(
+      ({ category, code, quantity }) =>
+        `${category}${code}=${quantity}`
+    )
+    .sort();
+
+  assert.deepEqual(
+    actual,
+    ["A68=86", "B68=100"]
+  );
+
+  assert.ok(
+    result.rule_ids.includes("R_2DIGIT_QUANTITY_PAIR")
+  );
 });
 
 
