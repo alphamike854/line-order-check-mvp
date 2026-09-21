@@ -7,7 +7,7 @@ import {
 
 assert.equal(
   PARSER_VERSION,
-  "1.7.26",
+  "1.7.27",
 );
 
 function map(result) {

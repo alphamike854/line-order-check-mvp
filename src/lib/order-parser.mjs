@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.7.26";
+const PARSER_VERSION = "1.7.27";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -1693,6 +1693,26 @@ function normalizeMixedWidthIndependentTrailingPairs(text) {
       .replace(/\s+/g, "");
   };
 
+  // Blank lines are formatting only at the confirmed F02
+  // boundary between a completed 3-digit pair block and the
+  // immediately following 2-digit block.
+  //
+  // Do not skip arbitrary nonblank text and do not broaden
+  // pure multi-3-digit inference.
+  const nextNonBlankIndex = (start) => {
+    let index = start;
+
+    while (
+      index < lines.length
+      && !String(lines[index] || "").trim()
+    ) {
+      index += 1;
+    }
+
+    return index;
+  };
+
+
   const readCodes = (
     start,
     width,
@@ -1736,9 +1756,14 @@ function normalizeMixedWidthIndependentTrailingPairs(text) {
         );
 
       if (threePair) {
+        const twoStart =
+          nextNonBlankIndex(
+            three.next + 1,
+          );
+
         const two =
           readCodes(
-            three.next + 1,
+            twoStart,
             2,
           );
 

@@ -182,6 +182,106 @@ console.log(
 }
 
 // ------------------------------------------------------------
+// GOLD-03
+// Exact production Review 13950.
+//
+// Blank formatting separates the independently quantified
+// 3-digit and 2-digit blocks:
+//
+//   019 / 910       -> E/F 15
+//
+//   01/10/91/19     -> A/B 50
+//
+// "ป้อน" is ordinary trailing chat/noise and is intentionally
+// irrelevant to order semantics.
+//
+// The blank line must NOT terminate F02 ownership recognition.
+// ------------------------------------------------------------
+
+{
+  const input = `019
+910
+15*15
+
+01
+10
+91
+19
+50*50
+
+ป้อน`;
+
+  const result = parseOrder(input);
+
+  assert.equal(
+    result.status,
+    "PARSED",
+    "GOLD-03 exact production 13950 with blank formatting should parse",
+  );
+
+  const items = itemMap(result);
+
+  for (const code of ["019", "910"]) {
+    assertItem(items, "E", code, 15);
+    assertItem(items, "F", code, 15);
+  }
+
+  for (const code of ["01", "10", "91", "19"]) {
+    assertItem(items, "A", code, 50);
+    assertItem(items, "B", code, 50);
+  }
+
+  assertNoUnexpectedItems(
+    result,
+    12,
+  );
+
+  assert.deepEqual(
+    result.errors ?? [],
+    [],
+    "GOLD-03 must not retain parser errors",
+  );
+
+  console.log(
+    "PASS GOLD-03 production 13950 blank boundary + trailing noise",
+  );
+}
+
+
+// ------------------------------------------------------------
+// SAFETY-04
+//
+// Blank formatting and harmless trailing noise must NOT widen
+// the existing fail-closed rule for a pure multi-3-digit block.
+// ------------------------------------------------------------
+
+{
+  const result = parseOrder(`935
+539
+359
+50*50
+
+ป้อน`);
+
+  assert.equal(
+    result.status,
+    "REVIEW",
+    "SAFETY-04 pure multi-3D block must remain REVIEW",
+  );
+
+  assert.equal(
+    result.items?.length ?? 0,
+    0,
+    "SAFETY-04 must not invent E/F items",
+  );
+
+  console.log(
+    "PASS SAFETY-04 blank/noise does not widen pure multi-3D inference",
+  );
+}
+
+
+// ------------------------------------------------------------
 // SAFETY-01
 //
 // Do NOT widen this phase into:
