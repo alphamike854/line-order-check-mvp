@@ -708,6 +708,24 @@ function normalizePhaseACompletedOrderMetadataEnvelope(text) {
 // Pure multi-3D + standalone bare QxQ remains untouched and
 // therefore stays fail-closed.
 // ------------------------------------------------------------
+function hasPhaseBOrderSemanticSuffix(value) {
+  const suffix =
+    String(value || "").trim();
+
+  if (!suffix) return false;
+
+  return (
+    /[0-9=/*:+-]/u.test(suffix)
+    ||
+    /(?:บน|ล่าง|บลก?|โต๊ด|โต้ด|ตรง|กลับ|ประตู|ปะตู|ปต|วิ่ง|รูด|เบิ้ล)/u.test(
+      suffix
+    )
+    ||
+    /^(?:บ|ล)$/u.test(suffix)
+  );
+}
+
+
 function normalizePhaseBProvenGrammarFamilies(text) {
   const lines =
     String(text || "").split("\n");
@@ -1216,10 +1234,16 @@ function normalizePhaseBProvenGrammarFamilies(text) {
 
     match =
       raw.match(
-        /^(\d{2,3})\s*[-:]\s*([\d,]+)\s*[-+]\s*([\d,]+)(?:\s*[^\d].*)?$/u
+        /^(\d{2,3})\s*[-:]\s*([\d,]+)\s*[-+]\s*([\d,]+)(?:\s*([^\d].*))?$/u
       );
 
-    if (match) {
+    if (
+      match
+      &&
+      !hasPhaseBOrderSemanticSuffix(
+        match[4]
+      )
+    ) {
       canonicalPairLine(
         match[1],
         numberText(match[2]),
@@ -1269,10 +1293,16 @@ function normalizePhaseBProvenGrammarFamilies(text) {
 
     match =
       raw.match(
-        /^(\d{2,3})\s*-\s*([\d,]+)\s*[xX*×]\s*([\d,]+)(?:\s*[^\d].*)?$/u
+        /^(\d{2,3})\s*-\s*([\d,]+)\s*[xX*×]\s*([\d,]+)(?:\s*([^\d].*))?$/u
       );
 
-    if (match) {
+    if (
+      match
+      &&
+      !hasPhaseBOrderSemanticSuffix(
+        match[4]
+      )
+    ) {
       canonicalPairLine(
         match[1],
         numberText(match[2]),
@@ -1790,10 +1820,16 @@ function normalizePhaseBWidthAwareQuantityGrammar(text) {
 
     match =
       normalized.match(
-        /([\d,]+)\s*([xX*+\-])\s*([\d,]+)(?:\s*(?![xX*+×\-])[^\d].*)?$/u
+        /([\d,]+)\s*([xX*+\-])\s*([\d,]+)(?:\s*((?![xX*+×\-])[^\d].*))?$/u
       );
 
-    if (match) {
+    if (
+      match
+      &&
+      !hasPhaseBOrderSemanticSuffix(
+        match[4]
+      )
+    ) {
       const prefix =
         normalized
           .slice(
