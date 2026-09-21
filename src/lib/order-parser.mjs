@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.7.27";
+const PARSER_VERSION = "1.7.28";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -260,6 +260,1828 @@ function normalizeContextualShortDateMetadata(text) {
   return out.join("\n");
 }
 
+
+// ------------------------------------------------------------
+// Phase A — Order-first front-end normalization
+// ------------------------------------------------------------
+//
+// Scope:
+// - lexical normalization only
+// - completed-order chat metadata boundary only
+// - no quantity inheritance
+// - no 2D/3D semantic changes
+//
+// The business-semantic engine remains authoritative after this
+// front-end layer.
+//
+// Confirmed production lexical form:
+//
+//   25+50-50
+//   52+50-50 เจี้ยบ
+//
+// means:
+//
+//   25=50*50
+//   52=50*50
+//
+// Keep this deliberately narrow to a two-digit code followed by
+// an explicit two-value pair.
+//
+function normalizePhaseAPlusDashAssignments(text) {
+  return String(text || "")
+    .split("\n")
+    .map((rawLine) => {
+      const line =
+        String(rawLine || "").trim();
+
+      const match = line.match(
+        /^(\d{2})\s*\+\s*([\d,]+)\s*-\s*([\d,]+)(?:\s+(.+))?$/u
+      );
+
+      if (!match) return rawLine;
+
+      const suffix =
+        String(match[4] || "").trim();
+
+      // A trailing conversational name is safe to discard.
+      // Anything numeric/order-like in the suffix remains fail-closed.
+      if (
+        suffix &&
+        (
+          /[0-9=/*:+-]/u.test(suffix) ||
+          /(?:บน|ล่าง|บลก?|โต๊ด|โต้ด|ตรง|กลับ|ประตู|ปะตู|ปต|วิ่ง|รูด|เบิ้ล)/u.test(
+            suffix
+          )
+        )
+      ) {
+        return rawLine;
+      }
+
+      return `${match[1]}=${match[2]}*${match[3]}`;
+    })
+    .join("\n");
+}
+
+
+// Strong evidence used ONLY for deciding whether a later line may
+// safely start a trailing chat-metadata envelope.
+//
+// This helper does not emit items and does not assign semantics.
+//
+function isPhaseAFrontEndStrongOrderLine(line) {
+  const raw =
+    String(line || "").trim();
+
+  if (!raw) return false;
+
+  // Explicit assignment.
+  if (
+    /^\d{2,3}\s*=\s*[\d,]+(?:\s*[xX*+\-]\s*[\d,]+)?(?:\s*\S+)?$/u.test(
+      raw
+    )
+  ) {
+    return true;
+  }
+
+  // CODE separator Q1 pair-op Q2:
+  //
+  //   42 50*50
+  //   487-50*50
+  //   22-20-20
+  //   402 50*6กลับ
+  if (
+    /^\d{2,3}\s*(?:-|:|\s)\s*[\d,]+\s*[xX*+\-]\s*[\d,]+(?:\s*\S+)?$/u.test(
+      raw
+    )
+  ) {
+    return true;
+  }
+
+  // Several codes + one explicit pair.
+  if (
+    /^(?:\d{2,3}\s*[,/ -]\s*)+\d{2,3}\s*(?:=|:|-|\s)\s*[\d,]+\s*[xX*+\-]\s*[\d,]+/u.test(
+      raw
+    )
+  ) {
+    return true;
+  }
+
+  // Direct 2D/3D single quantity:
+  //
+  //   446-40
+  //   018=50
+  if (
+    /^\d{2,3}\s*[-=:]\s*[\d,]+\s*$/u.test(
+      raw
+    )
+  ) {
+    return true;
+  }
+
+  // Collective pair line belonging to preceding bare codes:
+  //
+  //   =20*20
+  //   20*20
+  //
+  // Slash is intentionally excluded because a bare 07/09 remains
+  // date/order ambiguous and must retain the existing safety rules.
+  if (
+    /^=?\s*[\d,]+\s*[xX*+]\s*[\d,]+\s*$/u.test(
+      raw
+    )
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+
+function isPhaseAFrontEndMetadataStart(line) {
+  const raw =
+    String(line || "").trim();
+
+  if (!raw) return false;
+
+  if (
+    isPhaseAFrontEndStrongOrderLine(raw)
+  ) {
+    return false;
+  }
+
+  // Protect assignment-like order text such as:
+  //
+  //   77=20฿
+  //
+  // Existing fail-closed behavior must remain authoritative.
+  if (
+    /^\d{1,3}\s*=/u.test(raw)
+  ) {
+    return false;
+  }
+
+  // Contextual short slash date:
+  //
+  //   16/9
+  //   พี่เพ็ญ16/9
+  //   🇹🇭16/09
+  //   16/9/69 120
+  if (
+    /(?:^|[^\d])(?:0?[1-9]|[12]\d|3[01])\s*\/\s*(?:0?[1-9]|1[0-2])(?:\s*\/\s*(?:\d{2}|\d{4}))?(?:[^\d]|$)/u.test(
+      raw
+    )
+  ) {
+    return true;
+  }
+
+  // Confirmed operational hyphen date forms:
+  //
+  //   16--9-69
+  //   16-9-69
+  //
+  // Year is required so 22-10-10 remains order/date ambiguous.
+  if (
+    /(?:^|[^\d])(?:0?[1-9]|[12]\d|3[01])\s*-{1,2}\s*(?:0?[1-9]|1[0-2])\s*-{1,2}\s*(?:26|69|25\d{2})(?:[^\d]|$)/u.test(
+      raw
+    )
+  ) {
+    return true;
+  }
+
+  // Thai month text:
+  //
+  //   16/ก.ย/2569
+  //   16.กย.69
+  //   แอน 16 กันยา 600
+  if (
+    /(?:0?[1-9]|[12]\d|3[01])\s*(?:[./-]\s*)?(?:ก\.?\s*ย\.?|กย|กันยา)(?:\s*[./-]?\s*(?:\d{2}|\d{4}))?/u.test(
+      raw
+    )
+  ) {
+    return true;
+  }
+
+  // Explicit currency / monetary summary.
+  if (
+    /(?:฿|บาท|💵)/u.test(raw)
+  ) {
+    return true;
+  }
+
+  if (
+    /^(?:ยอด|รวม)\s*[\d,]+/u.test(
+      raw.replace(
+        /^[^\p{L}\p{M}\d]+/u,
+        ""
+      )
+    )
+  ) {
+    return true;
+  }
+
+  // Name = total:
+  //
+  //   ป๋ามิตร=800
+  //   ตาเบิด=1000
+  if (
+    /^[^\d=]*[\p{L}\p{M}][^=]*=\s*[\d,]+(?:\.\d+)?\s*$/u.test(
+      raw
+    )
+  ) {
+    return true;
+  }
+
+  const hasLetters =
+    /\p{L}/u.test(raw);
+
+  const hasDigits =
+    /\d/u.test(raw);
+
+  const knownOrderVocabulary =
+    /(?:รูด|เบิ้ล|บน|ล่าง|บลก?|โต๊ด|โต้ด|ตรง|กลับ|ประตู|ปะตู|ปต|วิ่ง)/u.test(
+      raw
+    );
+
+  // Conversational sender/name + number metadata:
+  //
+  //   พี่เล็กแหม่ม55
+  //   ซ้อเอ๋ 35.🇹🇭
+  //   กมลพรแหม่ม62
+  //
+  // Preserve explicit order operators and ASCII category prefixes.
+  if (
+    hasLetters &&
+    hasDigits &&
+    !knownOrderVocabulary &&
+    !/[=xX*:+]/u.test(raw) &&
+    !/^[A-HL]\d/iu.test(raw)
+  ) {
+    return true;
+  }
+
+  // Emoji/flag + bare total:
+  //
+  //   💚66
+  //   🇹🇭 39.
+  //
+  // A plain bare number is NOT metadata here.
+  const hasDecoration =
+    /[^\p{L}\p{M}\d\s.,]/u.test(
+      raw
+    );
+
+  if (
+    hasDecoration &&
+    /^[^\p{L}\p{M}\d=]*[\d,]+(?:\.\d+)?[^\p{L}\p{M}\d=]*$/u.test(
+      raw
+    )
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+
+function isPhaseAFrontEndOrphanDirection(line) {
+  const compact =
+    String(line || "")
+      .trim()
+      .replace(/\s+/g, "");
+
+  return (
+    /^(?:บ[._/-]?ล|บน-ล่าง|ล่าง-บน|บนล่าง|บต|บ\.ต)$/u.test(
+      compact
+    )
+  );
+}
+
+
+// Remove only a TRAILING conversational envelope after at least one
+// completed order has already been established.
+//
+// Crucially, if a strong order line exists later, nothing is removed.
+// Therefore an unresolved fragment such as:
+//
+//   402 50*6กลับ
+//
+// cannot disappear merely because another order was parsed earlier.
+//
+function normalizePhaseACompletedOrderMetadataEnvelope(text) {
+  const lines =
+    String(text || "").split("\n");
+
+  let sawCompletedOrder = false;
+
+  const out = [];
+
+  for (
+    let index = 0;
+    index < lines.length;
+    index++
+  ) {
+    const rawLine =
+      lines[index];
+
+    const line =
+      String(rawLine || "").trim();
+
+    if (!line) {
+      out.push(rawLine);
+      continue;
+    }
+
+    const hasFutureStrongOrder =
+      lines
+        .slice(index + 1)
+        .some(
+          candidate =>
+            isPhaseAFrontEndStrongOrderLine(
+              candidate
+            )
+        );
+
+    if (
+      sawCompletedOrder &&
+      !hasFutureStrongOrder &&
+      (
+        isPhaseAFrontEndMetadataStart(
+          line
+        ) ||
+        isPhaseAFrontEndOrphanDirection(
+          line
+        )
+      )
+    ) {
+      return out
+        .join("\n")
+        .replace(/\n+$/u, "");
+    }
+
+    out.push(rawLine);
+
+    if (
+      isPhaseAFrontEndStrongOrderLine(
+        line
+      )
+    ) {
+      sawCompletedOrder = true;
+    }
+  }
+
+  return out.join("\n");
+}
+
+
+
+// ------------------------------------------------------------
+// Phase B — width-aware quantity canonicalization.
+//
+// This is a front-end grammar normalizer only.
+// Item/category semantics remain owned by the existing parser.
+//
+// Confirmed Human Truth V2 contracts include:
+//
+//   73=10*10
+//   37
+//     => 37 inherits the active quantity.
+//
+//   38
+//   83
+//   25*25
+//   13
+//   31
+//   50*50
+//     => each standalone pair closes its pending segment.
+//
+//   746
+//   449
+//   446=30*30
+//     => all three 3-digit codes use E/F 30.
+//
+//   449=30*3ก
+//     => counted permutation; NOT an E/F pair.
+//
+//   402 50*6กลับ
+//     => canonicalized to existing counted-permutation grammar.
+//
+// The normalizer emits canonical order text, never order items.
+// ------------------------------------------------------------
+
+// ------------------------------------------------------------
+// Phase B — proven grammar pre-canonicalization.
+//
+// This layer handles only grammar families demonstrated by the
+// Human Truth V2 RED-19 diagnostic.
+//
+// It emits canonical TEXT only. Existing parser engines remain
+// authoritative for A/B/E/F and permutation semantics.
+//
+// Supported narrow contracts:
+//
+//   15/51-20*20
+//     -> 15=20*20
+//        51=20*20
+//
+//   52-25-50*50
+//     -> 52=50*50
+//        25=50*50
+//
+//   52-100-200
+//     -> 52=100*200
+//
+//   73:50-50
+//     -> 73=50*50
+//
+//   97-10-*10
+//     -> 97=10*10
+//
+//   38 / 83 / 25*25
+//     -> 38=25*25 / 83=25*25
+//
+//   331 = 10*3 กลับ
+//     -> 331=10*3ก
+//
+// Explicit code-attached terminal quantity may close the
+// immediately preceding bare-code block, including mixed width.
+//
+// Pure multi-3D + standalone bare QxQ remains untouched and
+// therefore stays fail-closed.
+// ------------------------------------------------------------
+function normalizePhaseBProvenGrammarFamilies(text) {
+  const lines =
+    String(text || "").split("\n");
+
+
+  // ----------------------------------------------------------
+  // Ownership boundary: F02 independent mixed-width blocks.
+  //
+  // Existing dedicated normalizer owns:
+  //
+  //   >=2 bare 3-digit codes
+  //   standalone QxQ
+  //   [optional blank formatting]
+  //   >=2 bare 2-digit codes
+  //   standalone QxQ
+  //
+  // Examples:
+  //
+  //   019
+  //   910
+  //   15*15
+  //   01
+  //   10
+  //   91
+  //   19
+  //   50*50
+  //
+  // and the same form with a blank between the independently
+  // quantified blocks.
+  //
+  // Do NOT pre-canonicalize this shape. Doing so converts the
+  // 2-digit trailing block into explicit assignments before
+  // normalizeMixedWidthIndependentTrailingPairs() can use it
+  // as evidence for the preceding 3-digit block.
+  // ----------------------------------------------------------
+
+  const isBareCode = (
+    value,
+    width,
+  ) => {
+    const raw =
+      String(value || "").trim();
+
+    return (
+      width === 3
+        ? /^\d{3}$/u.test(raw)
+        : /^\d{2}$/u.test(raw)
+    );
+  };
+
+
+  const isStandalonePair = (
+    value,
+  ) => {
+    const raw =
+      String(value || "").trim();
+
+    return /^=?\s*(?:\d{1,3}(?:,\d{3})+|\d+)\s*[xX*×]\s*(?:\d{1,3}(?:,\d{3})+|\d+)\s*$/u.test(
+      raw
+    );
+  };
+
+
+  const nextNonBlank = (
+    start,
+  ) => {
+    let cursor =
+      start;
+
+    while (
+      cursor < lines.length
+      &&
+      !String(
+        lines[cursor] || ""
+      ).trim()
+    ) {
+      cursor += 1;
+    }
+
+    return cursor;
+  };
+
+
+  const hasF02IndependentTrailingPairShape = () => {
+    for (
+      let start = 0;
+      start < lines.length;
+      start += 1
+    ) {
+      if (
+        !isBareCode(
+          lines[start],
+          3,
+        )
+      ) {
+        continue;
+      }
+
+      let cursor =
+        start;
+
+      let threeCount =
+        0;
+
+      while (
+        cursor < lines.length
+        &&
+        isBareCode(
+          lines[cursor],
+          3,
+        )
+      ) {
+        threeCount += 1;
+        cursor += 1;
+      }
+
+      if (threeCount < 2) {
+        continue;
+      }
+
+      if (
+        cursor >= lines.length
+        ||
+        !isStandalonePair(
+          lines[cursor]
+        )
+      ) {
+        continue;
+      }
+
+      cursor =
+        nextNonBlank(
+          cursor + 1,
+        );
+
+      let twoCount =
+        0;
+
+      while (
+        cursor < lines.length
+        &&
+        isBareCode(
+          lines[cursor],
+          2,
+        )
+      ) {
+        twoCount += 1;
+        cursor += 1;
+      }
+
+      if (twoCount < 2) {
+        continue;
+      }
+
+      if (
+        cursor < lines.length
+        &&
+        isStandalonePair(
+          lines[cursor]
+        )
+      ) {
+        return true;
+      }
+    }
+
+    return false;
+  };
+
+
+  if (
+    hasF02IndependentTrailingPairShape()
+  ) {
+    return String(text || "");
+  }
+
+
+  const out = [];
+
+  let pendingBareCodes = [];
+
+
+  const numberText = (value) =>
+    String(value || "")
+      .replace(/,/g, "");
+
+
+  const emitPendingPair = (
+    first,
+    second,
+  ) => {
+    if (!pendingBareCodes.length) {
+      return;
+    }
+
+    for (
+      const code
+      of pendingBareCodes
+    ) {
+      out.push(
+        `${code}=${first}*${second}`
+      );
+    }
+
+    pendingBareCodes = [];
+  };
+
+
+  const flushPendingRaw = () => {
+    if (!pendingBareCodes.length) {
+      return;
+    }
+
+    out.push(
+      ...pendingBareCodes
+    );
+
+    pendingBareCodes = [];
+  };
+
+
+  const canonicalPairLine = (
+    code,
+    first,
+    second,
+  ) => {
+    emitPendingPair(
+      first,
+      second,
+    );
+
+    out.push(
+      `${code}=${first}*${second}`
+    );
+  };
+
+
+  for (
+    let index = 0;
+    index < lines.length;
+    index += 1
+  ) {
+    const original =
+      String(lines[index] || "");
+
+    const raw =
+      original.trim();
+
+
+    // --------------------------------------------------------
+    // Blank formatting is a boundary for THIS narrow layer.
+    //
+    // Existing dedicated mixed-width/F02 normalizers may still
+    // interpret blank-separated contracts later in the pipeline.
+    // --------------------------------------------------------
+
+    if (!raw) {
+      flushPendingRaw();
+      out.push("");
+      continue;
+    }
+
+
+    // --------------------------------------------------------
+    // Numeric chat metadata proven by RED-19.
+    //
+    // Do not allow the embedded number to become a pending
+    // order code.
+    // --------------------------------------------------------
+
+    if (
+      /^บิล\s+\d{1,3}$/u.test(
+        raw
+      )
+      ||
+      /^บ\.\s*\d{1,3}\s*ม$/u.test(
+        raw
+      )
+    ) {
+      flushPendingRaw();
+
+      // The line is metadata only; omit it from parser text.
+      continue;
+    }
+
+
+    // --------------------------------------------------------
+    // Counted 3-digit permutation spacing.
+    //
+    // Canonical engine vocabulary is *3ก / *6ก.
+    // --------------------------------------------------------
+
+    let match =
+      raw.match(
+        /^(\d{3})\s*(?:=|\s)\s*([\d,]+)\s*[xX*×]\s*([36])\s*(?:ก|กลับ)\s*$/u
+      );
+
+    if (match) {
+      flushPendingRaw();
+
+      out.push(
+        `${match[1]}=${numberText(match[2])}*${match[3]}ก`
+      );
+
+      continue;
+    }
+
+
+    // --------------------------------------------------------
+    // Malformed pair separator:
+    //
+    //   97-10-*10
+    //
+    // means 97=10*10.
+    // --------------------------------------------------------
+
+    match =
+      raw.match(
+        /^(\d{2,3})\s*-\s*([\d,]+)\s*-\s*\*\s*([\d,]+)\s*$/u
+      );
+
+    if (match) {
+      canonicalPairLine(
+        match[1],
+        numberText(match[2]),
+        numberText(match[3]),
+      );
+
+      continue;
+    }
+
+
+    // --------------------------------------------------------
+    // Long homogeneous hyphen code list.
+    //
+    // A sequence of FOUR OR MORE same-width codes separated
+    // only by hyphens is a code list, not CODE-Q1-Q2 syntax.
+    //
+    // Confirmed contracts:
+    //
+    //   12-30-38-80-46-35
+    //   บลก.500-
+    //
+    // and:
+    //
+    //   018-028-931-315-493
+    //   =50
+    //
+    // Preserve the codes as pending bare codes so the existing
+    // downstream quantity/modifier owners remain authoritative.
+    //
+    // The >=4 restriction deliberately keeps ordinary forms
+    // such as:
+    //
+    //   52-100-200
+    //
+    // in the CODE-Q1-Q2 grammar.
+    // --------------------------------------------------------
+
+    const longHyphenCodes =
+      raw.match(
+        /^\d{2,3}(?:\s*-\s*\d{2,3}){3,}$/u
+      );
+
+    if (longHyphenCodes) {
+      const codes =
+        raw
+          .split(/\s*-\s*/u)
+          .filter(Boolean);
+
+      const widths =
+        new Set(
+          codes.map(
+            code =>
+              code.length
+          )
+        );
+
+      if (
+        codes.length >= 4
+        &&
+        widths.size === 1
+        &&
+        codes.every(
+          code =>
+            /^\d{2,3}$/u.test(code)
+        )
+      ) {
+        pendingBareCodes.push(
+          ...codes
+        );
+
+        continue;
+      }
+    }
+
+
+    // --------------------------------------------------------
+    // Code list + terminal pair:
+    //
+    //   15/51-20*20
+    //   62/26-50*50
+    //   52-25-50*50
+    //   25-52-10*10
+    //
+    // Important: run BEFORE ordinary code-Q-Q handling.
+    // --------------------------------------------------------
+
+    match =
+      raw.match(
+        /^((?:\d{2,3})(?:\s*[\/-]\s*\d{2,3})+)\s*-\s*([\d,]+)\s*[xX*×]\s*([\d,]+)(?:\s*[^\d].*)?$/u
+      );
+
+    if (match) {
+      const codes =
+        match[1]
+          .split(/\s*[\/-]\s*/u)
+          .filter(Boolean);
+
+      const widths =
+        new Set(
+          codes.map(
+            code =>
+              code.length
+          )
+        );
+
+      if (
+        codes.length >= 2
+        &&
+        widths.size === 1
+        &&
+        codes.every(
+          code =>
+            /^\d{2,3}$/u.test(
+              code
+            )
+        )
+      ) {
+        const first =
+          numberText(
+            match[2]
+          );
+
+        const second =
+          numberText(
+            match[3]
+          );
+
+        emitPendingPair(
+          first,
+          second,
+        );
+
+        for (
+          const code
+          of codes
+        ) {
+          out.push(
+            `${code}=${first}*${second}`
+          );
+        }
+
+        continue;
+      }
+    }
+
+
+    // --------------------------------------------------------
+    // DATE_LIKE_DASH_TRIPLET_BOUNDARY_V2
+    //
+    // This is the FIRST OWNER proved by the full pipeline trace.
+    //
+    // Preserve the current raw line before the generic
+    // CODE-Q1-Q2 canonicalizer can turn:
+    //
+    //   27-08-69 -> 27=08*69
+    //   28-8-69  -> 28=8*69
+    //   22-10-10 -> 22=10*10
+    //
+    if (
+      isPlausibleDateLikeDashTriplet(
+        raw
+      )
+    ) {
+      flushPendingRaw();
+
+      out.push(
+        original
+      );
+
+      continue;
+    }
+
+
+    // Direct CODE-Q1-Q2 / CODE:Q1-Q2 / CODE-Q1+Q2.
+    //
+    //   59-155-155
+    //   52-100-200
+    //   73:50-50
+    //   50-50+50
+    //   248-20-20
+    //
+    // A code-attached terminal pair closes immediately
+    // preceding bare codes with the same quantity.
+    // --------------------------------------------------------
+
+    match =
+      raw.match(
+        /^(\d{2,3})\s*[-:]\s*([\d,]+)\s*[-+]\s*([\d,]+)(?:\s*[^\d].*)?$/u
+      );
+
+    if (match) {
+      canonicalPairLine(
+        match[1],
+        numberText(match[2]),
+        numberText(match[3]),
+      );
+
+      continue;
+    }
+
+
+    // --------------------------------------------------------
+    // CODE Q1-Q2:
+    //
+    //   03 100-100
+    //
+    // Keep whitespace assignment narrow: only "-" between
+    // quantities. Star-pair whitespace syntax is already owned
+    // by the existing active-quantity engine.
+    // --------------------------------------------------------
+
+    match =
+      raw.match(
+        /^(\d{2,3})\s+([\d,]+)\s*-\s*([\d,]+)(?:\s*[^\d].*)?$/u
+      );
+
+    if (match) {
+      canonicalPairLine(
+        match[1],
+        numberText(match[2]),
+        numberText(match[3]),
+      );
+
+      continue;
+    }
+
+
+    // --------------------------------------------------------
+    // CODE-Q1*Q2 with optional trailing chat metadata:
+    //
+    //   320-10*10
+    //   69-200*200ลุงนัด
+    //
+    // Existing parser already understands many clean forms;
+    // this canonicalization also allows the terminal anchor to
+    // close preceding bare codes.
+    // --------------------------------------------------------
+
+    match =
+      raw.match(
+        /^(\d{2,3})\s*-\s*([\d,]+)\s*[xX*×]\s*([\d,]+)(?:\s*[^\d].*)?$/u
+      );
+
+    if (match) {
+      canonicalPairLine(
+        match[1],
+        numberText(match[2]),
+        numberText(match[3]),
+      );
+
+      continue;
+    }
+
+
+    // --------------------------------------------------------
+    // Standalone pair closes ONLY a pure 2-digit pending block.
+    //
+    //   38
+    //   83
+    //   25*25
+    //
+    // Optional trailing chat text is permitted:
+    //
+    //   20*20พี่รวม
+    //
+    // Pure pending 3-digit block is deliberately excluded:
+    //
+    //   797
+    //   971
+    //   ...
+    //   10*10
+    //
+    // remains fail-closed.
+    // --------------------------------------------------------
+
+    match =
+      raw.match(
+        /^([\d,]+)\s*[xX*×]\s*([\d,]+)(?:\s*[^\d].*)?$/u
+      );
+
+    if (
+      match
+      &&
+      pendingBareCodes.length
+      &&
+      pendingBareCodes.every(
+        code =>
+          /^\d{2}$/u.test(
+            code
+          )
+      )
+    ) {
+      emitPendingPair(
+        numberText(match[1]),
+        numberText(match[2]),
+      );
+
+      // A standalone terminal quantity closes the pending block
+      // but does NOT establish forward carry into a subsequent
+      // independent block.
+      //
+      // Example:
+      //
+      //   78
+      //   87
+      //   1000*1000
+      //
+      //   778
+      //   100*100
+      //
+      // The synthetic blank preserves that scope boundary for
+      // the downstream width-aware normalizer.
+      out.push("");
+
+      continue;
+    }
+
+
+    // --------------------------------------------------------
+    // Bare code: defer ownership until quantity evidence arrives.
+    // --------------------------------------------------------
+
+    if (
+      /^\d{2,3}$/u.test(
+        raw
+      )
+    ) {
+      pendingBareCodes.push(
+        raw
+      );
+
+      continue;
+    }
+
+
+    // --------------------------------------------------------
+    // Any other syntax is a boundary for this layer.
+    //
+    // Preserve bare codes byte-semantically so downstream
+    // fail-closed behavior remains authoritative.
+    // --------------------------------------------------------
+
+    flushPendingRaw();
+
+    out.push(
+      original
+    );
+  }
+
+
+  flushPendingRaw();
+
+
+  return out.join("\n");
+}
+
+
+function normalizePhaseBWidthAwareQuantityGrammar(text) {
+  const lines =
+    String(text || "").split("\n");
+
+  const out = [];
+
+  let pending = [];
+  let activeQuantity = null;
+
+  const numeric = (value) =>
+    Number(
+      String(value || "")
+        .replace(/,/g, "")
+    );
+
+  const clean = (value) =>
+    String(value || "")
+      .replace(/×/gu, "x")
+      .replace(
+        /(\d[\d,]*)\s*-\s*\*\s*(\d[\d,]*)/gu,
+        "$1*$2"
+      )
+      .trim();
+
+  const pair = (first, second) => ({
+    kind: "PAIR",
+    first: numeric(first),
+    second: numeric(second),
+  });
+
+  const single = (quantity) => ({
+    kind: "SINGLE",
+    quantity: numeric(quantity),
+  });
+
+  const assignment = (
+    code,
+    quantity
+  ) => {
+    if (quantity.kind === "PAIR") {
+      return (
+        `${code}=`
+        + `${quantity.first}*${quantity.second}`
+      );
+    }
+
+    if (quantity.kind === "SINGLE") {
+      return `${code}=${quantity.quantity}`;
+    }
+
+    return null;
+  };
+
+  const emitPending = (quantity) => {
+    if (!pending.length) return true;
+
+    const rendered = [];
+
+    for (const code of pending) {
+      const line =
+        assignment(
+          code,
+          quantity
+        );
+
+      if (!line) return false;
+
+      rendered.push(line);
+    }
+
+    out.push(...rendered);
+
+    pending = [];
+
+    return true;
+  };
+
+  const preservePending = () => {
+    out.push(...pending);
+    pending = [];
+  };
+
+  const closeAtBoundary = () => {
+    if (!pending.length) {
+      activeQuantity = null;
+      return;
+    }
+
+    if (activeQuantity) {
+      if (!emitPending(activeQuantity)) {
+        preservePending();
+      }
+    }
+    else {
+      preservePending();
+    }
+
+    activeQuantity = null;
+  };
+
+  const parseCodeList = (raw) => {
+    let value =
+      String(raw || "").trim();
+
+    value =
+      value.replace(
+        /[=:\-\s]+$/u,
+        ""
+      );
+
+    if (!value) return [];
+
+    const parts =
+      value
+        .split(/[\s,\/-]+/u)
+        .filter(Boolean);
+
+    if (
+      !parts.length
+      ||
+      parts.some(
+        (part) =>
+          !/^\d{2,3}$/u.test(part)
+      )
+    ) {
+      return null;
+    }
+
+    // One syntactic code-list must be width-homogeneous.
+    const widths =
+      new Set(
+        parts.map(
+          (part) =>
+            part.length
+        )
+      );
+
+    if (widths.size !== 1) {
+      return null;
+    }
+
+    return parts;
+  };
+
+  const looksLikePureCodeList = (
+    value
+  ) => {
+    if (
+      !/^\d{2,3}(?:\s*[-/]\s*\d{2,3})+$/u.test(
+        value
+      )
+    ) {
+      return null;
+    }
+
+    const codes =
+      value.match(/\d{2,3}/gu)
+      || [];
+
+    const allThree =
+      codes.length >= 3
+      &&
+      codes.every(
+        (code) =>
+          code.length === 3
+      );
+
+    // 22-20-20 is quantity syntax, not a code list.
+    // Long lists and >=3 all-3D lists are unambiguous.
+    if (
+      codes.length >= 4
+      ||
+      allThree
+    ) {
+      return codes;
+    }
+
+    return null;
+  };
+
+  const isDateLike = (value) => {
+    const raw =
+      String(value || "").trim();
+
+    return (
+      isPlausibleDateLikeDashTriplet(
+        raw
+      )
+      ||
+      /^(?:0?[1-9]|[12]\d|3[01])\s*\/\s*(?:0?[1-9]|1[0-2])(?:\s*\/\s*(?:\d{2}|\d{4}))?$/u.test(
+        raw
+      )
+    );
+  };
+
+  for (
+    let index = 0;
+    index < lines.length;
+    index += 1
+  ) {
+    const original =
+      String(lines[index] || "");
+
+    const raw =
+      original.trim();
+
+    if (!raw) {
+      closeAtBoundary();
+      out.push("");
+      continue;
+    }
+
+    if (isDateLike(raw)) {
+      closeAtBoundary();
+      out.push(original);
+      continue;
+    }
+
+    // --------------------------------------------------------
+    // PHASE_B_INLINE_COUNTED_PERMUTE_OWNER_BOUNDARY
+    //
+    // Inline multi-3D + explicit permutation vocabulary belongs
+    // to parseThreeDigitRhs(), not the width-aware E/F pair
+    // canonicalizer.
+    //
+    //   886 887 889=50*3ก
+    //   397 349 796=50*6กลับ
+    //
+    // Keep the original line intact so the authoritative
+    // COUNTED_PERMUTE engine can validate unique permutations
+    // independently for every source code.
+    //
+    // Ordinary unmarked pair syntax remains owned here:
+    //
+    //   123=20*3
+    //
+    // and therefore stays ordinary E/F pair grammar.
+    // --------------------------------------------------------
+    const inlineMultiThreeDigitCountedPermute =
+      raw.match(
+        /^((?:\d{3}\s+)+\d{3})\s*=\s*([\d,]+)\s*[xX*×]\s*([136])\s*(?:ก|กลับ|ทุกกลับ|ประตู|ปต|ปะตู)\s*$/u
+      );
+
+    if (
+      inlineMultiThreeDigitCountedPermute
+    ) {
+      closeAtBoundary();
+      out.push(original);
+      continue;
+    }
+
+    const normalized =
+      clean(raw);
+
+    // --------------------------------------------------------
+    // บลก.<quantity>
+    //
+    // Pending 2-digit codes become A+B plus reverse codes.
+    // Emit the expanded code set as ordinary pair assignments
+    // so existing 2D semantics stay authoritative.
+    // --------------------------------------------------------
+
+    let match =
+      normalized.match(
+        /^(?:บลก|บนล่างกลับ)\.?\s*([\d,]+)\s*-?\s*$/u
+      );
+
+    if (match) {
+      if (
+        pending.length
+        &&
+        pending.every(
+          (code) =>
+            /^\d{2}$/u.test(code)
+        )
+      ) {
+        const quantity =
+          numeric(match[1]);
+
+        const expanded =
+          new Set();
+
+        for (const code of pending) {
+          expanded.add(code);
+
+          expanded.add(
+            code
+              .split("")
+              .reverse()
+              .join("")
+          );
+        }
+
+        pending = [];
+
+        for (
+          const code
+          of expanded
+        ) {
+          out.push(
+            `${code}=${quantity}*${quantity}`
+          );
+        }
+
+        activeQuantity = null;
+        continue;
+      }
+    }
+
+    // --------------------------------------------------------
+    // Existing counted-permutation engine already understands:
+    //
+    //   331=10*3กลับ
+    //   402=50*6กลับ
+    //
+    // Only canonicalize whitespace form / "3 กลับ".
+    // --------------------------------------------------------
+
+    match =
+      normalized.match(
+        /^(\d{3})\s*(?:=|\s)\s*([\d,]+)\s*[xX*]\s*([36])\s*(?:ก|กลับ)(?:\s+.*)?$/u
+      );
+
+    if (match) {
+      if (pending.length) {
+        if (activeQuantity) {
+          emitPending(activeQuantity);
+        }
+        else {
+          preservePending();
+        }
+      }
+
+      out.push(
+        `${match[1]}=${numeric(match[2])}*${match[3]}ก`
+      );
+
+      activeQuantity = null;
+      continue;
+    }
+
+    // Variant: 10*3 กลับ
+    match =
+      normalized.match(
+        /^(\d{3})\s*(?:=|\s)\s*([\d,]+)\s*[xX*]\s*([36])\s+กลับ(?:\s+.*)?$/u
+      );
+
+    if (match) {
+      if (pending.length) {
+        if (activeQuantity) {
+          emitPending(activeQuantity);
+        }
+        else {
+          preservePending();
+        }
+      }
+
+      out.push(
+        `${match[1]}=${numeric(match[2])}*${match[3]}ก`
+      );
+
+      activeQuantity = null;
+      continue;
+    }
+
+    // --------------------------------------------------------
+    // Pure code lists must be recognized BEFORE terminal-pair
+    // parsing, otherwise:
+    //
+    //   018-028-931-315-493
+    //
+    // could be mistaken for a quantity expression.
+    // --------------------------------------------------------
+
+    const pureCodes =
+      looksLikePureCodeList(
+        normalized
+      );
+
+    if (pureCodes) {
+      pending.push(
+        ...pureCodes
+      );
+      continue;
+    }
+
+    // --------------------------------------------------------
+    // Pair quantity at end of line.
+    //
+    // Covers:
+    //   77=50-50
+    //   52-100-200
+    //   52-25-50*50
+    //   15/51-20*20
+    //   03 100-100
+    //   76:100*100
+    //   97-10-*10
+    //   50-50+50
+    //
+    // and ordinary code=QxQ.
+    // --------------------------------------------------------
+
+    match =
+      normalized.match(
+        /([\d,]+)\s*([xX*+\-])\s*([\d,]+)(?:\s*(?![xX*+×\-])[^\d].*)?$/u
+      );
+
+    if (match) {
+      const prefix =
+        normalized
+          .slice(
+            0,
+            match.index
+          )
+          .trim();
+
+      const codes =
+        parseCodeList(
+          prefix
+        );
+
+      const quantity =
+        pair(
+          match[1],
+          match[3]
+        );
+
+      if (
+        codes
+        &&
+        codes.length
+      ) {
+        // Pending codes before a new explicit quantity:
+        //
+        // - with an active quantity => previous segment
+        // - without one            => terminal/new quantity
+        if (pending.length) {
+          const pendingQuantity =
+            activeQuantity
+            || quantity;
+
+          if (
+            !emitPending(
+              pendingQuantity
+            )
+          ) {
+            preservePending();
+          }
+        }
+
+        for (const code of codes) {
+          out.push(
+            assignment(
+              code,
+              quantity
+            )
+          );
+        }
+
+        activeQuantity =
+          quantity;
+
+        continue;
+      }
+
+      // Standalone terminal pair:
+      //
+      //   38
+      //   83
+      //   25*25
+      //
+      // It closes pending but is NOT forward carry.
+      if (
+        (!codes || !codes.length)
+        &&
+        pending.length
+        &&
+        pending.every(
+          (code) =>
+            /^\\d{2}$/u.test(code)
+        )
+        &&
+        match.index === 0
+      ) {
+        if (
+          emitPending(
+            quantity
+          )
+        ) {
+          activeQuantity = null;
+          continue;
+        }
+      }
+    }
+
+    // --------------------------------------------------------
+    // Explicit incomplete code:
+    //
+    //   93=50*50
+    //   39=
+    //
+    // 39 inherits the currently active quantity.
+    // --------------------------------------------------------
+
+    match =
+      normalized.match(
+        /^(\d{2,3})\s*=\s*$/u
+      );
+
+    if (
+      match
+      &&
+      activeQuantity
+    ) {
+      out.push(
+        assignment(
+          match[1],
+          activeQuantity
+        )
+      );
+
+      continue;
+    }
+
+    // --------------------------------------------------------
+    // Standalone =single closes pending.
+    //
+    //   018-028-931-315-493
+    //   =50
+    //
+    // For 3D, existing parser maps single quantity to E only.
+    // --------------------------------------------------------
+
+    match =
+      normalized.match(
+        /^=\s*([\d,]+)\s*$/u
+      );
+
+    if (
+      match
+      &&
+      pending.length
+    ) {
+      const quantity =
+        single(
+          match[1]
+        );
+
+      if (
+        emitPending(
+          quantity
+        )
+      ) {
+        activeQuantity = null;
+        continue;
+      }
+    }
+
+    // --------------------------------------------------------
+    // Direct 3D single dash assignment:
+    //
+    //   446-40 -> 446=40
+    //
+    // Keep this 3D-only to avoid broadening 2D "-" semantics.
+    // --------------------------------------------------------
+
+    match =
+      normalized.match(
+        /^(\d{3})\s*-\s*([\d,]+)\s*$/u
+      );
+
+    if (match) {
+      const quantity =
+        single(
+          match[2]
+        );
+
+      if (pending.length) {
+        const pendingQuantity =
+          activeQuantity
+          || quantity;
+
+        if (
+          !emitPending(
+            pendingQuantity
+          )
+        ) {
+          preservePending();
+        }
+      }
+
+      out.push(
+        assignment(
+          match[1],
+          quantity
+        )
+      );
+
+      activeQuantity =
+        quantity;
+
+      continue;
+    }
+
+    // --------------------------------------------------------
+    // Bare code.
+    // --------------------------------------------------------
+
+    if (
+      /^\d{2,3}$/u.test(
+        normalized
+      )
+    ) {
+      pending.push(
+        normalized
+      );
+
+      continue;
+    }
+
+    // --------------------------------------------------------
+    // Direction/context lines are preserved.  They remain
+    // authoritative for the existing contextual parser.
+    //
+    // Do not close a segment merely because we encounter a
+    // recognized direction header.
+    // --------------------------------------------------------
+
+    if (
+      /^(?:บน|ล่าง|บล|บ-ล|บน-ล่าง|บนล่าง)$/u.test(
+        normalized
+      )
+    ) {
+      if (pending.length) {
+        if (activeQuantity) {
+          emitPending(
+            activeQuantity
+          );
+        }
+        else {
+          preservePending();
+        }
+      }
+
+      activeQuantity = null;
+      out.push(original);
+      continue;
+    }
+
+    // --------------------------------------------------------
+    // Unknown/chat metadata boundary.
+    //
+    // A safe active quantity may close pending codes before
+    // metadata. Otherwise preserve the original pending codes
+    // so the existing parser remains fail-closed.
+    // --------------------------------------------------------
+
+    if (pending.length) {
+      if (activeQuantity) {
+        if (
+          !emitPending(
+            activeQuantity
+          )
+        ) {
+          preservePending();
+        }
+      }
+      else {
+        preservePending();
+      }
+    }
+
+    activeQuantity = null;
+    out.push(original);
+  }
+
+  // End-of-message forward carry.
+  if (pending.length) {
+    if (activeQuantity) {
+      if (
+        !emitPending(
+          activeQuantity
+        )
+      ) {
+        preservePending();
+      }
+    }
+    else {
+      preservePending();
+    }
+  }
+
+  return out.join("\n");
+}
+
+
 function normalizeMixedWidthInlineAssignments(text) {
   const lines = String(text || "").split("\n");
   const out = [];
@@ -340,6 +2162,31 @@ function normalizeMixedWidthInlineAssignments(text) {
 
   return out.join("\n");
 }
+
+// DATE_LIKE_DASH_TRIPLET_BOUNDARY_V2
+//
+// Structural ambiguity only.
+//
+// This does NOT decide whether the value is metadata.
+// It prevents plausible D-M-YY / DD-MM-YY text from being
+// guessed as CODE-Q1-Q2.
+//
+//   27-08-69 -> operational date metadata
+//   28-8-69  -> operational date metadata
+//   22-10-10 -> ambiguous, therefore fail closed
+//
+// Invalid month/day shapes are not protected and continue to
+// the established order grammar.
+//
+function isPlausibleDateLikeDashTriplet(line) {
+  const raw =
+    String(line || "").trim();
+
+  return (
+    /^(?:0?[1-9]|[12]\d|3[01])\s*-\s*(?:0?[1-9]|1[0-2])\s*-\s*(?:\d{2}|\d{4})$/u
+  ).test(raw);
+}
+
 
 function isStandaloneDateMetadataLine(line) {
   const raw = String(line || "").trim();
@@ -1596,7 +3443,26 @@ function isPermuteAllCommand(text, cfg) {
 function isThreeDigitPermuteMarker(text, cfg) {
   const raw = String(text || "").trim();
   if (!raw) return false;
+
+  // Reuse the authoritative 3-digit vocabulary layer.
+  //
+  // Bare vocabulary such as:
+  //
+  //   กลับ
+  //   ประตู
+  //   ปะตู
+  //   ปต
+  //
+  // means permutation in 3-digit context. This keeps counted
+  // syntax such as 50*3กลับ aligned with natural 50 3กลับ.
+  if (
+    resolveThreeDigitVocabulary(raw) === "PERMUTE"
+  ) {
+    return true;
+  }
+
   if (isPermuteAllCommand(raw, cfg)) return true;
+
   // In 3-digit chat grammar the existing reverse alias (e.g. ก -> C)
   // means "กลับทุกตำแหน่ง" / permutation. This is context-specific;
   // the same alias remains the 2-digit reverse modifier elsewhere.
@@ -2106,21 +3972,75 @@ function parseThreeDigitRhs(right, cfg) {
     return { kind: "COUNTED_PERMUTE", quantity: Number(m[1]), statedCount: Number(m[2]) };
   }
 
-  // Business rule v9.30:
-  // A chain of THREE OR MORE quantities does not imply permutation.
+  // Repeated equal quantities are another spelling of
+  // permutation / กลับ when the number of repeated values
+  // matches the code's actual number of UNIQUE permutations.
   //
-  //   229=50*50*50
-  //   229=50x50x50
-  //   229=50×50×50
+  //   998=100x100x100
+  //     == 998=100x3กลับ
   //
-  // Without explicit permutation vocabulary such as
-  // ก / กลับ / ทุกกลับ / ประตู / ปต, the parser must fail closed.
+  //   122=20x20x20
+  //     == 122=20x3กลับ
+  //
+  //   093=100x100x100x100x100x100
+  //     == 093=100x6กลับ
   //
   // Exactly TWO quantities remain ordinary E/F pair grammar.
-  m = raw.match(/^\d+(?:\s*[xX*×]\s*\d+){2,}$/u);
+  //
+  // Count validation is performed later against
+  // uniquePermutations(code).
+  m = raw.match(
+    /^\d+(?:\s*[xX*×]\s*\d+){2,5}$/u
+  );
+
+  if (m) {
+    const values =
+      raw
+        .split(
+          /\s*[xX*×]\s*/u
+        )
+        .map(Number);
+
+    const first =
+      values[0];
+
+    if (
+      values.every(
+        (value) =>
+          value === first
+      )
+    ) {
+      return {
+        kind:
+          "REPEATED_PERMUTE",
+
+        quantity:
+          first,
+
+        statedCount:
+          values.length,
+      };
+    }
+
+    return {
+      kind:
+        "INVALID_REPEATED_QUANTITIES",
+
+      values,
+    };
+  }
+
+
+  // A 3-digit code has at most six unique permutations.
+  // Longer unmarked chains therefore remain fail-closed.
+  m = raw.match(
+    /^\d+(?:\s*[xX*×]\s*\d+){6,}$/u
+  );
+
   if (m) {
     return {
-      kind: "UNMARKED_QUANTITY_CHAIN",
+      kind:
+        "UNMARKED_QUANTITY_CHAIN",
     };
   }
 
@@ -2496,6 +4416,109 @@ function parseThreeDigitLine(line, cfg, acc, rules, errors) {
     rules.add("R_3DIGIT_INVALID_XSTAR_PERMUTATION");
     return true;
   }
+
+  if (rhs.kind === "INVALID_REPEATED_QUANTITIES") {
+    errors.push({
+      code:
+        "REPEATED_PERMUTATION_QUANTITY_MISMATCH",
+
+      detail:
+        `${line} — จำนวนแต่ละ permutation ต้องเท่ากัน`
+    });
+
+    rules.add(
+      "R_3DIGIT_REPEATED_PERMUTATION"
+    );
+
+    return true;
+  }
+
+
+  if (rhs.kind === "REPEATED_PERMUTE") {
+    if (
+      explicitCategory
+      ||
+      codes.length !== 1
+    ) {
+      errors.push({
+        code:
+          "UNSUPPORTED_REPEATED_PERMUTATION",
+
+        detail:
+          line
+      });
+
+      rules.add(
+        "R_3DIGIT_REPEATED_PERMUTATION"
+      );
+
+      return true;
+    }
+
+
+    const code =
+      codes[0];
+
+    const permutations =
+      uniquePermutations(
+        code
+      );
+
+
+    if (
+      permutations.length
+      !== rhs.statedCount
+    ) {
+      errors.push({
+        code:
+          "PERMUTATION_COUNT_MISMATCH",
+
+        detail:
+          `${code} มี unique permutations ${permutations.length} แบบ แต่ระบุจำนวนซ้ำ ${rhs.statedCount} ค่า`
+      });
+
+      rules.add(
+        "R_3DIGIT_REPEATED_PERMUTATION"
+      );
+
+      return true;
+    }
+
+
+    const category =
+      contextualDirection === "BOTTOM"
+        ? "G"
+        : threeDigitDestinationCategory(
+            prefix
+          );
+
+
+    for (
+      const permutation
+      of permutations
+    ) {
+      acc.add(
+        category,
+        permutation,
+        rhs.quantity
+      );
+    }
+
+
+    if (contextualDirection) {
+      rules.add(
+        `R_3DIGIT_CONTEXT_${contextualDirection}`
+      );
+    }
+
+
+    rules.add(
+      "R_3DIGIT_REPEATED_PERMUTATION"
+    );
+
+    return true;
+  }
+
 
   if (rhs.kind === "UNMARKED_QUANTITY_CHAIN") {
     errors.push({
@@ -3342,6 +5365,33 @@ function parseTwoDigitSegment(segment, cfg, acc, rules, warnings, errors) {
       isMetadataLine(line) ||
       isSafeChatMetadataLine(line)
     ) continue;
+
+    // DATE_LIKE_DASH_TRIPLET_BOUNDARY_V2
+    //
+    // A structurally plausible date that was NOT accepted by the
+    // metadata policy remains ambiguous. Never infer A/B quantities.
+    //
+    // Example:
+    //
+    //   22-10-10
+    //
+    if (
+      isPlausibleDateLikeDashTriplet(
+        line
+      )
+    ) {
+      errors.push({
+        code:
+          "AMBIGUOUS_DATE_LIKE_DASH_TRIPLET",
+
+        detail:
+          line,
+      });
+
+      pendingCodes = [];
+
+      continue;
+    }
 
     // Skip checksum line here; checksum handled at higher level.
     if (/^รวม\s+[A-Zก-๙]+\s+\d+$/iu.test(line)) continue;
@@ -4937,12 +6987,34 @@ function findAmbiguousSameLineOrderSyntax(text) {
 function parseOrder(inputText, config = {}) {
   const cfg = mergeConfig(config);
   const normalized = normalizeText(inputText);
+  const phaseAFrontEndLexicalNormalized =
+    normalizePhaseAPlusDashAssignments(
+      normalized
+    );
+
   const orderNormalized =
-    normalizeTrailingOrderDecoration(normalized);
+    normalizeTrailingOrderDecoration(
+      phaseAFrontEndLexicalNormalized
+    );
+
+  const phaseAFrontEndMetadataNormalized =
+    normalizePhaseACompletedOrderMetadataEnvelope(
+      orderNormalized
+    );
+
+  const phaseBProvenGrammarNormalized =
+    normalizePhaseBProvenGrammarFamilies(
+      phaseAFrontEndMetadataNormalized
+    );
+
+  const phaseBWidthAwareNormalized =
+    normalizePhaseBWidthAwareQuantityGrammar(
+      phaseBProvenGrammarNormalized
+    );
 
   const mixedWidthIndependentPairNormalized =
     normalizeMixedWidthIndependentTrailingPairs(
-      orderNormalized
+      phaseBWidthAwareNormalized
     );
 
   const mixedWidthSharedPairNormalized =

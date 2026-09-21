@@ -186,43 +186,38 @@ const expectedLower = [
 
 // ------------------------------------------------------------
 // P2H-SAFETY-04
-// Unmarked quantity chains have no implicit permutation meaning.
-// 123=50*50*50 must therefore fail closed.
+// Repeated equal quantity shorthand remains permutation.
 {
-  const result = parseOrder(
-    "123=50*50*50"
-  );
+  const result =
+    parseOrder(
+      "229=50*50*50"
+    );
 
   assert.equal(
     result.status,
-    "REVIEW"
+    "PARSED"
   );
 
-  assert.equal(
-    result.items.length,
-    0
+  assert.deepEqual(
+    canonical(result),
+    [
+      "E229=50",
+      "E292=50",
+      "E922=50",
+    ].sort()
   );
 
-  assert.equal(
-    result.errors.some(
-      (error) =>
-        error.code ===
-        "UNSUPPORTED_QUANTITY_EXPRESSION"
-    ),
-    true
-  );
-
-  assert.equal(
+  assert.ok(
     result.rule_ids.includes(
-      "R_3DIGIT_UNMARKED_QUANTITY_CHAIN"
-    ),
-    true
+      "R_3DIGIT_REPEATED_PERMUTATION"
+    )
   );
 
   console.log(
-    "PASS P2H-SAFETY-04 unmarked quantity chain fails closed"
+    "PASS P2H-SAFETY-04 repeated permutation retained"
   );
 }
+
 
 console.log(
   "PASS: production parser P2H multiline 3ก regression v9.10"

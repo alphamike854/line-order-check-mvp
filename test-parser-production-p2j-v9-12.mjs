@@ -22,57 +22,105 @@ const expected229 = [
 ].sort();
 
 
-function expectUnmarkedReview(text) {
+// ------------------------------------------------------------
+// P2J-01
+// Repeated equal quantities are permutation shorthand.
+// ------------------------------------------------------------
+
+for (const text of [
+  "229=50*50*50",
+  "229=50x50x50",
+  "229=50×50×50",
+]) {
   const result =
     parseOrder(text);
 
   assert.equal(
     result.status,
-    "REVIEW",
-    text,
+    "PARSED",
+    text
   );
 
-  assert.equal(
-    result.items.length,
-    0,
-    text,
-  );
-
-  assert.ok(
-    result.errors.some(
-      (error) =>
-        error.code ===
-        "UNSUPPORTED_QUANTITY_EXPRESSION"
-    ),
-    text,
+  assert.deepEqual(
+    canonical(result),
+    expected229,
+    text
   );
 
   assert.ok(
     result.rule_ids.includes(
-      "R_3DIGIT_UNMARKED_QUANTITY_CHAIN"
+      "R_3DIGIT_REPEATED_PERMUTATION"
     ),
-    text,
+    text
   );
 }
 
 
-// ------------------------------------------------------------
-// P2J-01
-// Historical repeated-* shorthand is no longer permutation.
-// ------------------------------------------------------------
-for (const text of [
-  "229=50*50*50",
-  "122=50*50*50",
-  "229=50x50x50",
-  "229=50×50×50",
-  "229=50*40*50",
-  "123=50*50*50",
-]) {
-  expectUnmarkedReview(text);
+{
+  const result =
+    parseOrder(
+      "122=50*50*50"
+    );
+
+  assert.equal(
+    result.status,
+    "PARSED"
+  );
+
+  assert.deepEqual(
+    canonical(result),
+    [
+      "E122=50",
+      "E212=50",
+      "E221=50",
+    ].sort()
+  );
+}
+
+
+{
+  const result =
+    parseOrder(
+      "229=50*40*50"
+    );
+
+  assert.equal(
+    result.status,
+    "REVIEW"
+  );
+
+  assert.ok(
+    result.errors.some(
+      error =>
+        error.code ===
+          "REPEATED_PERMUTATION_QUANTITY_MISMATCH"
+    )
+  );
+}
+
+
+{
+  const result =
+    parseOrder(
+      "123=50*50*50"
+    );
+
+  assert.equal(
+    result.status,
+    "REVIEW"
+  );
+
+  assert.ok(
+    result.errors.some(
+      error =>
+        error.code ===
+          "PERMUTATION_COUNT_MISMATCH"
+    )
+  );
 }
 
 console.log(
-  "PASS P2J-01 unmarked quantity chains fail closed"
+  "PASS P2J-01 repeated-quantity permutation contract"
 );
 
 
@@ -145,10 +193,8 @@ console.log(
 
 // ------------------------------------------------------------
 // P2J-03
-// Exact historical production message:
-// valid two-digit pairs remain canonical,
-// unmarked 3-value chain causes PARTIAL.
-// ------------------------------------------------------------
+// Historical production message now fully parses because the
+// repeated 229 expression is confirmed permutation shorthand.
 {
   const result =
     parseOrder(
@@ -160,7 +206,7 @@ console.log(
 
   assert.equal(
     result.status,
-    "PARTIAL"
+    "PARSED"
   );
 
   assert.deepEqual(
@@ -170,19 +216,19 @@ console.log(
       "A92=100",
       "B29=100",
       "B92=100",
+      "E229=50",
+      "E292=50",
+      "E922=50",
     ].sort()
   );
 
-  assert.ok(
-    result.errors.some(
-      (error) =>
-        error.code ===
-        "UNSUPPORTED_QUANTITY_EXPRESSION"
-    )
+  assert.equal(
+    result.errors.length,
+    0
   );
 
   console.log(
-    "PASS P2J-03 production message keeps valid items and reviews unmarked chain"
+    "PASS P2J-03 production repeated permutation"
   );
 }
 

@@ -35,14 +35,51 @@ check(
 5*5`
 );
 
-check(
-  "FRAGMENT-03 dash-separated 3-digit list + quantity",
-  `000-111-222-333-444-555-666-777-888-999
+{
+  const result =
+    parseOrder(
+      `000-111-222-333-444-555-666-777-888-999
 =20 ตรง`
-);
+    );
+
+  assert.equal(
+    result.status,
+    "PARSED"
+  );
+
+  assert.deepEqual(
+    result.items
+      .map(
+        item =>
+          `${item.category}${item.code}=${item.quantity}`
+      )
+      .sort(),
+    [
+      "E000=20",
+      "E111=20",
+      "E222=20",
+      "E333=20",
+      "E444=20",
+      "E555=20",
+      "E666=20",
+      "E777=20",
+      "E888=20",
+      "E999=20",
+    ].sort()
+  );
+
+  assert.equal(
+    result.errors.length,
+    0
+  );
+
+  console.log(
+    "PASS FRAGMENT-03 long 3-digit list + ตรง"
+  );
+}
 
 console.log(
-  "PASS: unsupported 3-digit order fragments remain Review-safe"
+  "PASS: unsupported fragments remain Review-safe; confirmed long 3-digit list parses"
 );
 
 {
@@ -64,24 +101,50 @@ console.log(
 
   assert.equal(
     result.status,
-    "PARTIAL",
-    "mixed valid block with unmarked quantity chain must be PARTIAL"
+    "PARSED",
+    "mixed valid block with repeated permutation must fully parse"
+  );
+
+  assert.equal(
+    result.errors.length,
+    0,
+    "valid repeated permutation must not produce parser errors"
   );
 
   assert.ok(
-    result.errors.some(
-      (error) =>
-        error.code ===
-        "UNSUPPORTED_QUANTITY_EXPRESSION"
-    ),
-    "unmarked 3-value chain must produce Review-safe parser error"
-  );
-assert.ok(
     result.items.length > 3,
     "surrounding high-confidence items must remain preserved"
   );
 
+  const byKey =
+    Object.fromEntries(
+      result.items.map(
+        item => [
+          `${item.category}${item.code}`,
+          Number(item.quantity),
+        ]
+      )
+    );
+
+  for (const code of [
+    "225",
+    "252",
+    "522",
+  ]) {
+    assert.equal(
+      byKey[`E${code}`],
+      50,
+      `expected E${code}=50 from 522 repeated permutation`
+    );
+  }
+
+  assert.ok(
+    result.rule_ids.includes(
+      "R_3DIGIT_REPEATED_PERMUTATION"
+    )
+  );
+
   console.log(
-    "PASS FRAGMENT-04 mixed valid block keeps unmarked chain Review-safe"
+    "PASS FRAGMENT-04 mixed valid block accepts repeated permutation"
   );
 }

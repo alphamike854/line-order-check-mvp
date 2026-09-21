@@ -7,7 +7,7 @@ import {
 
 assert.equal(
   PARSER_VERSION,
-  "1.7.27",
+  "1.7.28",
   "v9.33 parser version",
 );
 

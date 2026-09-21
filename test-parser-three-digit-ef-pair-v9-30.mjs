@@ -44,7 +44,7 @@ function assertParsed(
 
 assert.equal(
   PARSER_VERSION,
-  "1.7.27",
+  "1.7.28",
 );
 
 
@@ -254,12 +254,11 @@ console.log(
 
 
 // ------------------------------------------------------------
-// CHAIN-SAFETY-01
-// 3+ values without explicit permutation vocabulary
-// must fail closed.
-// ------------------------------------------------------------
+// REPEATED-PERM-01
+// Repeated equal quantities are permutation shorthand when their
+// count equals the actual unique permutations.
+
 for (const text of [
-  "123=5x5x5",
   "229=50*50*50",
   "998=100×100×100",
 ]) {
@@ -268,35 +267,48 @@ for (const text of [
 
   assert.equal(
     result.status,
-    "REVIEW",
-    text,
-  );
-
-  assert.equal(
-    result.items.length,
-    0,
-    text,
-  );
-
-  assert.ok(
-    result.errors.some(
-      (error) =>
-        error.code ===
-        "UNSUPPORTED_QUANTITY_EXPRESSION",
-    ),
-    text,
+    "PARSED",
+    text
   );
 
   assert.ok(
     result.rule_ids.includes(
-      "R_3DIGIT_UNMARKED_QUANTITY_CHAIN",
+      "R_3DIGIT_REPEATED_PERMUTATION"
     ),
-    text,
+    text
+  );
+}
+
+
+// 123 has six unique permutations; x3 is incomplete.
+{
+  const text =
+    "123=5x5x5";
+
+  const result =
+    parseOrder(text);
+
+  assert.equal(
+    result.status,
+    "REVIEW"
+  );
+
+  assert.equal(
+    result.items.length,
+    0
+  );
+
+  assert.ok(
+    result.errors.some(
+      error =>
+        error.code ===
+          "PERMUTATION_COUNT_MISMATCH"
+    )
   );
 }
 
 console.log(
-  "PASS CHAIN-SAFETY-01: unmarked 3+ quantity chains fail closed"
+  "PASS REPEATED-PERM-01: repeated quantity count validated"
 );
 
 

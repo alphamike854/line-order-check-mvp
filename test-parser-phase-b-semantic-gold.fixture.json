@@ -1,0 +1,2499 @@
+{
+  "contract": "PHASE_B_SEMANTIC_BINDING_GOLD_V2",
+  "parser_baseline": "1.7.28-local",
+  "source_commit": "46615472144554d7f90c4cc2478b39f5d59328d6",
+  "case_count": 42,
+  "cases": [
+    {
+      "review_id": "13995",
+      "cluster": "P04",
+      "source_text": "526=50*50\n26\n62\n25\n52\n65\n56\nยายแจ๋ว",
+      "reference_text": "526=50*50\n26\n62\n25\n52\n65\n56=50*50",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "25",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "26",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "52",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "56",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "62",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "65",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "25",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "26",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "52",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "56",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "62",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "65",
+          "quantity": 50
+        },
+        {
+          "category": "E",
+          "code": "526",
+          "quantity": 50
+        },
+        {
+          "category": "F",
+          "code": "526",
+          "quantity": 50
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "13992",
+      "cluster": "P04",
+      "source_text": "246=10*10\n46\n64\nเอ๋เพิ่ม",
+      "reference_text": "246=10*10\n46\n64=10*10",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "46",
+          "quantity": 10
+        },
+        {
+          "category": "A",
+          "code": "64",
+          "quantity": 10
+        },
+        {
+          "category": "B",
+          "code": "46",
+          "quantity": 10
+        },
+        {
+          "category": "B",
+          "code": "64",
+          "quantity": 10
+        },
+        {
+          "category": "E",
+          "code": "246",
+          "quantity": 10
+        },
+        {
+          "category": "F",
+          "code": "246",
+          "quantity": 10
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "13904",
+      "cluster": "P04",
+      "source_text": "73=10x10\n37\nแม่ป๋อง",
+      "reference_text": "73=10x10\n37=10x10",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "37",
+          "quantity": 10
+        },
+        {
+          "category": "A",
+          "code": "73",
+          "quantity": 10
+        },
+        {
+          "category": "B",
+          "code": "37",
+          "quantity": 10
+        },
+        {
+          "category": "B",
+          "code": "73",
+          "quantity": 10
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "13900",
+      "cluster": "P04",
+      "source_text": "05=20*20\n50\nทิ",
+      "reference_text": "05=20*20\n50=20*20",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "05",
+          "quantity": 20
+        },
+        {
+          "category": "A",
+          "code": "50",
+          "quantity": 20
+        },
+        {
+          "category": "B",
+          "code": "05",
+          "quantity": 20
+        },
+        {
+          "category": "B",
+          "code": "50",
+          "quantity": 20
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "13977",
+      "cluster": "P06",
+      "source_text": "15/51-20*20",
+      "reference_text": "15\n51=20*20",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "15",
+          "quantity": 20
+        },
+        {
+          "category": "A",
+          "code": "51",
+          "quantity": 20
+        },
+        {
+          "category": "B",
+          "code": "15",
+          "quantity": 20
+        },
+        {
+          "category": "B",
+          "code": "51",
+          "quantity": 20
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "13952",
+      "cluster": "P06",
+      "source_text": "93=50+50 พี่จบ\n39=",
+      "reference_text": "93=50*50\n39=50*50",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "39",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "93",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "39",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "93",
+          "quantity": 50
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "13933",
+      "cluster": "P06",
+      "source_text": "62/26-50*50",
+      "reference_text": "62\n26=50*50",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "26",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "62",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "26",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "62",
+          "quantity": 50
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "13892",
+      "cluster": "P07",
+      "source_text": "บิล 28\n\n03 100-100\n30 100-100\n11 100-100\n\nนัท",
+      "reference_text": "03 =100-100\n30 =100-100\n11 =100-100",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "03",
+          "quantity": 100
+        },
+        {
+          "category": "A",
+          "code": "11",
+          "quantity": 100
+        },
+        {
+          "category": "A",
+          "code": "30",
+          "quantity": 100
+        },
+        {
+          "category": "B",
+          "code": "03",
+          "quantity": 100
+        },
+        {
+          "category": "B",
+          "code": "11",
+          "quantity": 100
+        },
+        {
+          "category": "B",
+          "code": "30",
+          "quantity": 100
+        }
+      ],
+      "manual_reason": "Human Truth V2: corrected parser-derived expected items using user-confirmed canonical grammar."
+    },
+    {
+      "review_id": "13883",
+      "cluster": "P07",
+      "source_text": "บิล 26\n\n20 100-100\n\nนัท",
+      "reference_text": "20 =100*100",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "20",
+          "quantity": 100
+        },
+        {
+          "category": "B",
+          "code": "20",
+          "quantity": 100
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "13882",
+      "cluster": "P07",
+      "source_text": "บ.69 ม\nบ-ล\n73:50-50\n37:25-25\n73:20-20\n\nบีม 190.-",
+      "reference_text": "73=50*50\n37=25*25\n73=20*20",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "37",
+          "quantity": 25
+        },
+        {
+          "category": "A",
+          "code": "73",
+          "quantity": 70
+        },
+        {
+          "category": "B",
+          "code": "37",
+          "quantity": 25
+        },
+        {
+          "category": "B",
+          "code": "73",
+          "quantity": 70
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "13891",
+      "cluster": "P08",
+      "source_text": "59-155-155\n95-155-155\n23-150-150\n32-150-150",
+      "reference_text": "59=155*155\n95=155*155\n23=150*150\n32=150*150",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "23",
+          "quantity": 150
+        },
+        {
+          "category": "A",
+          "code": "32",
+          "quantity": 150
+        },
+        {
+          "category": "A",
+          "code": "59",
+          "quantity": 155
+        },
+        {
+          "category": "A",
+          "code": "95",
+          "quantity": 155
+        },
+        {
+          "category": "B",
+          "code": "23",
+          "quantity": 150
+        },
+        {
+          "category": "B",
+          "code": "32",
+          "quantity": 150
+        },
+        {
+          "category": "B",
+          "code": "59",
+          "quantity": 155
+        },
+        {
+          "category": "B",
+          "code": "95",
+          "quantity": 155
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "13890",
+      "cluster": "P08",
+      "source_text": "22-20-20",
+      "reference_text": "22=20*20",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "22",
+          "quantity": 20
+        },
+        {
+          "category": "B",
+          "code": "22",
+          "quantity": 20
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "13884",
+      "cluster": "P08",
+      "source_text": "52-100-200\n25-100-100",
+      "reference_text": "52=100*200\n25=100*100",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "25",
+          "quantity": 100
+        },
+        {
+          "category": "A",
+          "code": "52",
+          "quantity": 100
+        },
+        {
+          "category": "B",
+          "code": "25",
+          "quantity": 100
+        },
+        {
+          "category": "B",
+          "code": "52",
+          "quantity": 200
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "13908",
+      "cluster": "P09",
+      "source_text": "42=20x20\n24\n32\n23\n08\n80แม่ป๋อง",
+      "reference_text": "42\n24\n32\n23\n08=20x20",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "08",
+          "quantity": 20
+        },
+        {
+          "category": "A",
+          "code": "23",
+          "quantity": 20
+        },
+        {
+          "category": "A",
+          "code": "24",
+          "quantity": 20
+        },
+        {
+          "category": "A",
+          "code": "32",
+          "quantity": 20
+        },
+        {
+          "category": "A",
+          "code": "42",
+          "quantity": 20
+        },
+        {
+          "category": "B",
+          "code": "08",
+          "quantity": 20
+        },
+        {
+          "category": "B",
+          "code": "23",
+          "quantity": 20
+        },
+        {
+          "category": "B",
+          "code": "24",
+          "quantity": 20
+        },
+        {
+          "category": "B",
+          "code": "32",
+          "quantity": 20
+        },
+        {
+          "category": "B",
+          "code": "42",
+          "quantity": 20
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "13898",
+      "cluster": "P09",
+      "source_text": "140=10*10\n40\n04\n18\n81\n20*20พี่รวม",
+      "reference_text": "140=10*10\n40\n04\n18\n81=20*20",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "04",
+          "quantity": 20
+        },
+        {
+          "category": "A",
+          "code": "18",
+          "quantity": 20
+        },
+        {
+          "category": "A",
+          "code": "40",
+          "quantity": 20
+        },
+        {
+          "category": "A",
+          "code": "81",
+          "quantity": 20
+        },
+        {
+          "category": "B",
+          "code": "04",
+          "quantity": 20
+        },
+        {
+          "category": "B",
+          "code": "18",
+          "quantity": 20
+        },
+        {
+          "category": "B",
+          "code": "40",
+          "quantity": 20
+        },
+        {
+          "category": "B",
+          "code": "81",
+          "quantity": 20
+        },
+        {
+          "category": "E",
+          "code": "140",
+          "quantity": 10
+        },
+        {
+          "category": "F",
+          "code": "140",
+          "quantity": 10
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "14140",
+      "cluster": "P10",
+      "source_text": "38\n83\n25*25\n13\n31\n36\n63\n50*50\n=500บาท พี่แล็ป\n🇹🇭16.กย.69",
+      "reference_text": "38\n83=25*25\n13\n31\n36\n63=50*50",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "13",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "31",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "36",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "38",
+          "quantity": 25
+        },
+        {
+          "category": "A",
+          "code": "63",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "83",
+          "quantity": 25
+        },
+        {
+          "category": "B",
+          "code": "13",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "31",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "36",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "38",
+          "quantity": 25
+        },
+        {
+          "category": "B",
+          "code": "63",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "83",
+          "quantity": 25
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "14066",
+      "cluster": "P14",
+      "source_text": "50\n05\n09\n90\n409=50x50",
+      "reference_text": "50\n05\n09\n90=50x50\n409=50x50",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "05",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "09",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "50",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "90",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "05",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "09",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "50",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "90",
+          "quantity": 50
+        },
+        {
+          "category": "E",
+          "code": "409",
+          "quantity": 50
+        },
+        {
+          "category": "F",
+          "code": "409",
+          "quantity": 50
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "13870",
+      "cluster": "P14",
+      "source_text": "44\n43\n34 = 50*50 ลัก\n45\n54",
+      "reference_text": "44\n43\n34 \n45\n54= 50*50",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "34",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "43",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "44",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "45",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "54",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "34",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "43",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "44",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "45",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "54",
+          "quantity": 50
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "13993",
+      "cluster": "P19",
+      "source_text": "446-40\n644-10\n464-10",
+      "reference_text": "446=40\n644=10\n464=10",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "E",
+          "code": "446",
+          "quantity": 40
+        },
+        {
+          "category": "E",
+          "code": "464",
+          "quantity": 10
+        },
+        {
+          "category": "E",
+          "code": "644",
+          "quantity": 10
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "13987",
+      "cluster": "P19",
+      "source_text": "424-120\n244-20\n442-20",
+      "reference_text": "424=120\n244=20\n442=20",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "E",
+          "code": "244",
+          "quantity": 20
+        },
+        {
+          "category": "E",
+          "code": "424",
+          "quantity": 120
+        },
+        {
+          "category": "E",
+          "code": "442",
+          "quantity": 20
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "14132",
+      "cluster": "P20",
+      "source_text": "บน\n76:100*100\n25:100*100\nล่าง\n76:100*100\n25:100*100",
+      "reference_text": "บน\n76=100*100\n25=100*100\nล่าง\n76=100*100\n25=100*100",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "25",
+          "quantity": 100
+        },
+        {
+          "category": "A",
+          "code": "76",
+          "quantity": 100
+        },
+        {
+          "category": "B",
+          "code": "25",
+          "quantity": 100
+        },
+        {
+          "category": "B",
+          "code": "76",
+          "quantity": 100
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "14022",
+      "cluster": "P21",
+      "source_text": "52-25-50*50\n\nย่า1",
+      "reference_text": "52 25=50*50",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "25",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "52",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "25",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "52",
+          "quantity": 50
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "14126",
+      "cluster": "P22",
+      "source_text": "12-30-38-80-46-35\nบลก.500-",
+      "reference_text": "12 30 38 80 46 35= 500 บลก",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "03",
+          "quantity": 500
+        },
+        {
+          "category": "A",
+          "code": "08",
+          "quantity": 500
+        },
+        {
+          "category": "A",
+          "code": "12",
+          "quantity": 500
+        },
+        {
+          "category": "A",
+          "code": "21",
+          "quantity": 500
+        },
+        {
+          "category": "A",
+          "code": "30",
+          "quantity": 500
+        },
+        {
+          "category": "A",
+          "code": "35",
+          "quantity": 500
+        },
+        {
+          "category": "A",
+          "code": "38",
+          "quantity": 500
+        },
+        {
+          "category": "A",
+          "code": "46",
+          "quantity": 500
+        },
+        {
+          "category": "A",
+          "code": "53",
+          "quantity": 500
+        },
+        {
+          "category": "A",
+          "code": "64",
+          "quantity": 500
+        },
+        {
+          "category": "A",
+          "code": "80",
+          "quantity": 500
+        },
+        {
+          "category": "A",
+          "code": "83",
+          "quantity": 500
+        },
+        {
+          "category": "B",
+          "code": "03",
+          "quantity": 500
+        },
+        {
+          "category": "B",
+          "code": "08",
+          "quantity": 500
+        },
+        {
+          "category": "B",
+          "code": "12",
+          "quantity": 500
+        },
+        {
+          "category": "B",
+          "code": "21",
+          "quantity": 500
+        },
+        {
+          "category": "B",
+          "code": "30",
+          "quantity": 500
+        },
+        {
+          "category": "B",
+          "code": "35",
+          "quantity": 500
+        },
+        {
+          "category": "B",
+          "code": "38",
+          "quantity": 500
+        },
+        {
+          "category": "B",
+          "code": "46",
+          "quantity": 500
+        },
+        {
+          "category": "B",
+          "code": "53",
+          "quantity": 500
+        },
+        {
+          "category": "B",
+          "code": "64",
+          "quantity": 500
+        },
+        {
+          "category": "B",
+          "code": "80",
+          "quantity": 500
+        },
+        {
+          "category": "B",
+          "code": "83",
+          "quantity": 500
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "13944",
+      "cluster": "P23",
+      "source_text": "018-028-931-315-493\n=50\n\nพี่ตบ",
+      "reference_text": "018=50\n028=50\n931=50\n315=50\n493=50",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "E",
+          "code": "018",
+          "quantity": 50
+        },
+        {
+          "category": "E",
+          "code": "028",
+          "quantity": 50
+        },
+        {
+          "category": "E",
+          "code": "315",
+          "quantity": 50
+        },
+        {
+          "category": "E",
+          "code": "493",
+          "quantity": 50
+        },
+        {
+          "category": "E",
+          "code": "931",
+          "quantity": 50
+        }
+      ],
+      "manual_reason": "3D code-list + collective trailing quantity"
+    },
+    {
+      "review_id": "13907",
+      "cluster": "P24",
+      "source_text": "บน-ล่าง\n18-50-50\n81-50-50\nพี่นุ้ย",
+      "reference_text": "18=50*50\n81=50*50",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "18",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "81",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "18",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "81",
+          "quantity": 50
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "13906",
+      "cluster": "P26",
+      "source_text": "320-10*10\n25-52-10*10\n50-05-10*10\n20-02-10*10\n\nพี่เปิ้ลเพลง",
+      "reference_text": "320=10*10\n25 52=10*10\n50 05=10*10\n20 02=10*10",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "02",
+          "quantity": 10
+        },
+        {
+          "category": "A",
+          "code": "05",
+          "quantity": 10
+        },
+        {
+          "category": "A",
+          "code": "20",
+          "quantity": 10
+        },
+        {
+          "category": "A",
+          "code": "25",
+          "quantity": 10
+        },
+        {
+          "category": "A",
+          "code": "50",
+          "quantity": 10
+        },
+        {
+          "category": "A",
+          "code": "52",
+          "quantity": 10
+        },
+        {
+          "category": "B",
+          "code": "02",
+          "quantity": 10
+        },
+        {
+          "category": "B",
+          "code": "05",
+          "quantity": 10
+        },
+        {
+          "category": "B",
+          "code": "20",
+          "quantity": 10
+        },
+        {
+          "category": "B",
+          "code": "25",
+          "quantity": 10
+        },
+        {
+          "category": "B",
+          "code": "50",
+          "quantity": 10
+        },
+        {
+          "category": "B",
+          "code": "52",
+          "quantity": 10
+        },
+        {
+          "category": "E",
+          "code": "320",
+          "quantity": 10
+        },
+        {
+          "category": "F",
+          "code": "320",
+          "quantity": 10
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "13880",
+      "cluster": "P32",
+      "source_text": "💚บน โต๊ด💚\n972-20x20\n💚บน ล่าง💚\n79-10*10\n97-10-*10\n11-20*20\n66-20*20\n62-10*10\n26-10*10\n\nหวยไทย16/9\nยายกง",
+      "reference_text": "972=20x20\n\n79=10*10\n97=10-*10\n11=20*20\n66=20*20\n62=10*10\n26=10*10",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "11",
+          "quantity": 20
+        },
+        {
+          "category": "A",
+          "code": "26",
+          "quantity": 10
+        },
+        {
+          "category": "A",
+          "code": "62",
+          "quantity": 10
+        },
+        {
+          "category": "A",
+          "code": "66",
+          "quantity": 20
+        },
+        {
+          "category": "A",
+          "code": "79",
+          "quantity": 10
+        },
+        {
+          "category": "A",
+          "code": "97",
+          "quantity": 10
+        },
+        {
+          "category": "B",
+          "code": "11",
+          "quantity": 20
+        },
+        {
+          "category": "B",
+          "code": "26",
+          "quantity": 10
+        },
+        {
+          "category": "B",
+          "code": "62",
+          "quantity": 10
+        },
+        {
+          "category": "B",
+          "code": "66",
+          "quantity": 20
+        },
+        {
+          "category": "B",
+          "code": "79",
+          "quantity": 10
+        },
+        {
+          "category": "B",
+          "code": "97",
+          "quantity": 10
+        },
+        {
+          "category": "E",
+          "code": "972",
+          "quantity": 20
+        },
+        {
+          "category": "F",
+          "code": "972",
+          "quantity": 20
+        }
+      ],
+      "manual_reason": "Human Truth V2: corrected parser-derived expected items using user-confirmed canonical grammar."
+    },
+    {
+      "review_id": "13888",
+      "cluster": "P33",
+      "source_text": "77=50-50\nแหลนแหม่ม56",
+      "reference_text": "77=50*50",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "77",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "77",
+          "quantity": 50
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "13963",
+      "cluster": "P41",
+      "source_text": "331 = 10*3 กลับ\n051 = 10*10\n025 = 10*10\n611 = 20*3 กลับ\n518 = 20*20\n185 = 20*20\n18 = 50*50\n81 = 50*50\n51 = 50*50\n15 = 50*50\n31 = 50*50\n13 = 50*50\nพี่นก\n16/9",
+      "reference_text": "331 = 10*3ก\n051 = 10*10\n025 = 10*10\n611 = 20*3ก\n518 = 20*20\n185 = 20*20\n18 = 50*50\n81 = 50*50\n51 = 50*50\n15 = 50*50\n31 = 50*50\n13 = 50*50",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "13",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "15",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "18",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "31",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "51",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "81",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "13",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "15",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "18",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "31",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "51",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "81",
+          "quantity": 50
+        },
+        {
+          "category": "E",
+          "code": "025",
+          "quantity": 10
+        },
+        {
+          "category": "E",
+          "code": "051",
+          "quantity": 10
+        },
+        {
+          "category": "E",
+          "code": "116",
+          "quantity": 20
+        },
+        {
+          "category": "E",
+          "code": "133",
+          "quantity": 10
+        },
+        {
+          "category": "E",
+          "code": "161",
+          "quantity": 20
+        },
+        {
+          "category": "E",
+          "code": "185",
+          "quantity": 20
+        },
+        {
+          "category": "E",
+          "code": "313",
+          "quantity": 10
+        },
+        {
+          "category": "E",
+          "code": "331",
+          "quantity": 10
+        },
+        {
+          "category": "E",
+          "code": "518",
+          "quantity": 20
+        },
+        {
+          "category": "E",
+          "code": "611",
+          "quantity": 20
+        },
+        {
+          "category": "F",
+          "code": "025",
+          "quantity": 10
+        },
+        {
+          "category": "F",
+          "code": "051",
+          "quantity": 10
+        },
+        {
+          "category": "F",
+          "code": "185",
+          "quantity": 20
+        },
+        {
+          "category": "F",
+          "code": "518",
+          "quantity": 20
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "14064",
+      "cluster": "P42",
+      "source_text": "42 50*50\n24 50*50🇹🇭",
+      "reference_text": "42=50*50\n24=50*50",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "24",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "42",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "24",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "42",
+          "quantity": 50
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "14030",
+      "cluster": "P45",
+      "source_text": "50-50+50\n05-50+50\n18-50+50\n81-50+50\n\nพี่ฝ้าย16/9/69",
+      "reference_text": "50=50*50\n05=50*50\n18=50*50\n81=50*50",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "05",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "18",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "50",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "81",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "05",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "18",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "50",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "81",
+          "quantity": 50
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "13896",
+      "cluster": "P46",
+      "source_text": "36\n63\n39\n93-10-10",
+      "reference_text": "36\n63\n39\n93=10*10",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "36",
+          "quantity": 10
+        },
+        {
+          "category": "A",
+          "code": "39",
+          "quantity": 10
+        },
+        {
+          "category": "A",
+          "code": "63",
+          "quantity": 10
+        },
+        {
+          "category": "A",
+          "code": "93",
+          "quantity": 10
+        },
+        {
+          "category": "B",
+          "code": "36",
+          "quantity": 10
+        },
+        {
+          "category": "B",
+          "code": "39",
+          "quantity": 10
+        },
+        {
+          "category": "B",
+          "code": "63",
+          "quantity": 10
+        },
+        {
+          "category": "B",
+          "code": "93",
+          "quantity": 10
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "13872",
+      "cluster": "P51",
+      "source_text": "465 30*30\n65\n56 30*30 ลัก",
+      "reference_text": "465=30*30\n65\n56=30*30",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "56",
+          "quantity": 30
+        },
+        {
+          "category": "A",
+          "code": "65",
+          "quantity": 30
+        },
+        {
+          "category": "B",
+          "code": "56",
+          "quantity": 30
+        },
+        {
+          "category": "B",
+          "code": "65",
+          "quantity": 30
+        },
+        {
+          "category": "E",
+          "code": "465",
+          "quantity": 30
+        },
+        {
+          "category": "F",
+          "code": "465",
+          "quantity": 30
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "13878",
+      "cluster": "P52",
+      "source_text": "🇹🇭16/9/69\n15 20*20\n51\nยอด80฿",
+      "reference_text": "15=20*20\n51=20*20",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "15",
+          "quantity": 20
+        },
+        {
+          "category": "A",
+          "code": "51",
+          "quantity": 20
+        },
+        {
+          "category": "B",
+          "code": "15",
+          "quantity": 20
+        },
+        {
+          "category": "B",
+          "code": "51",
+          "quantity": 20
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "13902",
+      "cluster": "P55",
+      "source_text": "196\n96\n69-200*200ลุงนัด",
+      "reference_text": "196=200*200\n96\n69=200*200",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "69",
+          "quantity": 200
+        },
+        {
+          "category": "A",
+          "code": "96",
+          "quantity": 200
+        },
+        {
+          "category": "B",
+          "code": "69",
+          "quantity": 200
+        },
+        {
+          "category": "B",
+          "code": "96",
+          "quantity": 200
+        },
+        {
+          "category": "E",
+          "code": "196",
+          "quantity": 200
+        },
+        {
+          "category": "F",
+          "code": "196",
+          "quantity": 200
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "13955",
+      "cluster": "P56",
+      "source_text": "165\n845\n748\n750=100-100\n50\n05\n56\n65\n84\n48\n45\n54\n30\n03=100-100\nแม่เวฟ",
+      "reference_text": "165=100*100\n845=100*100\n748=100*100\n750=100*100\n50\n05\n56\n65\n84\n48\n45\n54\n30\n03=100*100",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "03",
+          "quantity": 100
+        },
+        {
+          "category": "A",
+          "code": "05",
+          "quantity": 100
+        },
+        {
+          "category": "A",
+          "code": "30",
+          "quantity": 100
+        },
+        {
+          "category": "A",
+          "code": "45",
+          "quantity": 100
+        },
+        {
+          "category": "A",
+          "code": "48",
+          "quantity": 100
+        },
+        {
+          "category": "A",
+          "code": "50",
+          "quantity": 100
+        },
+        {
+          "category": "A",
+          "code": "54",
+          "quantity": 100
+        },
+        {
+          "category": "A",
+          "code": "56",
+          "quantity": 100
+        },
+        {
+          "category": "A",
+          "code": "65",
+          "quantity": 100
+        },
+        {
+          "category": "A",
+          "code": "84",
+          "quantity": 100
+        },
+        {
+          "category": "B",
+          "code": "03",
+          "quantity": 100
+        },
+        {
+          "category": "B",
+          "code": "05",
+          "quantity": 100
+        },
+        {
+          "category": "B",
+          "code": "30",
+          "quantity": 100
+        },
+        {
+          "category": "B",
+          "code": "45",
+          "quantity": 100
+        },
+        {
+          "category": "B",
+          "code": "48",
+          "quantity": 100
+        },
+        {
+          "category": "B",
+          "code": "50",
+          "quantity": 100
+        },
+        {
+          "category": "B",
+          "code": "54",
+          "quantity": 100
+        },
+        {
+          "category": "B",
+          "code": "56",
+          "quantity": 100
+        },
+        {
+          "category": "B",
+          "code": "65",
+          "quantity": 100
+        },
+        {
+          "category": "B",
+          "code": "84",
+          "quantity": 100
+        },
+        {
+          "category": "E",
+          "code": "165",
+          "quantity": 100
+        },
+        {
+          "category": "E",
+          "code": "748",
+          "quantity": 100
+        },
+        {
+          "category": "E",
+          "code": "750",
+          "quantity": 100
+        },
+        {
+          "category": "E",
+          "code": "845",
+          "quantity": 100
+        },
+        {
+          "category": "F",
+          "code": "165",
+          "quantity": 100
+        },
+        {
+          "category": "F",
+          "code": "748",
+          "quantity": 100
+        },
+        {
+          "category": "F",
+          "code": "750",
+          "quantity": 100
+        },
+        {
+          "category": "F",
+          "code": "845",
+          "quantity": 100
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "13960",
+      "cluster": "P57",
+      "source_text": "44\n55\n46\n64\n449\n446\n746=30*30",
+      "reference_text": "44\n55\n46\n64=30*30\n449\n446\n746=30*30",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "44",
+          "quantity": 30
+        },
+        {
+          "category": "A",
+          "code": "46",
+          "quantity": 30
+        },
+        {
+          "category": "A",
+          "code": "55",
+          "quantity": 30
+        },
+        {
+          "category": "A",
+          "code": "64",
+          "quantity": 30
+        },
+        {
+          "category": "B",
+          "code": "44",
+          "quantity": 30
+        },
+        {
+          "category": "B",
+          "code": "46",
+          "quantity": 30
+        },
+        {
+          "category": "B",
+          "code": "55",
+          "quantity": 30
+        },
+        {
+          "category": "B",
+          "code": "64",
+          "quantity": 30
+        },
+        {
+          "category": "E",
+          "code": "446",
+          "quantity": 30
+        },
+        {
+          "category": "E",
+          "code": "449",
+          "quantity": 30
+        },
+        {
+          "category": "E",
+          "code": "746",
+          "quantity": 30
+        },
+        {
+          "category": "F",
+          "code": "446",
+          "quantity": 30
+        },
+        {
+          "category": "F",
+          "code": "449",
+          "quantity": 30
+        },
+        {
+          "category": "F",
+          "code": "746",
+          "quantity": 30
+        }
+      ],
+      "manual_reason": "Human Truth V2: corrected parser-derived expected items using user-confirmed canonical grammar."
+    },
+    {
+      "review_id": "14029",
+      "cluster": "P58",
+      "source_text": "53\n35\n25\n52\n33\n88\n55=20*20\n\n875\n768\n344\n634=20*20",
+      "reference_text": "53\n35\n25\n52\n33\n88\n55=20*20\n\n875=20*20\n768=20*20\n344=20*20\n634=20*20",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "25",
+          "quantity": 20
+        },
+        {
+          "category": "A",
+          "code": "33",
+          "quantity": 20
+        },
+        {
+          "category": "A",
+          "code": "35",
+          "quantity": 20
+        },
+        {
+          "category": "A",
+          "code": "52",
+          "quantity": 20
+        },
+        {
+          "category": "A",
+          "code": "53",
+          "quantity": 20
+        },
+        {
+          "category": "A",
+          "code": "55",
+          "quantity": 20
+        },
+        {
+          "category": "A",
+          "code": "88",
+          "quantity": 20
+        },
+        {
+          "category": "B",
+          "code": "25",
+          "quantity": 20
+        },
+        {
+          "category": "B",
+          "code": "33",
+          "quantity": 20
+        },
+        {
+          "category": "B",
+          "code": "35",
+          "quantity": 20
+        },
+        {
+          "category": "B",
+          "code": "52",
+          "quantity": 20
+        },
+        {
+          "category": "B",
+          "code": "53",
+          "quantity": 20
+        },
+        {
+          "category": "B",
+          "code": "55",
+          "quantity": 20
+        },
+        {
+          "category": "B",
+          "code": "88",
+          "quantity": 20
+        },
+        {
+          "category": "E",
+          "code": "344",
+          "quantity": 20
+        },
+        {
+          "category": "E",
+          "code": "634",
+          "quantity": 20
+        },
+        {
+          "category": "E",
+          "code": "768",
+          "quantity": 20
+        },
+        {
+          "category": "E",
+          "code": "875",
+          "quantity": 20
+        },
+        {
+          "category": "F",
+          "code": "344",
+          "quantity": 20
+        },
+        {
+          "category": "F",
+          "code": "634",
+          "quantity": 20
+        },
+        {
+          "category": "F",
+          "code": "768",
+          "quantity": 20
+        },
+        {
+          "category": "F",
+          "code": "875",
+          "quantity": 20
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "13901",
+      "cluster": "P59",
+      "source_text": "420\n431\n430\n923\n546=30*30\n\n48\n84\n49\n94\n52\n25\n46\n64\n93\n39=30*30\n\nน้าตุ้🇹🇭",
+      "reference_text": "420\n431=30*30\n430=30*30\n923=30*30\n546=30*30\n\n48\n84\n49\n94\n52\n25\n46\n64\n93\n39=30*30",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "25",
+          "quantity": 30
+        },
+        {
+          "category": "A",
+          "code": "39",
+          "quantity": 30
+        },
+        {
+          "category": "A",
+          "code": "46",
+          "quantity": 30
+        },
+        {
+          "category": "A",
+          "code": "48",
+          "quantity": 30
+        },
+        {
+          "category": "A",
+          "code": "49",
+          "quantity": 30
+        },
+        {
+          "category": "A",
+          "code": "52",
+          "quantity": 30
+        },
+        {
+          "category": "A",
+          "code": "64",
+          "quantity": 30
+        },
+        {
+          "category": "A",
+          "code": "84",
+          "quantity": 30
+        },
+        {
+          "category": "A",
+          "code": "93",
+          "quantity": 30
+        },
+        {
+          "category": "A",
+          "code": "94",
+          "quantity": 30
+        },
+        {
+          "category": "B",
+          "code": "25",
+          "quantity": 30
+        },
+        {
+          "category": "B",
+          "code": "39",
+          "quantity": 30
+        },
+        {
+          "category": "B",
+          "code": "46",
+          "quantity": 30
+        },
+        {
+          "category": "B",
+          "code": "48",
+          "quantity": 30
+        },
+        {
+          "category": "B",
+          "code": "49",
+          "quantity": 30
+        },
+        {
+          "category": "B",
+          "code": "52",
+          "quantity": 30
+        },
+        {
+          "category": "B",
+          "code": "64",
+          "quantity": 30
+        },
+        {
+          "category": "B",
+          "code": "84",
+          "quantity": 30
+        },
+        {
+          "category": "B",
+          "code": "93",
+          "quantity": 30
+        },
+        {
+          "category": "B",
+          "code": "94",
+          "quantity": 30
+        },
+        {
+          "category": "E",
+          "code": "420",
+          "quantity": 30
+        },
+        {
+          "category": "E",
+          "code": "430",
+          "quantity": 30
+        },
+        {
+          "category": "E",
+          "code": "431",
+          "quantity": 30
+        },
+        {
+          "category": "E",
+          "code": "546",
+          "quantity": 30
+        },
+        {
+          "category": "E",
+          "code": "923",
+          "quantity": 30
+        },
+        {
+          "category": "F",
+          "code": "420",
+          "quantity": 30
+        },
+        {
+          "category": "F",
+          "code": "430",
+          "quantity": 30
+        },
+        {
+          "category": "F",
+          "code": "431",
+          "quantity": 30
+        },
+        {
+          "category": "F",
+          "code": "546",
+          "quantity": 30
+        },
+        {
+          "category": "F",
+          "code": "923",
+          "quantity": 30
+        }
+      ],
+      "manual_reason": "Human Truth V2: corrected parser-derived expected items using user-confirmed canonical grammar."
+    },
+    {
+      "review_id": "13917",
+      "cluster": "P60",
+      "source_text": "121 30*30\n722\n044\n12 50*50\n21\n22\n02 50*50\n20\n19\n91\n16\n61\nแพท",
+      "reference_text": "121=30*30\n722=30*30\n044=30*30\n12=50*50\n21=50*50\n22=50*50\n02=50*50\n20=50*50\n19=50*50\n91=50*50\n16=50*50\n61=50*50",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "02",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "12",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "16",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "19",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "20",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "21",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "22",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "61",
+          "quantity": 50
+        },
+        {
+          "category": "A",
+          "code": "91",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "02",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "12",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "16",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "19",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "20",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "21",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "22",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "61",
+          "quantity": 50
+        },
+        {
+          "category": "B",
+          "code": "91",
+          "quantity": 50
+        },
+        {
+          "category": "E",
+          "code": "044",
+          "quantity": 30
+        },
+        {
+          "category": "E",
+          "code": "121",
+          "quantity": 30
+        },
+        {
+          "category": "E",
+          "code": "722",
+          "quantity": 30
+        },
+        {
+          "category": "F",
+          "code": "044",
+          "quantity": 30
+        },
+        {
+          "category": "F",
+          "code": "121",
+          "quantity": 30
+        },
+        {
+          "category": "F",
+          "code": "722",
+          "quantity": 30
+        }
+      ],
+      "manual_reason": null
+    },
+    {
+      "review_id": "14051",
+      "cluster": "P25",
+      "source_text": "138-20*20\n\n438-20*20\n432-20*20\n039-20*20\n38-20*20\n83-20*20\n03-20*20\n30-20*20\n248-20-20",
+      "reference_text": "138=20*20\n\n438=20*20\n432=20*20\n039=20*20\n38=20*20\n83=20*20\n03=20*20\n30=20*20\n248=20-20",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "03",
+          "quantity": 20
+        },
+        {
+          "category": "A",
+          "code": "30",
+          "quantity": 20
+        },
+        {
+          "category": "A",
+          "code": "38",
+          "quantity": 20
+        },
+        {
+          "category": "A",
+          "code": "83",
+          "quantity": 20
+        },
+        {
+          "category": "B",
+          "code": "03",
+          "quantity": 20
+        },
+        {
+          "category": "B",
+          "code": "30",
+          "quantity": 20
+        },
+        {
+          "category": "B",
+          "code": "38",
+          "quantity": 20
+        },
+        {
+          "category": "B",
+          "code": "83",
+          "quantity": 20
+        },
+        {
+          "category": "E",
+          "code": "039",
+          "quantity": 20
+        },
+        {
+          "category": "E",
+          "code": "138",
+          "quantity": 20
+        },
+        {
+          "category": "E",
+          "code": "248",
+          "quantity": 20
+        },
+        {
+          "category": "E",
+          "code": "432",
+          "quantity": 20
+        },
+        {
+          "category": "E",
+          "code": "438",
+          "quantity": 20
+        },
+        {
+          "category": "F",
+          "code": "039",
+          "quantity": 20
+        },
+        {
+          "category": "F",
+          "code": "138",
+          "quantity": 20
+        },
+        {
+          "category": "F",
+          "code": "248",
+          "quantity": 20
+        },
+        {
+          "category": "F",
+          "code": "432",
+          "quantity": 20
+        },
+        {
+          "category": "F",
+          "code": "438",
+          "quantity": 20
+        }
+      ],
+      "manual_reason": "Human Truth V2: 248=20-20 is a 3D E/F pair; E248=20 and F248=20."
+    },
+    {
+      "review_id": "14052",
+      "cluster": "P47",
+      "source_text": "42\n24\n02\n20\n40\n04 -200*200\n\n402 50*6กลับ",
+      "reference_text": "42\n24\n02\n20\n40\n04=200*200\n\n402=50*6ก",
+      "expected_status": "PARSED",
+      "expected_items": [
+        {
+          "category": "A",
+          "code": "02",
+          "quantity": 200
+        },
+        {
+          "category": "A",
+          "code": "04",
+          "quantity": 200
+        },
+        {
+          "category": "A",
+          "code": "20",
+          "quantity": 200
+        },
+        {
+          "category": "A",
+          "code": "24",
+          "quantity": 200
+        },
+        {
+          "category": "A",
+          "code": "40",
+          "quantity": 200
+        },
+        {
+          "category": "A",
+          "code": "42",
+          "quantity": 200
+        },
+        {
+          "category": "B",
+          "code": "02",
+          "quantity": 200
+        },
+        {
+          "category": "B",
+          "code": "04",
+          "quantity": 200
+        },
+        {
+          "category": "B",
+          "code": "20",
+          "quantity": 200
+        },
+        {
+          "category": "B",
+          "code": "24",
+          "quantity": 200
+        },
+        {
+          "category": "B",
+          "code": "40",
+          "quantity": 200
+        },
+        {
+          "category": "B",
+          "code": "42",
+          "quantity": 200
+        },
+        {
+          "category": "E",
+          "code": "024",
+          "quantity": 50
+        },
+        {
+          "category": "E",
+          "code": "042",
+          "quantity": 50
+        },
+        {
+          "category": "E",
+          "code": "204",
+          "quantity": 50
+        },
+        {
+          "category": "E",
+          "code": "240",
+          "quantity": 50
+        },
+        {
+          "category": "E",
+          "code": "402",
+          "quantity": 50
+        },
+        {
+          "category": "E",
+          "code": "420",
+          "quantity": 50
+        }
+      ],
+      "manual_reason": "Human Truth V2: user-confirmed 3D counted permutation; 402=50*6ก emits six E permutations."
+    }
+  ],
+  "oracle_revision": "HUMAN_TRUTH_V2",
+  "reference_gap_count": 0,
+  "human_truth_corrections": [
+    "13892",
+    "13880",
+    "13960",
+    "13901",
+    "14051",
+    "14052"
+  ],
+  "oracle_v3_rejected_changes": [
+    {
+      "review_id": "14126",
+      "reason": "บลก means A+B plus reverse codes; Oracle V3 A-only result rejected."
+    }
+  ]
+}

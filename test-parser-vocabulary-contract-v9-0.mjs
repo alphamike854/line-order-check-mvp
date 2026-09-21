@@ -422,36 +422,43 @@ check("THREE-EF-02 natural low-value 3-digit pair means E/F", () => {
   );
 });
 
-check("THREE-SAFETY-05 unmarked 3-value chain remains Review-safe", () => {
-  const r = parseOrder(
-    "522=20*20*20"
-  );
+check("THREE-PERM-05 repeated star quantities mean repeated permutations", () => {
+  const r =
+    parseOrder(
+      "522=20*20*20"
+    );
 
   assert.equal(
     r.status,
-    "REVIEW"
+    "PARSED"
   );
 
-  assert.equal(
-    r.items.length,
-    0
+  const items =
+    Object.fromEntries(
+      r.items.map(
+        item => [
+          `${item.category}${item.code}`,
+          Number(item.quantity),
+        ]
+      )
+    );
+
+  assert.deepEqual(
+    items,
+    {
+      E225: 20,
+      E252: 20,
+      E522: 20,
+    }
   );
 
   assert.ok(
-    r.errors.some(
-      (error) =>
-        error.code ===
-        "UNSUPPORTED_QUANTITY_EXPRESSION"
+    r.rule_ids.includes(
+      "R_3DIGIT_REPEATED_PERMUTATION"
     )
   );
-
-  assert.equal(
-    r.rule_ids.includes(
-      "R_3DIGIT_UNMARKED_QUANTITY_CHAIN"
-    ),
-    true
-  );
 });
+
 
 check("SAFETY-04 bare 2-digit codes remain Review-safe", () => {
   const r = parseOrder("72 27");

@@ -18,52 +18,121 @@ function itemMap(result) {
 }
 
 
-function expectUnmarkedChainReview(text) {
-  const result = parseOrder(text);
-
-  assert.equal(
-    result.status,
-    "REVIEW",
-    text,
-  );
-
-  assert.equal(
-    result.items.length,
-    0,
-    text,
-  );
-
-  assert.ok(
-    result.errors.some(
-      (error) =>
-        error.code ===
-        "UNSUPPORTED_QUANTITY_EXPRESSION"
-    ),
-    text,
-  );
-
-  assert.ok(
-    result.rule_ids.includes(
-      "R_3DIGIT_UNMARKED_QUANTITY_CHAIN"
-    ),
-    text,
-  );
-}
-
-
 assert.ok(
   PARSER_VERSION.startsWith("1.")
 );
 
 
-// Unmarked 3+ quantity chains no longer imply permutation.
+// Repeated equal quantities are permutation shorthand when the
+// repeated-value count equals the code's unique permutations.
+{
+  const result =
+    parseOrder(
+      "998=100x100x100"
+    );
+
+  assert.equal(
+    result.status,
+    "PARSED"
+  );
+
+  assert.deepEqual(
+    itemMap(result),
+    {
+      E899: 100,
+      E989: 100,
+      E998: 100,
+    }
+  );
+
+  assert.ok(
+    result.rule_ids.includes(
+      "R_3DIGIT_REPEATED_PERMUTATION"
+    )
+  );
+}
+
+
+{
+  const result =
+    parseOrder(
+      "093=100x100x100x100x100x100"
+    );
+
+  assert.equal(
+    result.status,
+    "PARSED"
+  );
+
+  assert.deepEqual(
+    itemMap(result),
+    {
+      E039: 100,
+      E093: 100,
+      E309: 100,
+      E390: 100,
+      E903: 100,
+      E930: 100,
+    }
+  );
+}
+
+
+// Count mismatch remains fail-closed.
 for (const text of [
-  "998=100x100x100",
-  "093=100x100x100x100x100x100",
+  "123=5x5x5",
   "998=100x100x100x100",
-  "998=100x200x100",
 ]) {
-  expectUnmarkedChainReview(text);
+  const result =
+    parseOrder(text);
+
+  assert.equal(
+    result.status,
+    "REVIEW",
+    text
+  );
+
+  assert.equal(
+    result.items.length,
+    0,
+    text
+  );
+
+  assert.ok(
+    result.errors.some(
+      error =>
+        error.code ===
+          "PERMUTATION_COUNT_MISMATCH"
+    ),
+    text
+  );
+}
+
+
+// Unequal repeated quantities remain fail-closed.
+{
+  const result =
+    parseOrder(
+      "998=100x200x100"
+    );
+
+  assert.equal(
+    result.status,
+    "REVIEW"
+  );
+
+  assert.equal(
+    result.items.length,
+    0
+  );
+
+  assert.ok(
+    result.errors.some(
+      error =>
+        error.code ===
+          "REPEATED_PERMUTATION_QUANTITY_MISMATCH"
+    )
+  );
 }
 
 

@@ -182,30 +182,98 @@ const THREE = [
 }
 
 // ------------------------------------------------------------
-// SAFETY-02
+// MW-SHARED-02
 //
-// One trailing 2-digit code is not enough evidence to declare
-// a separate 2-digit block. Do not widen the inference.
+// Human Truth V2:
+//
+//   930
+//   039
+//   09=50x50
+//
+// The explicit code-attached terminal pair is sufficient
+// evidence to close the immediately preceding 3-digit block
+// with the same quantity pair:
+//
+//   E/F 930 = 50
+//   E/F 039 = 50
+//   A/B 09  = 50
+//
+// This is intentionally different from a pure multi-3D block
+// followed only by a standalone bare QxQ quantity, which
+// remains fail-closed.
 // ------------------------------------------------------------
 {
   const result = parseOrder(`930
 039
 09=50x50`);
 
-  const emittedEF =
-    (result.items || []).filter(
-      (item) =>
-        item.category === "E"
-        || item.category === "F"
+  const map =
+    new Map(
+      (result.items || [])
+        .map(
+          (item) => [
+            `${item.category}|${item.code}`,
+            item.quantity,
+          ]
+        )
     );
 
   assert.equal(
-    emittedEF.length,
-    0,
+    map.get("E|930"),
+    50,
+  );
+
+  assert.equal(
+    map.get("F|930"),
+    50,
+  );
+
+  assert.equal(
+    map.get("E|039"),
+    50,
+  );
+
+  assert.equal(
+    map.get("F|039"),
+    50,
+  );
+
+  assert.equal(
+    map.get("A|09"),
+    50,
+  );
+
+  assert.equal(
+    map.get("B|09"),
+    50,
+  );
+
+  const expectedKeys =
+    new Set([
+      "E|930",
+      "F|930",
+      "E|039",
+      "F|039",
+      "A|09",
+      "B|09",
+    ]);
+
+  const actualKeys =
+    new Set(
+      (result.items || [])
+        .map(
+          (item) =>
+            `${item.category}|${item.code}`
+        )
+    );
+
+  assert.deepEqual(
+    actualKeys,
+    expectedKeys,
   );
 
   console.log(
-    "PASS MW-SHARED-SAFETY-02 single terminal 2-digit code does not widen inference"
+    "PASS MW-SHARED-02 explicit terminal 2-digit anchor closes preceding 3-digit block"
   );
 }
 
@@ -237,7 +305,7 @@ const THREE = [
 
 assert.equal(
   PARSER_VERSION,
-  "1.7.27",
+  "1.7.28",
 );
 
 console.log(
