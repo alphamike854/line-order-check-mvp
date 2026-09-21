@@ -26,7 +26,7 @@ function total(result) {
 
 assert.equal(
   PARSER_VERSION,
-  "1.7.27"
+  "1.7.28"
 );
 
 
@@ -324,8 +324,9 @@ console.log(
 
 // ============================================================
 // P2K-SAFETY-04
-// v9.30: 3+ quantities have no implicit permutation semantics.
+// Existing repeated-permutation grammar stays supported.
 // ============================================================
+
 for (const text of [
   "229=50*50*50",
   "229=50x50x50",
@@ -335,31 +336,30 @@ for (const text of [
 
   assert.equal(
     result.status,
-    "REVIEW"
+    "PARSED",
+    text
   );
 
-  assert.equal(
-    result.items.length,
-    0
-  );
-
-  assert.ok(
-    result.errors.some(
-      (error) =>
-        error.code ===
-        "UNSUPPORTED_QUANTITY_EXPRESSION"
-    )
+  assert.deepEqual(
+    canonical(result),
+    [
+      "E229=50",
+      "E292=50",
+      "E922=50",
+    ],
+    text
   );
 
   assert.ok(
     result.rule_ids.includes(
-      "R_3DIGIT_UNMARKED_QUANTITY_CHAIN"
-    )
+      "R_3DIGIT_REPEATED_PERMUTATION"
+    ),
+    text
   );
 }
 
 console.log(
-  "PASS P2K-SAFETY-04 unmarked quantity chains fail closed"
+  "PASS P2K-SAFETY-04 repeated permutation unchanged"
 );
 
 

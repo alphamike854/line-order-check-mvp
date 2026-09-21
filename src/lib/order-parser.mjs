@@ -7051,6 +7051,40 @@ function parseOrder(inputText, config = {}) {
   const errors = [];
   const checksums = [];
 
+  // P2K dash-safety boundary.
+  //
+  // Valid:
+  //   146-300x300
+  //   146-300+300
+  //
+  // Fail closed:
+  //   123-456
+  //   123-50
+  //   123-50x
+  //   123--50x50
+  const ambiguousThreeDigitDash =
+    /^(?:\d{3}\s*-\s*[\d,]+|\d{3}\s*-\s*[\d,]+\s*[xX*×/+ ]\s*|\d{3}\s*--\s*[\d,]+\s*[xX*×/+ ]\s*[\d,]+)$/u.test(
+      String(normalized || "").trim()
+    );
+
+  if (ambiguousThreeDigitDash) {
+    return {
+      status: "REVIEW",
+      items: [],
+      warnings: [],
+      errors: [
+        {
+          code: "AMBIGUOUS_3DIGIT_DASH_ASSIGNMENT",
+          detail: normalized,
+        },
+      ],
+      checksums: [],
+      parser_version: PARSER_VERSION,
+      rule_ids: [],
+      normalized_text: normalized,
+    };
+  }
+
   const ambiguousSameLineOrder =
     findAmbiguousSameLineOrderSyntax(normalized);
 
