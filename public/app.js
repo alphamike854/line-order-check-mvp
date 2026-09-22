@@ -16878,6 +16878,373 @@ function bindV5Controls() {
   $("#exportReportCsvButton").addEventListener("click",exportDailyReportCsv);
 }
 
+
+let exportPreparationReadGeneration = 0;
+
+function exportPreparationNumber(value) {
+  const number = Number(value ?? 0);
+  return Number.isFinite(number) && number >= 0
+    ? number
+    : 0;
+}
+
+function exportPreparationCycleLabel(status) {
+  switch (String(status || "").toUpperCase()) {
+    case "DRAFT":
+      return "ร่าง";
+    case "READY":
+      return "พร้อมส่ง";
+    case "SENT":
+      return "ส่งแล้ว";
+    default:
+      return String(status || "-");
+  }
+}
+
+function exportPreparationTime(value) {
+  if (!value) return "-";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+
+  return new Intl.DateTimeFormat("th-TH", {
+    timeZone: "Asia/Bangkok",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
+function clearExportPreparationReadOnly(status, message) {
+  const statusRoot = $("#exportPreparationReadOnlyStatus");
+  const summaryRoot = $("#exportPreparationReadOnlySummary");
+  const codesRoot = $("#exportPreparationReadOnlyCodes");
+  const cyclesRoot = $("#exportPreparationReadOnlyCycles");
+
+  if (statusRoot) statusRoot.textContent = status || "";
+  if (summaryRoot) summaryRoot.innerHTML = "";
+
+  if (codesRoot) {
+    codesRoot.innerHTML = message
+      ? `<div class="export-preparation-empty">${escapeHtml(message)}</div>`
+      : "";
+  }
+
+  if (cyclesRoot) cyclesRoot.innerHTML = "";
+}
+
+function renderExportPreparationReadOnly(payload, groupId) {
+  const statusRoot = $("#exportPreparationReadOnlyStatus");
+  const summaryRoot = $("#exportPreparationReadOnlySummary");
+  const codesRoot = $("#exportPreparationReadOnlyCodes");
+  const cyclesRoot = $("#exportPreparationReadOnlyCycles");
+
+  if (!statusRoot || !summaryRoot || !codesRoot || !cyclesRoot) {
+    return;
+  }
+
+  const items = Array.isArray(payload?.items)
+    ? payload.items
+    : [];
+
+  const cycles = Array.isArray(payload?.cycles)
+    ? payload.cycles
+    : [];
+
+  const totals = payload?.totals || {};
+
+  const current = exportPreparationNumber(
+    totals.current_effective_quantity,
+  );
+
+  const sent = exportPreparationNumber(
+    totals.sent_cumulative_quantity,
+  );
+
+  const available = exportPreparationNumber(
+    totals.available_quantity,
+  );
+
+  const overSent = exportPreparationNumber(
+    totals.over_sent_quantity,
+  );
+
+  const selectable = exportPreparationNumber(
+    totals.selectable_code_count,
+  );
+
+  const reconciliation = exportPreparationNumber(
+    totals.reconciliation_required_count,
+  );
+
+  const roundNo = payload?.round?.round_no ?? null;
+
+  statusRoot.innerHTML = `
+    <span class="export-preparation-read-badge">อ่านอย่างเดียว</span>
+    <strong>
+      ${escapeHtml(groupName(groupId))}
+      ${roundNo ? ` · รอบ ${escapeHtml(String(roundNo))}` : ""}
+    </strong>
+  `;
+
+  summaryRoot.innerHTML = `
+    <div class="export-preparation-metric">
+      <span>ยอดปัจจุบัน</span>
+      <strong>${formatNumber(current)}</strong>
+    </div>
+
+    <div class="export-preparation-metric">
+      <span>ส่งแล้วสะสม</span>
+      <strong>${formatNumber(sent)}</strong>
+    </div>
+
+    <div class="export-preparation-metric">
+      <span>ส่งได้อีก</span>
+      <strong>${formatNumber(available)}</strong>
+    </div>
+
+    <div class="export-preparation-metric">
+      <span>รหัสที่ยังส่งได้</span>
+      <strong>${formatNumber(selectable)}</strong>
+    </div>
+  `;
+
+  if (reconciliation > 0) {
+    summaryRoot.insertAdjacentHTML(
+      "beforeend",
+      `
+        <div class="export-preparation-warning">
+          ต้องตรวจสอบ ${formatNumber(reconciliation)} รหัส
+          · ส่งสะสมสูงกว่ายอดปัจจุบัน ${formatNumber(overSent)}
+        </div>
+      `,
+    );
+  }
+
+  const sortedItems = [...items].sort((a, b) => {
+    const category = String(a?.category || "")
+      .localeCompare(String(b?.category || ""));
+
+    if (category) return category;
+
+    return String(a?.code || "").localeCompare(
+      String(b?.code || ""),
+      undefined,
+      { numeric: true },
+    );
+  });
+
+  if (!sortedItems.length) {
+    codesRoot.innerHTML =
+      '<div class="export-preparation-empty">'
+      + "ยังไม่มียอดสำหรับเตรียมส่งออก"
+      + "</div>";
+  } else {
+    codesRoot.innerHTML = `
+      <div class="table-wrap">
+        <table class="export-preparation-table">
+          <thead>
+            <tr>
+              <th>รหัส</th>
+              <th class="num">ยอดปัจจุบัน</th>
+              <th class="num">ส่งแล้วสะสม</th>
+              <th class="num">ส่งได้อีก</th>
+              <th>สถานะ</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${sortedItems.map((item) => {
+              const rowCurrent = exportPreparationNumber(
+                item?.current_effective_quantity,
+              );
+
+              const rowSent = exportPreparationNumber(
+                item?.sent_cumulative_quantity,
+              );
+
+              const rowAvailable = exportPreparationNumber(
+                item?.available_quantity,
+              );
+
+              const rowOverSent = exportPreparationNumber(
+                item?.over_sent_quantity,
+              );
+
+              const requiresReconciliation =
+                item?.reconciliation_required === true
+                || rowOverSent > 0;
+
+              const code =
+                String(item?.category || "")
+                + String(item?.code || "");
+
+              return `
+                <tr class="${
+                  requiresReconciliation
+                    ? "export-preparation-reconciliation-row"
+                    : ""
+                }">
+                  <td><strong>${escapeHtml(code)}</strong></td>
+                  <td class="num">${formatNumber(rowCurrent)}</td>
+                  <td class="num">${formatNumber(rowSent)}</td>
+                  <td class="num"><strong>${formatNumber(rowAvailable)}</strong></td>
+                  <td>
+                    ${
+                      requiresReconciliation
+                        ? '<span class="export-preparation-reconciliation">ต้องตรวจสอบ</span>'
+                        : rowAvailable > 0
+                          ? '<span class="export-preparation-available">ส่งได้</span>'
+                          : '<span class="export-preparation-complete">ไม่มีคงเหลือ</span>'
+                    }
+                  </td>
+                </tr>
+              `;
+            }).join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  const sortedCycles = [...cycles].sort(
+    (a, b) =>
+      Number(b?.cycle_no || 0)
+      - Number(a?.cycle_no || 0),
+  );
+
+  if (!sortedCycles.length) {
+    cyclesRoot.innerHTML =
+      '<div class="export-preparation-cycle-empty">'
+      + "ยังไม่มีชุดส่งออกในรอบนี้"
+      + "</div>";
+    return;
+  }
+
+  cyclesRoot.innerHTML = `
+    <div class="export-preparation-cycle-heading">
+      ชุดส่งออกในรอบนี้
+    </div>
+
+    <div class="export-preparation-cycle-list">
+      ${sortedCycles.map((cycle) => {
+        const rawStatus =
+          String(cycle?.status || "").toUpperCase();
+
+        const destination =
+          cycle?.destination_label
+          || cycle?.destination_line_group_id
+          || "-";
+
+        const eventTime =
+          cycle?.sent_at
+          || cycle?.ready_at
+          || cycle?.created_at
+          || cycle?.snapshot_at;
+
+        return `
+          <div class="export-preparation-cycle">
+            <div>
+              <strong>
+                ชุดส่งออกที่ ${escapeHtml(String(cycle?.cycle_no ?? "-"))}
+              </strong>
+              <span class="export-preparation-cycle-status">
+                ${escapeHtml(exportPreparationCycleLabel(rawStatus))}
+              </span>
+            </div>
+
+            <small>
+              ${escapeHtml(String(destination))}
+              ·
+              ${escapeHtml(exportPreparationTime(eventTime))}
+            </small>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+async function loadExportPreparationReadOnly() {
+  const panel = $("#exportPreparationReadOnlyPanel");
+
+  if (!panel) return;
+
+  const groupId =
+    summaryGroupSelect?.value || "ALL";
+
+  const generation =
+    ++exportPreparationReadGeneration;
+
+  if (!groupId || groupId === "ALL") {
+    clearExportPreparationReadOnly(
+      "เลือกกลุ่มสรุป",
+      "เลือกกลุ่มสรุปด้านบนเพื่อดูยอดเตรียมส่งออก",
+    );
+    return;
+  }
+
+  clearExportPreparationReadOnly(
+    "กำลังโหลด…",
+    "กำลังอ่านยอดของรอบปัจจุบัน",
+  );
+
+  try {
+    const payload = await api(
+      "/api/export-preparation"
+      + "?group="
+      + encodeURIComponent(groupId),
+    );
+
+    if (
+      generation
+      !== exportPreparationReadGeneration
+    ) {
+      return;
+    }
+
+    if (
+      payload?.summary_group_id
+      && payload.summary_group_id !== groupId
+    ) {
+      throw new Error(
+        "EXPORT_PREPARATION_GROUP_MISMATCH",
+      );
+    }
+
+    renderExportPreparationReadOnly(
+      payload,
+      groupId,
+    );
+  } catch (error) {
+    if (
+      generation
+      !== exportPreparationReadGeneration
+    ) {
+      return;
+    }
+
+    const code = String(error?.message || "");
+
+    const noOpenRound =
+      code.includes("ROUND_NOT_FOUND")
+      || code.includes("ROUND_NOT_OPEN")
+      || code.includes("NO_OPEN");
+
+    clearExportPreparationReadOnly(
+      "ยังไม่พร้อม",
+      noOpenRound
+        ? "กลุ่มสรุปนี้ยังไม่มีรอบที่เปิดอยู่"
+        : "ไม่สามารถอ่านข้อมูลเตรียมส่งออกได้",
+    );
+  }
+}
+
+
 async function loadDashboard({
   silent = false,
   preserveReviewWorkbench = false,
@@ -16971,6 +17338,8 @@ async function loadDashboard({
     renderMetrics(payload.metrics);
     renderSummary();
     renderAllocation();
+    void loadExportPreparationReadOnly();
+
     renderAbAdvisoryPreview({
       dashboard: state.dashboard,
       selectedSummaryGroup:
