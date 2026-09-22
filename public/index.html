@@ -392,6 +392,68 @@
           </section>
 
           <section class="settings-block">
+            <h3>กลุ่มปลายทางส่งออก</h3>
+            <p class="muted">
+              เลือกห้อง LINE ที่ระบบเคยพบเพื่อใช้เป็นปลายทางของชุดส่งออก
+              · รายการใหม่จะถูกสร้างในสถานะปิดก่อนเสมอ
+            </p>
+            <p class="muted">
+              ห้องที่กำลังรับออเดอร์หรืออยู่ใน OPEN Round
+              จะไม่สามารถเปิดใช้งานเป็นปลายทางส่งออกได้
+            </p>
+
+            <form
+              id="exportDestinationForm"
+              class="compact-form"
+            >
+              <select
+                name="line_group_id"
+                required
+              >
+                <option value="">
+                  เลือก LINE Group ปลายทาง
+                </option>
+              </select>
+
+              <input
+                name="label"
+                maxlength="150"
+                placeholder="ชื่อปลายทางที่แสดง"
+                required
+              />
+
+              <label>
+                <input
+                  name="enabled"
+                  type="checkbox"
+                  disabled
+                />
+                เปิดใช้งาน
+              </label>
+
+              <button
+                class="button primary small"
+                type="submit"
+              >
+                บันทึกปลายทาง
+              </button>
+
+              <button
+                id="exportDestinationResetButton"
+                class="button ghost small"
+                type="button"
+              >
+                ล้าง
+              </button>
+            </form>
+
+            <div
+              id="exportDestinationsList"
+              class="settings-list"
+            ></div>
+          </section>
+
+          <section class="settings-block">
             <h3>ตัวคูณ Point พิเศษของบริษัท</h3>
             <p class="muted small-text">มีผลกับยอดที่เปิดอยู่ทันที</p>
             <form id="pointProfileForm" class="compact-form">

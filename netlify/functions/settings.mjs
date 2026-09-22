@@ -391,6 +391,139 @@ export default async (req) => {
   try {
     if (req.method === "GET") {
       const settings = await fetchSettings();
+      const {
+        data: exportDestinations,
+        error: exportDestinationsError,
+      } = await supabase
+        .from("export_destination_line_groups")
+        .select(
+          "line_group_id,label,enabled,verification_source,created_at,updated_at"
+        )
+        .order("label", { ascending: true });
+
+      if (exportDestinationsError) {
+        throw exportDestinationsError;
+      }
+
+      const {
+        data: openRoundInputs,
+        error: openRoundInputsError,
+      } = await supabase
+        .from(
+          "settlement_line_group_round_config_working_context"
+        )
+        .select("line_group_id")
+        .eq("round_status", "OPEN");
+
+      if (openRoundInputsError) {
+        throw openRoundInputsError;
+      }
+
+      const openRoundInputIds = new Set(
+        (openRoundInputs || [])
+          .map((row) =>
+            String(row?.line_group_id ?? "").trim()
+          )
+          .filter(Boolean),
+      );
+
+      const exportCandidateMap = new Map();
+
+      const addExportCandidate = (
+        lineGroupId,
+        label,
+        source,
+        activeOrderGroup = false,
+      ) => {
+        const id =
+          String(lineGroupId ?? "").trim();
+
+        if (!id) return;
+
+        const current =
+          exportCandidateMap.get(id) || {};
+
+        exportCandidateMap.set(
+          id,
+          {
+            line_group_id: id,
+            label:
+              String(
+                label
+                ?? current.label
+                ?? id
+              ).trim()
+              || id,
+            source:
+              source
+              ?? current.source
+              ?? "OBSERVED",
+            active_order_group:
+              Boolean(
+                activeOrderGroup
+                || current.active_order_group
+              ),
+            active_open_round_input:
+              openRoundInputIds.has(id),
+          },
+        );
+      };
+
+      for (const row of settings.line_groups || []) {
+        addExportCandidate(
+          row?.line_group_id,
+          row?.line_group_name
+            ?? row?.name,
+          "CONFIGURED",
+          row?.enabled === true,
+        );
+      }
+
+      for (
+        const row
+        of settings.unconfigured_line_groups || []
+      ) {
+        addExportCandidate(
+          row?.line_group_id
+            ?? row?.id,
+          row?.line_group_name
+            ?? row?.name,
+          "OBSERVED",
+          false,
+        );
+      }
+
+      for (const row of settings.mirror_routes || []) {
+        addExportCandidate(
+          row?.destination_line_group_id,
+          row?.destination_line_group_name
+            ?? row?.destination_name,
+          "MIRROR_DESTINATION",
+          false,
+        );
+      }
+
+      for (const row of exportDestinations || []) {
+        addExportCandidate(
+          row?.line_group_id,
+          row?.label,
+          "EXPORT_DESTINATION",
+          false,
+        );
+      }
+
+      settings.export_destinations =
+        exportDestinations || [];
+
+      settings.export_destination_candidates =
+        [...exportCandidateMap.values()]
+          .sort((a, b) =>
+            String(a.label).localeCompare(
+              String(b.label),
+              "th",
+            )
+          );
+
       return json({ ok: true, settings });
     }
 
@@ -402,6 +535,53 @@ export default async (req) => {
     if (entity === "SUMMARY_GROUP") saved = await saveSummaryGroup(body.values);
     else if (entity === "LINE_GROUP") saved = await saveLineGroup(body.values);
     else if (entity === "MIRROR_ROUTE") saved = await saveMirrorRoute(body.values);
+    else if (entity === "EXPORT_DESTINATION") {
+      const values = body.values ?? {};
+
+      const lineGroupId =
+        String(
+          values.line_group_id
+          ?? ""
+        ).trim();
+
+      const label =
+        String(
+          values.label
+          ?? ""
+        ).trim();
+
+      if (!lineGroupId) {
+        throw new Error(
+          "EXPORT_DESTINATION_REQUIRED"
+        );
+      }
+
+      if (!label || label.length > 150) {
+        throw new Error(
+          "EXPORT_DESTINATION_LABEL_INVALID"
+        );
+      }
+
+      const {
+        data,
+        error,
+      } = await supabase.rpc(
+        "save_export_destination_settings",
+        {
+          p_line_group_id:
+            lineGroupId,
+          p_label:
+            label,
+          p_enabled:
+            values.enabled === true,
+          p_changed_by:
+            "DASHBOARD",
+        },
+      );
+
+      if (error) throw error;
+      saved = data;
+    }
     else if (entity === "ALLOCATION_RULE") saved = await saveAllocationRule(body.values);
     else if (entity === "CATEGORY_ALIAS") saved = await saveAlias(body.values);
     else if (entity === "POINT_PROFILE") saved = await savePointProfile(body.values);
@@ -412,6 +592,31 @@ export default async (req) => {
     return json({ ok: true, entity, saved });
   } catch (error) {
     const message = error?.message ?? String(error);
+
+    const exportDestinationMatch =
+      message.match(
+        /\b(EXPORT_DESTINATION_[A-Z0-9_]+)\b/,
+      );
+
+    if (exportDestinationMatch) {
+      const code =
+        exportDestinationMatch[1];
+
+      const conflict =
+        code.includes("ACTIVE")
+        || code.includes("OPEN_ROUND")
+        || code.includes("UNRESOLVED")
+        || code.includes("NOT_ALLOWED")
+        || code.includes("IN_USE");
+
+      return json(
+        {
+          ok: false,
+          error: code,
+        },
+        conflict ? 409 : 400,
+      );
+    }
     const status =
       message.endsWith("_NOT_FOUND")
         ? 404

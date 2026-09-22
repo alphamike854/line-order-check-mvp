@@ -14088,8 +14088,342 @@ function resetMirrorRouteForm() {
   );
 }
 
+
+function exportDestinationErrorMessage(error) {
+  const text =
+    String(
+      error?.message
+      ?? error
+      ?? ""
+    );
+
+  if (
+    text.includes(
+      "EXPORT_DESTINATION_ACTIVE_ORDER_GROUP"
+    )
+  ) {
+    return "ห้องนี้ยังเปิดรับออเดอร์อยู่";
+  }
+
+  if (
+    text.includes(
+      "EXPORT_DESTINATION_ACTIVE_OPEN_ROUND_INPUT"
+    )
+  ) {
+    return "ห้องนี้อยู่ใน OPEN Round และยังใช้เป็นปลายทางไม่ได้";
+  }
+
+  if (
+    text.includes(
+      "EXPORT_DESTINATION_NOT_FOUND"
+    )
+  ) {
+    return "ไม่พบห้อง LINE นี้ในข้อมูลที่ระบบเคยพบ";
+  }
+
+  if (
+    text.includes(
+      "EXPORT_DESTINATION_UNRESOLVED"
+    )
+    || text.includes(
+      "EXPORT_DESTINATION_IN_USE"
+    )
+  ) {
+    return "ยังมีรายการส่งที่ค้างอยู่ จึงปิดปลายทางนี้ไม่ได้";
+  }
+
+  if (
+    text.includes(
+      "EXPORT_DESTINATION_LABEL"
+    )
+  ) {
+    return "กรุณาระบุชื่อปลายทางให้ถูกต้อง";
+  }
+
+  return "ไม่สามารถบันทึกกลุ่มปลายทางส่งออกได้";
+}
+
+function resetExportDestinationForm() {
+  const form =
+    $("#exportDestinationForm");
+
+  if (!form) return;
+
+  form.reset();
+  form.dataset.mode = "create";
+
+  const select =
+    form.elements.line_group_id;
+
+  const enabled =
+    form.elements.enabled;
+
+  if (select) {
+    select.disabled = false;
+  }
+
+  if (enabled) {
+    enabled.checked = false;
+    enabled.disabled = true;
+  }
+}
+
+function renderExportDestinationSettings() {
+  const root =
+    $("#exportDestinationsList");
+
+  const form =
+    $("#exportDestinationForm");
+
+  const settings =
+    state.settings;
+
+  if (!root || !form || !settings) {
+    return;
+  }
+
+  const rows =
+    Array.isArray(
+      settings.export_destinations
+    )
+      ? settings.export_destinations
+      : [];
+
+  const candidates =
+    Array.isArray(
+      settings.export_destination_candidates
+    )
+      ? settings.export_destination_candidates
+      : [];
+
+  const select =
+    form.elements.line_group_id;
+
+  const currentValue =
+    select?.value || "";
+
+  if (select) {
+    const options = [
+      '<option value="">เลือก LINE Group ปลายทาง</option>',
+    ];
+
+    for (const row of candidates) {
+      const id =
+        String(
+          row?.line_group_id
+          ?? ""
+        ).trim();
+
+      if (!id) continue;
+
+      const blocked =
+        row?.active_order_group === true
+        || row?.active_open_round_input === true;
+
+      const reason =
+        row?.active_order_group === true
+          ? " · กำลังรับออเดอร์"
+          : row?.active_open_round_input === true
+            ? " · OPEN Round"
+            : "";
+
+      options.push(
+        `<option value="${escapeHtml(id)}" ${
+          blocked ? "disabled" : ""
+        }>${
+          escapeHtml(
+            String(
+              row?.label
+              ?? id
+            )
+          )
+        }${escapeHtml(reason)}</option>`,
+      );
+    }
+
+    select.innerHTML =
+      options.join("");
+
+    if (
+      currentValue
+      && candidates.some(
+        (row) =>
+          String(row?.line_group_id ?? "")
+          === currentValue
+      )
+    ) {
+      select.value = currentValue;
+    }
+  }
+
+  root.innerHTML =
+    rows.length
+      ? rows
+          .map((row) => {
+            const id =
+              String(
+                row?.line_group_id
+                ?? ""
+              );
+
+            const label =
+              String(
+                row?.label
+                ?? id
+              );
+
+            const enabled =
+              row?.enabled === true;
+
+            return `
+              <div class="settings-row">
+                <span>
+                  <strong>${escapeHtml(label)}</strong>
+                  <small>${escapeHtml(id)}</small>
+                </span>
+                <span>
+                  ${enabled ? "ใช้งาน" : "ปิด"}
+                </span>
+                <button
+                  class="button ghost small edit-export-destination"
+                  data-id="${escapeHtml(id)}"
+                  type="button"
+                >
+                  แก้ไข
+                </button>
+              </div>
+            `;
+          })
+          .join("")
+      : '<div class="muted">ยังไม่ได้กำหนดกลุ่มปลายทางส่งออก</div>';
+
+  $$(".edit-export-destination")
+    .forEach((button) => {
+      button.onclick = () => {
+        const row =
+          rows.find(
+            (item) =>
+              String(
+                item?.line_group_id
+                ?? ""
+              )
+              === button.dataset.id
+          );
+
+        if (!row) return;
+
+        const id =
+          String(
+            row.line_group_id
+            ?? ""
+          );
+
+        if (
+          select
+          && ![
+            ...select.options,
+          ].some(
+            (option) =>
+              option.value === id
+          )
+        ) {
+          const option =
+            document.createElement("option");
+
+          option.value = id;
+          option.textContent =
+            row.label || id;
+
+          select.appendChild(option);
+        }
+
+        form.dataset.mode = "edit";
+
+        if (select) {
+          select.value = id;
+          select.disabled = true;
+        }
+
+        form.elements.label.value =
+          row.label || "";
+
+        form.elements.enabled.disabled =
+          false;
+
+        form.elements.enabled.checked =
+          row.enabled === true;
+      };
+    });
+
+  form.onsubmit =
+    async (event) => {
+      event.preventDefault();
+
+      const lineGroupId =
+        String(
+          form.elements
+            .line_group_id
+            .value
+          ?? ""
+        ).trim();
+
+      const label =
+        String(
+          form.elements.label.value
+          ?? ""
+        ).trim();
+
+      if (!lineGroupId) {
+        toast(
+          "กรุณาเลือก LINE Group ปลายทาง"
+        );
+        return;
+      }
+
+      if (!label) {
+        toast(
+          "กรุณาระบุชื่อปลายทาง"
+        );
+        return;
+      }
+
+      try {
+        await saveSetting(
+          "EXPORT_DESTINATION",
+          {
+            line_group_id:
+              lineGroupId,
+            label,
+            enabled:
+              form.dataset.mode === "edit"
+              && form.elements.enabled.checked,
+          },
+          form,
+        );
+
+        resetExportDestinationForm();
+      } catch (error) {
+        toast(
+          exportDestinationErrorMessage(
+            error
+          )
+        );
+      }
+    };
+
+  const reset =
+    $("#exportDestinationResetButton");
+
+  if (reset) {
+    reset.onclick =
+      resetExportDestinationForm;
+  }
+}
+
 function renderSettings() {
   const s = state.settings;
+
+  renderExportDestinationSettings();
   if (!s) return;
 
   const unconfigured = s.unconfigured_line_groups || [];
