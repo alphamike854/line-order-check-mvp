@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.7.28";
+const PARSER_VERSION = "1.7.29";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -194,6 +194,39 @@ function normalizeContextualShortDateMetadata(text) {
   const orderVocabulary =
     /(?:รูด|เบิ้ล|บน|ล่าง|บลก?|โต๊ด|โต้ด|ตรง|กลับ|ประตู|ปะตู|วิ่ง)/u;
 
+  // v9.36: Thai date/noise boundary.
+  //
+  // Operational semantics:
+  // - standalone "ก" is conversational/noise metadata
+  // - standalone Thai month abbreviations are metadata
+  // - "3ก", "6ก" and "บลก" remain order grammar because
+  //   these rules match whole metadata lines only
+  // - full Thai textual dates are removed before business grammar
+  // - numeric D-M-YY/D-M-YYYY with "ลาว" suffix is metadata
+  //
+  // Keep month recognition explicit rather than treating arbitrary
+  // Thai letters as dates.
+  const thaiMonthAbbrevSource =
+    String.raw`(?:ม\s*\.?\s*ค|ก\s*\.?\s*พ|มี\s*\.?\s*ค|เม\s*\.?\s*ย|พ\s*\.?\s*ค|มิ\s*\.?\s*ย|ก\s*\.?\s*ค|ส\s*\.?\s*ค|ก\s*\.?\s*ย|ต\s*\.?\s*ค|พ\s*\.?\s*ย|ธ\s*\.?\s*ค)\.?`;
+
+  const standaloneIgnorableThaiDateToken =
+    new RegExp(
+      String.raw`^(?:ก|${thaiMonthAbbrevSource})$`,
+      "u",
+    );
+
+  const thaiTextualDateMetadata =
+    new RegExp(
+      String.raw`^(?:ลาว\s*)?(?:0?[1-9]|[12]\d|3[01])\s+${thaiMonthAbbrevSource}\s*(?:[-/]\s*)?(?:[2-9]\d|\d{4})(?:\s*ลาว)?$`,
+      "u",
+    );
+
+  // Preserve the historical safety boundary:
+  // 22-10-10 is NOT a date because YY=10 is ambiguous/order-like.
+  // Operational two-digit years such as 26, 67, 69 remain valid.
+  const suffixedNumericFullDateMetadata =
+    /^(?:ลาว\s*)?(?:0?[1-9]|[12]\d|3[01])\s*[-/]\s*(?:0?[1-9]|1[0-2])\s*[-/]\s*(?:[2-9]\d|\d{4})(?:\s*ลาว)?$/u;
+
   const previousNonBlank = (index) => {
     for (let i = index - 1; i >= 0; i--) {
       const candidate =
@@ -211,6 +244,23 @@ function normalizeContextualShortDateMetadata(text) {
 
     if (!line) {
       out.push(raw);
+      continue;
+    }
+
+    if (
+      standaloneIgnorableThaiDateToken.test(line)
+    ) {
+      continue;
+    }
+
+    if (
+      !hasOrderOperator.test(line) &&
+      !orderVocabulary.test(line) &&
+      (
+        thaiTextualDateMetadata.test(line) ||
+        suffixedNumericFullDateMetadata.test(line)
+      )
+    ) {
       continue;
     }
 
@@ -7033,9 +7083,18 @@ function parseOrder(inputText, config = {}) {
       phaseAFrontEndLexicalNormalized
     );
 
+  // v9.36:
+  // Confirmed date/noise metadata must be removed before the
+  // Phase A/Phase B and mixed-width dash grammars can reinterpret
+  // date tokens as order syntax.
+  const dateMetadataNormalized =
+    normalizeContextualShortDateMetadata(
+      orderNormalized
+    );
+
   const phaseAFrontEndMetadataNormalized =
     normalizePhaseACompletedOrderMetadataEnvelope(
-      orderNormalized
+      dateMetadataNormalized
     );
 
   const phaseBProvenGrammarNormalized =
@@ -7068,9 +7127,7 @@ function parseOrder(inputText, config = {}) {
                 normalizeRealChatSweepGrammar(
                   normalizeTrailingTwoDigitDirectionQuantityBlocks(
                     normalizeStandaloneBlgPairBlocks(
-                      normalizeContextualShortDateMetadata(
-                        mixedWidthSharedPairNormalized
-                      )
+                      mixedWidthSharedPairNormalized
                     )
                   )
                 )
