@@ -11,6 +11,11 @@ import {
   summarizeExportPreparation,
 } from "../../src/lib/export-preparation-read-model.mjs";
 
+
+import {
+  buildExportPreparationRiskAssessmentMap,
+} from "../../src/lib/export-preparation-risk-band.mjs";
+
 function validRiskSnapshot(value) {
   return (
     value
@@ -244,9 +249,145 @@ export default async function handler(req) {
           ?? [],
       });
 
+    const riskAssessments =
+      buildExportPreparationRiskAssessmentMap({
+        summaryGroupId,
+
+        riskCodes:
+          riskResult
+            .data
+            .risk_codes
+          ?? [],
+
+        riskPools:
+          riskResult
+            .data
+            .risk_pools
+          ?? [],
+      });
+
+    for (const item of items) {
+      const category =
+        String(
+          item?.category || "",
+        )
+          .trim()
+          .toUpperCase();
+
+      const code =
+        String(
+          item?.code || "",
+        ).trim();
+
+      const assessment =
+        riskAssessments.get(
+          `${category}|${code}`,
+        )
+        ?? {
+          risk_band:
+            "UNKNOWN",
+          recommended_transfer:
+            0,
+        };
+
+      const current =
+        Math.max(
+          0,
+          Number(
+            item?.current_effective_quantity
+            || 0,
+          ),
+        );
+
+      const sent =
+        Math.max(
+          0,
+          Number(
+            item?.sent_cumulative_quantity
+            || 0,
+          ),
+        );
+
+      const overCeiling =
+        Math.max(
+          0,
+          Number(
+            assessment
+              ?.recommended_transfer
+            || 0,
+          ),
+        );
+
+      item.risk_band =
+        assessment?.risk_band
+        ?? "UNKNOWN";
+
+      /*
+       * Operator-facing quantities:
+       *
+       * over_ceiling_quantity
+       *   canonical configured-tolerance
+       *   Risk Engine recommendation.
+       *
+       * export_remaining_quantity
+       *   what still needs to be exported
+       *   after same-Round SENT quantities.
+       *
+       * order_remaining_quantity
+       *   current active order after SENT.
+       */
+      item.over_ceiling_quantity =
+        overCeiling;
+
+      item.export_remaining_quantity =
+        Math.max(
+          overCeiling - sent,
+          0,
+        );
+
+      item.order_remaining_quantity =
+        Math.max(
+          current - sent,
+          0,
+        );
+    }
+
     const totals =
       summarizeExportPreparation(
         items,
+      );
+
+    totals.over_ceiling_quantity =
+      items.reduce(
+        (sum, item) =>
+          sum
+          + Number(
+            item?.over_ceiling_quantity
+            || 0,
+          ),
+        0,
+      );
+
+    totals.export_remaining_quantity =
+      items.reduce(
+        (sum, item) =>
+          sum
+          + Number(
+            item?.export_remaining_quantity
+            || 0,
+          ),
+        0,
+      );
+
+    totals.order_remaining_quantity =
+      items.reduce(
+        (sum, item) =>
+          sum
+          + Number(
+            item?.order_remaining_quantity
+            || 0,
+          ),
+        0,
       );
 
     const cycles =

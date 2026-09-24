@@ -17296,20 +17296,20 @@ function renderExportPreparationReadOnly(payload, groupId) {
     totals.current_effective_quantity,
   );
 
+  const overCeiling = exportPreparationNumber(
+    totals.over_ceiling_quantity,
+  );
+
   const sent = exportPreparationNumber(
     totals.sent_cumulative_quantity,
   );
 
-  const available = exportPreparationNumber(
-    totals.available_quantity,
+  const exportRemaining = exportPreparationNumber(
+    totals.export_remaining_quantity,
   );
 
   const overSent = exportPreparationNumber(
     totals.over_sent_quantity,
-  );
-
-  const selectable = exportPreparationNumber(
-    totals.selectable_code_count,
   );
 
   const reconciliation = exportPreparationNumber(
@@ -17317,6 +17317,26 @@ function renderExportPreparationReadOnly(payload, groupId) {
   );
 
   const roundNo = payload?.round?.round_no ?? null;
+
+  const formatExportPreparationCell =
+    (value) => {
+      const numeric =
+        exportPreparationNumber(value);
+
+      return numeric === 0
+        ? "-"
+        : formatNumber(numeric);
+    };
+
+  const formatExportPreparationOverCeiling =
+    (value) => {
+      const numeric =
+        exportPreparationNumber(value);
+
+      return numeric === 0
+        ? "-"
+        : `(+${formatNumber(numeric)})`;
+    };
 
   statusRoot.innerHTML = `
     <span class="export-preparation-read-badge">อ่านอย่างเดียว</span>
@@ -17328,8 +17348,13 @@ function renderExportPreparationReadOnly(payload, groupId) {
 
   summaryRoot.innerHTML = `
     <div class="export-preparation-metric">
-      <span>ยอดปัจจุบัน</span>
+      <span>ยอดออเดอร์รวม</span>
       <strong>${formatNumber(current)}</strong>
+    </div>
+
+    <div class="export-preparation-metric">
+      <span>เกินเพดานรวม</span>
+      <strong>${formatNumber(overCeiling)}</strong>
     </div>
 
     <div class="export-preparation-metric">
@@ -17338,13 +17363,8 @@ function renderExportPreparationReadOnly(payload, groupId) {
     </div>
 
     <div class="export-preparation-metric">
-      <span>ส่งได้อีก</span>
-      <strong>${formatNumber(available)}</strong>
-    </div>
-
-    <div class="export-preparation-metric">
-      <span>รหัสที่ยังส่งได้</span>
-      <strong>${formatNumber(selectable)}</strong>
+      <span>คงเหลือส่งออก</span>
+      <strong>${formatNumber(exportRemaining)}</strong>
     </div>
   `;
 
@@ -17360,89 +17380,359 @@ function renderExportPreparationReadOnly(payload, groupId) {
     );
   }
 
-  const sortedItems = [...items].sort((a, b) => {
-    const category = String(a?.category || "")
-      .localeCompare(String(b?.category || ""));
-
-    if (category) return category;
-
-    return String(a?.code || "").localeCompare(
-      String(b?.code || ""),
-      undefined,
-      { numeric: true },
+  const categoryOrder =
+    new Map(
+      [
+        "A",
+        "B",
+        "E",
+        "F",
+        "G",
+        "H",
+        "L",
+      ].map(
+        (category, index) => [
+          category,
+          index,
+        ],
+      ),
     );
-  });
 
-  if (!sortedItems.length) {
+  const groupedItems =
+    new Map();
+
+  for (const item of items) {
+    const category =
+      String(
+        item?.category || "",
+      )
+        .trim()
+        .toUpperCase();
+
+    if (!category) continue;
+
+    if (
+      !groupedItems.has(category)
+    ) {
+      groupedItems.set(
+        category,
+        [],
+      );
+    }
+
+    groupedItems
+      .get(category)
+      .push(item);
+  }
+
+  const sortedCategories =
+    [...groupedItems.keys()]
+      .sort((a, b) => {
+        const aRank =
+          categoryOrder.has(a)
+            ? categoryOrder.get(a)
+            : 999;
+
+        const bRank =
+          categoryOrder.has(b)
+            ? categoryOrder.get(b)
+            : 999;
+
+        return (
+          aRank - bRank
+          || a.localeCompare(b)
+        );
+      });
+
+  const riskSortRank =
+    new Map([
+      ["RED", 0],
+      ["YELLOW", 1],
+      ["GREEN", 2],
+      ["UNKNOWN", 3],
+    ]);
+
+  for (
+    const category
+    of sortedCategories
+  ) {
+    groupedItems
+      .get(category)
+      .sort((a, b) => {
+        const exportRemainingDifference =
+          exportPreparationNumber(
+            b?.export_remaining_quantity,
+          )
+          - exportPreparationNumber(
+            a?.export_remaining_quantity,
+          );
+
+        if (
+          exportRemainingDifference
+        ) {
+          return exportRemainingDifference;
+        }
+
+        const overCeilingDifference =
+          exportPreparationNumber(
+            b?.over_ceiling_quantity,
+          )
+          - exportPreparationNumber(
+            a?.over_ceiling_quantity,
+          );
+
+        if (
+          overCeilingDifference
+        ) {
+          return overCeilingDifference;
+        }
+
+        const aBand =
+          String(
+            a?.risk_band || "UNKNOWN",
+          )
+            .trim()
+            .toUpperCase();
+
+        const bBand =
+          String(
+            b?.risk_band || "UNKNOWN",
+          )
+            .trim()
+            .toUpperCase();
+
+        const riskDifference =
+          (riskSortRank.get(aBand) ?? 99)
+          - (riskSortRank.get(bBand) ?? 99);
+
+        if (riskDifference) {
+          return riskDifference;
+        }
+
+        return String(
+          a?.code || "",
+        ).localeCompare(
+          String(
+            b?.code || "",
+          ),
+          undefined,
+          {
+            numeric: true,
+          },
+        );
+      });
+  }
+
+  if (
+    !sortedCategories.length
+  ) {
     codesRoot.innerHTML =
       '<div class="export-preparation-empty">'
       + "ยังไม่มียอดสำหรับเตรียมส่งออก"
       + "</div>";
   } else {
     codesRoot.innerHTML = `
-      <div class="table-wrap">
-        <table class="export-preparation-table">
-          <thead>
-            <tr>
-              <th>รหัส</th>
-              <th class="num">ยอดปัจจุบัน</th>
-              <th class="num">ส่งแล้วสะสม</th>
-              <th class="num">ส่งได้อีก</th>
-              <th>สถานะ</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${sortedItems.map((item) => {
-              const rowCurrent = exportPreparationNumber(
-                item?.current_effective_quantity,
-              );
+      <div class="export-preparation-category-grid">
+        ${sortedCategories.map((category) => {
+          const categoryItems =
+            groupedItems.get(category)
+            || [];
 
-              const rowSent = exportPreparationNumber(
-                item?.sent_cumulative_quantity,
-              );
+          const visibleLimit =
+            20;
 
-              const rowAvailable = exportPreparationNumber(
-                item?.available_quantity,
-              );
+          const hiddenCount =
+            Math.max(
+              0,
+              categoryItems.length
+              - visibleLimit,
+            );
 
-              const rowOverSent = exportPreparationNumber(
-                item?.over_sent_quantity,
-              );
+          return `
+            <section class="export-preparation-category-card">
+              <div class="export-preparation-category-heading">
+                หมวด ${escapeHtml(category)}
+              </div>
 
-              const requiresReconciliation =
-                item?.reconciliation_required === true
-                || rowOverSent > 0;
+              <div class="table-wrap">
+                <table class="export-preparation-table">
+                  <thead>
+                    <tr>
+                      <th>รหัส</th>
+                      <th class="num">ยอดออเดอร์</th>
+                      <th class="num">เกินเพดาน</th>
+                      <th class="num">ส่งแล้ว</th>
+                      <th class="num">คงเหลือส่งออก</th>
+                      <th class="num">ออเดอร์คงเหลือ</th>
+                    </tr>
+                  </thead>
 
-              const code =
-                String(item?.category || "")
-                + String(item?.code || "");
+                  <tbody>
+                    ${categoryItems.map((item, itemIndex) => {
+                      const rowCurrent =
+                        exportPreparationNumber(
+                          item?.current_effective_quantity,
+                        );
 
-              return `
-                <tr class="${
-                  requiresReconciliation
-                    ? "export-preparation-reconciliation-row"
-                    : ""
-                }">
-                  <td><strong>${escapeHtml(code)}</strong></td>
-                  <td class="num">${formatNumber(rowCurrent)}</td>
-                  <td class="num">${formatNumber(rowSent)}</td>
-                  <td class="num"><strong>${formatNumber(rowAvailable)}</strong></td>
-                  <td>
-                    ${
-                      requiresReconciliation
-                        ? '<span class="export-preparation-reconciliation">ต้องตรวจสอบ</span>'
-                        : rowAvailable > 0
-                          ? '<span class="export-preparation-available">ส่งได้</span>'
-                          : '<span class="export-preparation-complete">ไม่มีคงเหลือ</span>'
-                    }
-                  </td>
-                </tr>
-              `;
-            }).join("")}
-          </tbody>
-        </table>
+                      const rowOverCeiling =
+                        exportPreparationNumber(
+                          item?.over_ceiling_quantity,
+                        );
+
+                      const rowSent =
+                        exportPreparationNumber(
+                          item?.sent_cumulative_quantity,
+                        );
+
+                      const rowExportRemaining =
+                        exportPreparationNumber(
+                          item?.export_remaining_quantity,
+                        );
+
+                      const rowOrderRemaining =
+                        exportPreparationNumber(
+                          item?.order_remaining_quantity
+                          ?? item?.available_quantity,
+                        );
+
+                      const rowOverSent =
+                        exportPreparationNumber(
+                          item?.over_sent_quantity,
+                        );
+
+                      const requiresReconciliation =
+                        item?.reconciliation_required
+                          === true
+                        || rowOverSent > 0;
+
+                      const riskBand =
+                        String(
+                          item?.risk_band
+                          || "UNKNOWN",
+                        )
+                          .trim()
+                          .toUpperCase();
+
+                      const riskClass =
+                        riskBand === "RED"
+                          ? "export-preparation-risk-red"
+                          : riskBand === "YELLOW"
+                            ? "export-preparation-risk-yellow"
+                            : riskBand === "GREEN"
+                              ? "export-preparation-risk-green"
+                              : "export-preparation-risk-unknown";
+
+                      const reconciliationClass =
+                        requiresReconciliation
+                          ? " export-preparation-reconciliation-row"
+                          : "";
+
+                      const visibilityClass =
+                        itemIndex >= visibleLimit
+                          ? " export-preparation-extra-row"
+                          : "";
+
+                      const code =
+                        String(
+                          item?.code || "",
+                        );
+
+                      return `
+                        <tr class="${riskClass}${reconciliationClass}${visibilityClass}">
+                          <td>
+                            <strong>${escapeHtml(code)}</strong>
+                          </td>
+
+                          <td class="num">
+                            ${formatExportPreparationCell(rowCurrent)}
+                          </td>
+
+                          <td class="num">
+                            ${formatExportPreparationOverCeiling(rowOverCeiling)}
+                          </td>
+
+                          <td class="num">
+                            ${formatExportPreparationCell(rowSent)}
+                          </td>
+
+                          <td class="num">
+                            <strong>
+                              ${formatExportPreparationCell(rowExportRemaining)}
+                            </strong>
+                          </td>
+
+                          <td class="num">
+                            ${formatExportPreparationCell(rowOrderRemaining)}
+                          </td>
+                        </tr>
+                      `;
+                    }).join("")}
+                  </tbody>
+                </table>
+              </div>
+
+              ${
+                hiddenCount > 0
+                  ? `
+                    <div class="export-preparation-category-more">
+                      <button
+                        type="button"
+                        class="button ghost small export-preparation-more-toggle"
+                        data-hidden-count="${hiddenCount}"
+                        aria-expanded="false"
+                      >
+                        ดูอีก ${formatNumber(hiddenCount)} รหัส
+                      </button>
+                    </div>
+                  `
+                  : ""
+              }
+            </section>
+          `;
+        }).join("")}
       </div>
     `;
+  }
+
+  for (
+    const button
+    of codesRoot.querySelectorAll(
+      ".export-preparation-more-toggle",
+    )
+  ) {
+    button.addEventListener(
+      "click",
+      () => {
+        const card =
+          button.closest(
+            ".export-preparation-category-card",
+          );
+
+        if (!card) return;
+
+        const expanded =
+          card.classList.toggle(
+            "expanded",
+          );
+
+        button.setAttribute(
+          "aria-expanded",
+          expanded
+            ? "true"
+            : "false",
+        );
+
+        const hiddenCount =
+          exportPreparationNumber(
+            button.dataset.hiddenCount,
+          );
+
+        button.textContent =
+          expanded
+            ? "ย่อรายการ"
+            : `ดูอีก ${formatNumber(hiddenCount)} รหัส`;
+      },
+    );
   }
 
   const sortedCycles = [...cycles].sort(

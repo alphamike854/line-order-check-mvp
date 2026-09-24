@@ -4094,3 +4094,106 @@ body{background:#f3f6fa}
     grid-template-columns: 1fr;
   }
 }
+
+
+/* Export Preparation — category grid + risk zones */
+.export-preparation-category-grid {
+  display: grid;
+  grid-template-columns:
+    repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.export-preparation-category-card {
+  min-width: 0;
+  overflow: hidden;
+  border:
+    1px solid rgba(120, 130, 145, 0.18);
+  border-radius: 12px;
+}
+
+.export-preparation-category-heading {
+  padding: 10px 12px;
+  border-bottom:
+    1px solid rgba(120, 130, 145, 0.16);
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.export-preparation-category-card
+.table-wrap {
+  margin: 0;
+}
+
+.export-preparation-category-card
+.export-preparation-table {
+  margin: 0;
+  font-size: 0.84rem;
+}
+
+.export-preparation-category-card
+.export-preparation-table th,
+.export-preparation-category-card
+.export-preparation-table td {
+  padding: 7px 8px;
+}
+
+.export-preparation-risk-green {
+  background:
+    rgba(34, 197, 94, 0.075);
+}
+
+.export-preparation-risk-yellow {
+  background:
+    rgba(234, 179, 8, 0.095);
+}
+
+.export-preparation-risk-red {
+  background:
+    rgba(239, 68, 68, 0.085);
+}
+
+.export-preparation-risk-unknown {
+  background: transparent;
+}
+
+/*
+ * Reconciliation remains an independent
+ * data-integrity warning without restoring
+ * the removed status column.
+ */
+.export-preparation-reconciliation-row
+td:first-child {
+  box-shadow:
+    inset 3px 0 0
+    rgba(180, 120, 40, 0.72);
+}
+
+@media (max-width: 900px) {
+  .export-preparation-category-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Export Preparation — compact category overflow */
+.export-preparation-extra-row {
+  display: none;
+}
+
+.export-preparation-category-card.expanded
+.export-preparation-extra-row {
+  display: table-row;
+}
+
+.export-preparation-category-more {
+  padding: 8px 10px 10px;
+  text-align: center;
+  border-top:
+    1px solid rgba(120, 130, 145, 0.12);
+}
+
+.export-preparation-category-more
+.export-preparation-more-toggle {
+  min-width: 120px;
+}
