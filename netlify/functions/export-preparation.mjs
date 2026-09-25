@@ -264,6 +264,9 @@ export default async function handler(req) {
             .data
             .risk_pools
           ?? [],
+        maxSimulationUnits:
+          5000,
+
       });
 
     for (const item of items) {
