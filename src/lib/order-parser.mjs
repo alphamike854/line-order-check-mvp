@@ -11,7 +11,7 @@
  * - REVIEW instead of guessing when grammar is ambiguous
  */
 
-const PARSER_VERSION = "1.7.29";
+const PARSER_VERSION = "1.7.30";
 
 const DEFAULT_CONFIG = {
   aliases: {
@@ -776,6 +776,288 @@ function hasPhaseBOrderSemanticSuffix(value) {
 }
 
 
+
+function normalizeTrailingTwoDigitSlashCodeBlocks(text) {
+  const lines =
+    String(text || "").split("\n");
+
+  const out = [];
+
+  const nextNonBlankIndex = (start) => {
+    let index = start;
+
+    while (
+      index < lines.length
+      && !String(lines[index] || "").trim()
+    ) {
+      index += 1;
+    }
+
+    return index;
+  };
+
+  const directionFromToken = (value) => {
+    const raw =
+      String(value || "").trim();
+
+    if (/^(?:บน|บ)$/u.test(raw)) {
+      return "A";
+    }
+
+    if (/^(?:ล่าง|ล)$/u.test(raw)) {
+      return "B";
+    }
+
+    return null;
+  };
+
+  const slashCodeLine = (value) => {
+    const raw =
+      String(value || "").trim();
+
+    if (
+      !/^\d{2}(?:\s*\/\s*\d{2})+$/u.test(
+        raw
+      )
+    ) {
+      return null;
+    }
+
+    return raw
+      .split(/\s*\/\s*/u)
+      .filter(Boolean);
+  };
+
+  const numberToken =
+    String.raw`(?:\d{1,3}(?:,\d{3})+|\d+)`;
+
+  const parseTerminal = (value) => {
+    const raw =
+      String(value || "").trim();
+
+    let match =
+      raw.match(
+        new RegExp(
+          `^(${numberToken})\\s*\\/\\s*(${numberToken})$`,
+          "u",
+        )
+      );
+
+    if (match) {
+      return {
+        kind: "PAIR",
+        first:
+          match[1].replace(/,/g, ""),
+        second:
+          match[2].replace(/,/g, ""),
+        direction: null,
+      };
+    }
+
+    match =
+      raw.match(
+        new RegExp(
+          `^(บน|บ|ล่าง|ล)\\s*(${numberToken})$`,
+          "u",
+        )
+      );
+
+    if (match) {
+      return {
+        kind: "SINGLE",
+        quantity:
+          match[2].replace(/,/g, ""),
+        direction:
+          directionFromToken(
+            match[1]
+          ),
+      };
+    }
+
+    match =
+      raw.match(
+        new RegExp(
+          `^(${numberToken})\\s*(บน|บ|ล่าง|ล)$`,
+          "u",
+        )
+      );
+
+    if (match) {
+      return {
+        kind: "SINGLE",
+        quantity:
+          match[1].replace(/,/g, ""),
+        direction:
+          directionFromToken(
+            match[2]
+          ),
+      };
+    }
+
+    match =
+      raw.match(
+        new RegExp(
+          `^(${numberToken})$`,
+          "u",
+        )
+      );
+
+    if (match) {
+      return {
+        kind: "SINGLE",
+        quantity:
+          match[1].replace(/,/g, ""),
+        direction: null,
+      };
+    }
+
+    return null;
+  };
+
+  let index = 0;
+
+  while (index < lines.length) {
+    const blockStart = index;
+
+    const headerDirection =
+      directionFromToken(
+        lines[index]
+      );
+
+    let cursor =
+      headerDirection
+        ? nextNonBlankIndex(
+            index + 1
+          )
+        : index;
+
+    const codes = [];
+    let codeLineCount = 0;
+
+    while (cursor < lines.length) {
+      const found =
+        slashCodeLine(
+          lines[cursor]
+        );
+
+      if (!found) {
+        break;
+      }
+
+      codes.push(...found);
+      codeLineCount += 1;
+
+      cursor =
+        nextNonBlankIndex(
+          cursor + 1
+        );
+    }
+
+    // Deliberately narrow:
+    // at least two slash-code lines are required.
+    if (
+      codeLineCount < 2
+      || codes.length < 4
+      || cursor >= lines.length
+    ) {
+      out.push(
+        lines[blockStart]
+      );
+
+      index =
+        blockStart + 1;
+
+      continue;
+    }
+
+    const terminal =
+      parseTerminal(
+        lines[cursor]
+      );
+
+    if (!terminal) {
+      out.push(
+        lines[blockStart]
+      );
+
+      index =
+        blockStart + 1;
+
+      continue;
+    }
+
+    if (terminal.kind === "PAIR") {
+      if (headerDirection) {
+        out.push(
+          lines[blockStart]
+        );
+
+        index =
+          blockStart + 1;
+
+        continue;
+      }
+
+      out.push(
+        `${codes.join(" ")}=`
+        + `${terminal.first}x${terminal.second}`
+      );
+
+      index =
+        cursor + 1;
+
+      continue;
+    }
+
+    const effectiveDirection =
+      terminal.direction
+      || headerDirection;
+
+    if (!effectiveDirection) {
+      out.push(
+        lines[blockStart]
+      );
+
+      index =
+        blockStart + 1;
+
+      continue;
+    }
+
+    if (
+      terminal.direction
+      && headerDirection
+      && terminal.direction
+        !== headerDirection
+    ) {
+      out.push(
+        lines[blockStart]
+      );
+
+      index =
+        blockStart + 1;
+
+      continue;
+    }
+
+    const modifier =
+      effectiveDirection === "A"
+        ? "บน"
+        : "ล่าง";
+
+    out.push(
+      `${codes.join(" ")}=`
+      + `${terminal.quantity} ${modifier}`
+    );
+
+    index =
+      cursor + 1;
+  }
+
+  return out.join("\n");
+}
+
+
 function normalizePhaseBProvenGrammarFamilies(text) {
   const lines =
     String(text || "").split("\n");
@@ -1474,6 +1756,7 @@ function normalizePhaseBWidthAwareQuantityGrammar(text) {
 
   let pending = [];
   let activeQuantity = null;
+  let activeQuantityWidth = null;
 
   const numeric = (value) =>
     Number(
@@ -1934,6 +2217,11 @@ function normalizePhaseBWidthAwareQuantityGrammar(text) {
         activeQuantity =
           quantity;
 
+        activeQuantityWidth =
+          codes.length
+            ? codes[0].length
+            : null;
+
         continue;
       }
 
@@ -2073,6 +2361,8 @@ function normalizePhaseBWidthAwareQuantityGrammar(text) {
       activeQuantity =
         quantity;
 
+      activeQuantityWidth = 3;
+
       continue;
     }
 
@@ -2085,6 +2375,63 @@ function normalizePhaseBWidthAwareQuantityGrammar(text) {
         normalized
       )
     ) {
+      const codeWidth =
+        normalized.length;
+
+      const pendingWidth =
+        pending.length
+          ? pending[0].length
+          : null;
+
+      // A completed quantity belongs only to the width
+      // that established it.
+      //
+      // Example:
+      //
+      //   12
+      //   34=20x20
+      //   123
+      //
+      // 20x20 must not carry into 123.
+      //
+      // But when there is NO active quantity, retain pending
+      // codes across a width transition. Existing production
+      // grammar intentionally allows:
+      //
+      //   930
+      //   039
+      //   ...
+      //   90
+      //   09=50x50
+      //
+      // where the terminal pair closes BOTH adjacent blocks.
+      if (
+        pending.length
+        && pendingWidth
+        && pendingWidth !== codeWidth
+        && activeQuantity
+        && activeQuantityWidth
+          === pendingWidth
+      ) {
+        if (
+          !emitPending(
+            activeQuantity
+          )
+        ) {
+          preservePending();
+        }
+      }
+
+      if (
+        activeQuantity
+        && activeQuantityWidth
+        && activeQuantityWidth
+          !== codeWidth
+      ) {
+        activeQuantity = null;
+        activeQuantityWidth = null;
+      }
+
       pending.push(
         normalized
       );
@@ -4016,6 +4363,57 @@ function coalesceThreeDigitLines(lines) {
     // 396\n394\n364\n964-10*10
     // means the four 3-digit codes share the final quantity expression.
     if (pendingCodes.length) {
+      const finalWithEqualsQty =
+        line.match(
+          /^(\d{3})\s*=\s*(.+)$/u
+        );
+
+      if (finalWithEqualsQty) {
+        const finalCode =
+          finalWithEqualsQty[1];
+
+        const rhs =
+          finalWithEqualsQty[2]
+            .trim();
+
+        const quantityToken =
+          String.raw`(?:\d{1,3}(?:,\d{3})+|\d+)`;
+
+        const singlePattern =
+          new RegExp(
+            `^${quantityToken}$`,
+            "u",
+          );
+
+        const pairPattern =
+          new RegExp(
+            `^${quantityToken}\\s*[xX*\\/+]+\\s*${quantityToken}$`,
+            "u",
+          );
+
+        const countedPermutationPattern =
+          new RegExp(
+            `^${quantityToken}\\s*[xX*]\\s*[136]\\s*`
+            + `(?:ก|กลับ|ทุกกลับ|ประตู|ปต|ปะตู)$`,
+            "u",
+          );
+
+        if (
+          singlePattern.test(rhs)
+          || pairPattern.test(rhs)
+          || countedPermutationPattern.test(rhs)
+        ) {
+          out.push(
+            `${pendingCodes
+              .concat(finalCode)
+              .join(" ")}=${rhs}`
+          );
+
+          pendingCodes = [];
+          continue;
+        }
+      }
+
       const finalWithDashQty = line.match(/^(\d{3})\s*-\s*(\d+(?:\s*[xX*\/+]\s*\d+)?(?:\s+.+)?)$/u);
       if (finalWithDashQty) {
         out.push(`${pendingCodes.concat(finalWithDashQty[1]).join(" ")}=${finalWithDashQty[2].trim()}`);
@@ -7097,9 +7495,14 @@ function parseOrder(inputText, config = {}) {
       dateMetadataNormalized
     );
 
+  const trailingTwoDigitSlashCodeBlocksNormalized =
+    normalizeTrailingTwoDigitSlashCodeBlocks(
+      phaseAFrontEndMetadataNormalized
+    );
+
   const phaseBProvenGrammarNormalized =
     normalizePhaseBProvenGrammarFamilies(
-      phaseAFrontEndMetadataNormalized
+      trailingTwoDigitSlashCodeBlocksNormalized
     );
 
   const phaseBWidthAwareNormalized =

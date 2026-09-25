@@ -5,7 +5,7 @@ import {
   PARSER_VERSION,
 } from "./src/lib/order-parser.mjs";
 
-assert.equal(PARSER_VERSION, "1.7.29");
+assert.equal(PARSER_VERSION, "1.7.30");
 
 function canonical(result) {
   return [...result.items]
