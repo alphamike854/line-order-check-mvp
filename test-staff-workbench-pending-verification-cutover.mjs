@@ -32,7 +32,7 @@ assert.match(
 
 assert.match(
   helper,
-  /staff_workbench_pending_verifications/,
+  /staff_workbench_verification_timeline/,
   "pending Verification feed must be added",
 );
 
@@ -158,6 +158,134 @@ const client = {
             message_order_total:
               0,
             items: [],
+          },
+        ],
+        error: null,
+      };
+    }
+
+    if (
+      name
+      === "staff_workbench_verification_timeline"
+    ) {
+      if (
+        args.p_sort_mode !== "RECENT"
+      ) {
+        throw new Error(
+          `UNEXPECTED_TIMELINE_SORT:${args.p_sort_mode}`,
+        );
+      }
+
+      return {
+        data: [
+          // Same message appears in Review and
+          // Verification feeds: union must dedupe it.
+          {
+            message_record_id:
+              "message-review",
+            review_id: 101,
+            summary_group_id:
+              "NORTH",
+            summary_group_name:
+              "NORTH",
+            line_group_id:
+              "LINE-A",
+            line_group_name:
+              "LINE A",
+            summary_group_round_id:
+              "round-1",
+            round_no: 1,
+            round_status:
+              "OPEN",
+            event_timestamp:
+              "2026-09-07T03:00:00Z",
+            message_created_at:
+              "2026-09-07T03:00:00Z",
+            review_created_at:
+              "2026-09-07T03:00:01Z",
+            user_id:
+              "U1",
+            message_type:
+              "text",
+            raw_text:
+              "01=20",
+            normalized_text:
+              "01=20",
+            ocr_text: null,
+            display_text:
+              "01=20",
+            parse_status:
+              "REVIEW",
+            parser_version:
+              "1.7.19",
+            reason_codes: [],
+            warnings: [],
+            has_image_evidence:
+              false,
+            message_order_total:
+              0,
+            items: [],
+            verification_status:
+              "PENDING",
+            needs_interpretation:
+              true,
+          },
+
+          {
+            message_record_id:
+              "message-parsed",
+            review_id: null,
+            summary_group_id:
+              "NORTH",
+            summary_group_name:
+              "NORTH",
+            line_group_id:
+              "LINE-A",
+            line_group_name:
+              "LINE A",
+            summary_group_round_id:
+              "round-1",
+            round_no: 1,
+            round_status:
+              "OPEN",
+            event_timestamp:
+              "2026-09-07T03:01:00Z",
+            message_created_at:
+              "2026-09-07T03:01:00Z",
+            review_created_at:
+              null,
+            user_id:
+              "U2",
+            message_type:
+              "text",
+            raw_text:
+              "02=50",
+            normalized_text:
+              "02=50",
+            ocr_text: null,
+            display_text:
+              "02=50",
+            parse_status:
+              "PARSED",
+            parser_version:
+              "1.7.19",
+            reason_codes: [],
+            warnings: [],
+            has_image_evidence:
+              false,
+            message_order_total:
+              50,
+            items: [
+              {
+                category: "A",
+                code: "02",
+                quantity: 50,
+              },
+            ],
+            verification_status:
+              "PENDING",
+            needs_interpretation:
+              false,
           },
         ],
         error: null,
@@ -347,7 +475,7 @@ const verificationCall =
   rpcCalls.find(
     (call) =>
       call.name
-      === "staff_workbench_pending_verifications",
+      === "staff_workbench_verification_timeline",
   );
 
 assert.ok(
@@ -367,6 +495,33 @@ assert.equal(
 assert.equal(
   verificationCall.args.p_offset,
   4,
+);
+
+
+const pendingCalls =
+  rpcCalls.filter(
+    (call) =>
+      call.name
+      === "staff_workbench_pending_verifications",
+  );
+
+assert.equal(
+  pendingCalls.length,
+  2,
+  "PRIORITY and HIGH_TOTAL must remain pending-only feeds",
+);
+
+assert.deepEqual(
+  new Set(
+    pendingCalls.map(
+      (call) =>
+        call.args.p_sort_mode,
+    ),
+  ),
+  new Set([
+    "PRIORITY",
+    "HIGH_TOTAL",
+  ]),
 );
 
 

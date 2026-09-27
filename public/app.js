@@ -5655,6 +5655,9 @@ function staffVerificationCanMutate(
   return Boolean(
     card?._staffVerificationActor
       ?.staff_id
+    && staffVerificationTimelineStatus(
+      card?._staffVerificationItem,
+    ) === "PENDING"
     && card?._staffVerificationItem
       ?.claim_state === "MINE"
     && staffVerificationLeaseVersion(
@@ -6278,6 +6281,28 @@ function staffVerificationComparisonHtml(
 function staffVerificationClaimStatusHtml(
   item,
 ) {
+  const verificationStatus =
+    staffVerificationTimelineStatus(
+      item,
+    );
+
+  if (verificationStatus !== "PENDING") {
+    return `
+      <div class="reason">
+        <strong>
+          ${escapeHtml(
+            staffVerificationTimelineStatusLabel(
+              item,
+            ),
+          )}
+        </strong>
+        <span class="muted">
+          · อ่านอย่างเดียว
+        </span>
+      </div>
+    `;
+  }
+
   const claimState =
     item?.claim_state
     ?? "AVAILABLE";
@@ -6395,7 +6420,10 @@ function staffVerificationResolutionHtml(
   correctedText = null,
 ) {
   if (
-    item?.claim_state !== "MINE"
+    staffVerificationTimelineStatus(
+      item,
+    ) !== "PENDING"
+    || item?.claim_state !== "MINE"
   ) {
     return "";
   }
@@ -8993,6 +9021,86 @@ function staffVerificationTimelineIsAuto(
 }
 
 
+/* Review Completed Visibility v1 */
+
+const STAFF_VERIFICATION_STATUS_FILTERS =
+  new Set([
+    "PENDING",
+    "HUMAN_VERIFIED",
+    "HUMAN_CORRECTED",
+    "HUMAN_IGNORED",
+    "UNSENT",
+  ]);
+
+
+function staffVerificationTimelineStatus(
+  item,
+) {
+  const value =
+    String(
+      item?.verification_status
+      ?? "PENDING",
+    )
+      .trim()
+      .toUpperCase();
+
+  return STAFF_VERIFICATION_STATUS_FILTERS
+    .has(value)
+      ? value
+      : "PENDING";
+}
+
+
+function staffVerificationTimelineStatusLabel(
+  item,
+) {
+  switch (
+    staffVerificationTimelineStatus(
+      item,
+    )
+  ) {
+    case "HUMAN_VERIFIED":
+      return "✓ ตรวจแล้ว";
+
+    case "HUMAN_CORRECTED":
+      return "✎ แก้ไขโดยคน";
+
+    case "HUMAN_IGNORED":
+      return "ข้าม / ไม่ใช่ออเดอร์";
+
+    case "UNSENT":
+      return "ยกเลิก";
+
+    default:
+      return "ยังไม่ได้ตรวจ";
+  }
+}
+
+
+function staffVerificationTimelineStatusBadgeHtml(
+  item,
+) {
+  const status =
+    staffVerificationTimelineStatus(
+      item,
+    );
+
+  if (status === "PENDING") {
+    return "";
+  }
+
+  return `
+    <span class="verification-queue-badge human-status">
+      ${escapeHtml(
+        staffVerificationTimelineStatusLabel(
+          item,
+        ),
+      )}
+    </span>
+  `;
+}
+
+
 function staffVerificationTimelineIssueSummary(
   item,
 ) {
@@ -9192,6 +9300,16 @@ function staffVerificationTimelineBadgesHtml(
   } = {},
 ) {
   const badges = [];
+
+  const statusBadge =
+    staffVerificationTimelineStatusBadgeHtml(
+      item,
+    );
+
+  if (statusBadge) {
+    badges.push(statusBadge);
+  }
+
 
   if (
     item?.needs_interpretation
@@ -9559,9 +9677,13 @@ function staffVerificationTimelineItemHtml(
     );
 
   const actionLabel =
-    item?.needs_interpretation
-      ? "แก้ไขรายการ"
-      : "ตรวจรายการ";
+    staffVerificationTimelineStatus(
+      item,
+    ) !== "PENDING"
+      ? "ดูรายการ"
+      : item?.needs_interpretation
+        ? "แก้ไขรายการ"
+        : "ตรวจรายการ";
 
   const selected =
     String(
@@ -9887,6 +10009,26 @@ function staffVerificationTimelineMatchesFilters(
     return true;
   }
 
+  const activeStatusFilters =
+    [
+      ...filters,
+    ].filter(
+      (filter) =>
+        STAFF_VERIFICATION_STATUS_FILTERS
+          .has(filter),
+    );
+
+  if (
+    activeStatusFilters.length
+    && !activeStatusFilters.includes(
+      staffVerificationTimelineStatus(
+        item,
+      ),
+    )
+  ) {
+    return false;
+  }
+
   const key =
     String(
       item?.message_record_id
@@ -9894,6 +10036,13 @@ function staffVerificationTimelineMatchesFilters(
     );
 
   for (const filter of filters) {
+    if (
+      STAFF_VERIFICATION_STATUS_FILTERS
+        .has(filter)
+    ) {
+      continue;
+    }
+
     if (
       filter === "NEEDS_FIX"
       && item?.needs_interpretation
@@ -10039,8 +10188,38 @@ function staffVerificationTimelineCounts(
   let auto = 0;
   let text = 0;
   let image = 0;
+  let pending = 0;
+  let humanVerified = 0;
+  let humanCorrected = 0;
+  let humanIgnored = 0;
+  let unsent = 0;
 
   for (const item of items) {
+    const status =
+      staffVerificationTimelineStatus(
+        item,
+      );
+
+    if (status === "PENDING") {
+      pending += 1;
+    } else if (
+      status === "HUMAN_VERIFIED"
+    ) {
+      humanVerified += 1;
+    } else if (
+      status === "HUMAN_CORRECTED"
+    ) {
+      humanCorrected += 1;
+    } else if (
+      status === "HUMAN_IGNORED"
+    ) {
+      humanIgnored += 1;
+    } else if (
+      status === "UNSENT"
+    ) {
+      unsent += 1;
+    }
+
     const key =
       String(
         item?.message_record_id
@@ -10090,6 +10269,11 @@ function staffVerificationTimelineCounts(
     auto,
     text,
     image,
+    pending,
+    humanVerified,
+    humanCorrected,
+    humanIgnored,
+    unsent,
   };
 }
 
@@ -10166,6 +10350,16 @@ function staffVerificationUpdateTimelineControls(
   const countByFilter = {
     ALL:
       counts.all,
+    PENDING:
+      counts.pending,
+    HUMAN_VERIFIED:
+      counts.humanVerified,
+    HUMAN_CORRECTED:
+      counts.humanCorrected,
+    HUMAN_IGNORED:
+      counts.humanIgnored,
+    UNSENT:
+      counts.unsent,
     NEEDS_FIX:
       counts.needsFix,
     HIGH_TOTAL:
@@ -11142,6 +11336,56 @@ function appendStaffVerificationQueue(
             aria-pressed="true"
           >
             ทั้งหมด
+            <span data-filter-count>0</span>
+          </button>
+
+          <button
+            type="button"
+            class="verification-filter-chip"
+            data-verification-filter="PENDING"
+            aria-pressed="false"
+          >
+            ยังไม่ได้ตรวจ
+            <span data-filter-count>0</span>
+          </button>
+
+          <button
+            type="button"
+            class="verification-filter-chip"
+            data-verification-filter="HUMAN_VERIFIED"
+            aria-pressed="false"
+          >
+            ตรวจแล้ว
+            <span data-filter-count>0</span>
+          </button>
+
+          <button
+            type="button"
+            class="verification-filter-chip"
+            data-verification-filter="HUMAN_CORRECTED"
+            aria-pressed="false"
+          >
+            แก้ไขโดยคน
+            <span data-filter-count>0</span>
+          </button>
+
+          <button
+            type="button"
+            class="verification-filter-chip"
+            data-verification-filter="HUMAN_IGNORED"
+            aria-pressed="false"
+          >
+            ข้าม
+            <span data-filter-count>0</span>
+          </button>
+
+          <button
+            type="button"
+            class="verification-filter-chip"
+            data-verification-filter="UNSENT"
+            aria-pressed="false"
+          >
+            ยกเลิก
             <span data-filter-count>0</span>
           </button>
 
@@ -16775,8 +17019,250 @@ function editReportPoints(
   );
 }
 
+/* Report -> Review Message Bridge v1 */
+
+async function openReportMessageInReview(
+  messageRecordId,
+  summaryGroupId = null,
+) {
+  const targetId =
+    String(messageRecordId ?? "").trim();
+
+  if (!targetId) {
+    toast(
+      "ไม่พบรายการต้นทางของออเดอร์นี้",
+      true,
+    );
+    return;
+  }
+
+  const targetSummaryGroup =
+    String(summaryGroupId ?? "").trim();
+
+  if (
+    targetSummaryGroup
+    && [...summaryGroupSelect.options]
+      .some(
+        (option) =>
+          option.value === targetSummaryGroup,
+      )
+  ) {
+    summaryGroupSelect.value =
+      targetSummaryGroup;
+  }
+
+  /* Report historical-session mutation guard v1
+   *
+   * The existing Review/Human Truth APIs intentionally resolve
+   * the current OPEN settlement server-side.
+   *
+   * Do not navigate a historical settlement into that mutation
+   * workflow. A CLOSED latest Summary Group Round inside the
+   * current OPEN settlement remains eligible according to the
+   * existing server/DB guards.
+   */
+  const reportSessionId =
+    String(
+      $("#reportSessionSelect")
+        ?.value
+      || state.settlement
+        ?.open_session
+        ?.id
+      || "",
+    ).trim();
+
+  const currentOpenSessionId =
+    String(
+      state.settlement
+        ?.open_session
+        ?.id
+      || "",
+    ).trim();
+
+  if (
+    !currentOpenSessionId
+    || !reportSessionId
+    || reportSessionId
+      !== currentOpenSessionId
+  ) {
+    toast(
+      "รายการนี้เป็นรายงานย้อนหลัง จึงไม่เปิดเข้าสู่การตรวจ/แก้ไขของรอบปัจจุบัน",
+      true,
+    );
+    return;
+  }
+
+  /*
+   * activateTab("review") starts loadReviews without await.
+   * Direct navigation must wait for authoritative Workbench data.
+   */
+  selectTabUi("review");
+
+  try {
+    await loadReviews();
+
+    const workbench =
+      $("#staffVerificationWorkbench");
+
+    if (!workbench) {
+      throw new Error(
+        "REVIEW_WORKBENCH_NOT_AVAILABLE",
+      );
+    }
+
+    let item =
+      workbench
+        ?._verificationWorkbenchItems
+        ?.get(targetId)
+      ?? null;
+
+    /*
+     * Report rows can point to earlier messages in the Round.
+     * Continue bounded Timeline pagination until found.
+     */
+    let pageGuard = 0;
+
+    while (
+      !item
+      && workbench
+        ?._verificationPagination
+        ?.has_more
+      && pageGuard < 20
+    ) {
+      pageGuard += 1;
+
+      await loadMoreStaffVerificationTimeline(
+        workbench,
+      );
+
+      item =
+        workbench
+          ?._verificationWorkbenchItems
+          ?.get(targetId)
+        ?? null;
+    }
+
+    if (!item) {
+      toast(
+        "ไม่พบรายการนี้ในรอบตรวจปัจจุบัน",
+        true,
+      );
+      return;
+    }
+
+    /*
+     * Direct navigation wins over previously selected filters.
+     */
+    workbench
+      ._verificationTimelineFilters
+      ?.clear();
+
+    staffVerificationRenderTimeline(
+      workbench,
+    );
+
+    selectStaffVerificationWorkbenchItem(
+      workbench,
+      targetId,
+      {
+        scroll: false,
+      },
+    );
+
+    const targetRow =
+      Array.from(
+        workbench.querySelectorAll(
+          ".verification-timeline-item[data-message-record-id]",
+        ),
+      ).find(
+        (row) =>
+          String(
+            row.dataset.messageRecordId
+            ?? "",
+          ) === targetId,
+      )
+      ?? null;
+
+    targetRow?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+  } catch (error) {
+    console.error(
+      "Report -> Review message bridge failed",
+      error,
+    );
+
+    toast(
+      "เปิดรายการตรวจไม่สำเร็จ",
+      true,
+    );
+  }
+}
+
+
+function bindReportReviewMessageBridge() {
+  const root =
+    $("#reportContent");
+
+  if (
+    !root
+    || root.dataset
+      .reviewMessageBridgeBound
+      === "true"
+  ) {
+    return;
+  }
+
+  root.dataset
+    .reviewMessageBridgeBound =
+      "true";
+
+  root.addEventListener(
+    "click",
+    async (event) => {
+      const button =
+        event.target.closest(
+          ".report-review-message",
+        );
+
+      if (!button) {
+        return;
+      }
+
+      const messageRecordId =
+        String(
+          button.dataset.messageRecordId
+          ?? "",
+        );
+
+      const summaryGroupId =
+        String(
+          button.dataset.summaryGroupId
+          ?? "",
+        );
+
+      button.disabled = true;
+
+      try {
+        await openReportMessageInReview(
+          messageRecordId,
+          summaryGroupId,
+        );
+      } finally {
+        if (button.isConnected) {
+          button.disabled = false;
+        }
+      }
+    },
+  );
+}
+
+
 function renderReport(payload) {
   const root=$("#reportContent");
+
+  bindReportReviewMessageBridge();
 
   state.reportPayload=payload;
 
@@ -17120,7 +17606,7 @@ function renderReport(payload) {
         <div class="report-title"><div><h3>${escapeHtml(g.line_group_name)}</h3><span>${escapeHtml(groupName(g.summary_group_id))} · ${escapeHtml(roundIdentity)}</span></div><span>${formatNumber(g.message_count)} ข้อความ</span></div>
         <div class="report-metrics"><div><span>ยอดรับจริง</span><strong>${formatNumber(g.received_total)}</strong></div><div><span>ลด</span><strong>${formatNumber(g.reduction_pct)}%</strong></div><div><span>ยอดหลังลด</span><strong>${formatNumber(g.after_reduction)}</strong></div><div><span>Point พิเศษ</span><strong>${pointSpecified?formatNumber(g.special_point_total):"รอระบุ"}</strong></div><div class="net"><span>ยอดสุทธิเทียบ</span><strong>${finalReady?formatNumber(g.reconciliation_total):"—"}</strong></div></div>
         <div class="special-summary"><h4>Point พิเศษ</h4>${g.special_point_codes.length?`<div class="table-wrap"><table><thead><tr><th>รหัส</th><th class="num">จำนวนรวม</th><th class="num">ตัวคูณ</th><th class="num">Point</th></tr></thead><tbody>${g.special_point_codes.map(x=>`<tr><td><strong>${escapeHtml(x.category)}${escapeHtml(x.code)}</strong></td><td class="num">${formatNumber(x.quantity)}</td><td class="num">×${formatNumber(x.multiplier)}</td><td class="num">${formatNumber(x.points)}</td></tr>`).join("")}</tbody></table></div>`:`<div class="muted">${pointSpecified?"ยังไม่มียอดตรงรหัส Point ที่ระบุ":"รอระบุ"}</div>`}</div>
-        <div class="table-wrap"><table><thead><tr><th>ลำดับ</th><th>เวลา</th><th>รหัสแรก</th><th class="num">สรุปจำนวน</th><th>Point พิเศษ</th></tr></thead><tbody>${g.ledger.map(row=>`<tr><td>${String(row.sequence).padStart(3,"0")}</td><td>${escapeHtml(new Intl.DateTimeFormat("th-TH",{timeZone:"Asia/Bangkok",hour:"2-digit",minute:"2-digit",second:"2-digit"}).format(new Date(row.event_timestamp)))}</td><td class="report-first-code"><strong>${escapeHtml(row.first_code||"-")}</strong></td><td class="num"><strong>${formatNumber(row.summary_quantity)}</strong></td><td>${row.special_points.length?`★ ${row.special_points.map(x=>`${escapeHtml(x.category)}${escapeHtml(x.code)}=${formatNumber(x.quantity)} ×${formatNumber(x.multiplier)}`).join(", ")}`:""}</td></tr>`).join("")}</tbody><tfoot><tr><th colspan="3">รวม</th><th class="num">${formatNumber(g.received_total)}</th><th></th></tr></tfoot></table></div>
+        <div class="table-wrap"><table><thead><tr><th>ลำดับ</th><th>เวลา</th><th>รหัสแรก</th><th class="num">สรุปจำนวน</th><th>Point พิเศษ</th><th>ตรวจ</th></tr></thead><tbody>${g.ledger.map(row=>`<tr><td>${String(row.sequence).padStart(3,"0")}</td><td>${escapeHtml(new Intl.DateTimeFormat("th-TH",{timeZone:"Asia/Bangkok",hour:"2-digit",minute:"2-digit",second:"2-digit"}).format(new Date(row.event_timestamp)))}</td><td class="report-first-code"><strong>${escapeHtml(row.first_code||"-")}</strong></td><td class="num"><strong>${formatNumber(row.summary_quantity)}</strong></td><td>${row.special_points.length?`★ ${row.special_points.map(x=>`${escapeHtml(x.category)}${escapeHtml(x.code)}=${formatNumber(x.quantity)} ×${formatNumber(x.multiplier)}`).join(", ")}`:""}</td><td><button type="button" class="button ghost small report-review-message" data-message-record-id="${escapeHtml(row.message_record_id||"")}" data-summary-group-id="${escapeHtml(g.summary_group_id||"")}">ตรวจรายการนี้</button></td></tr>`).join("")}</tbody><tfoot><tr><th colspan="3">รวม</th><th class="num">${formatNumber(g.received_total)}</th><th></th><th></th></tr></tfoot></table></div>
       </section>`;
     }).join("");
 

@@ -1317,6 +1317,9 @@ export default async (req) => {
 
 
                 return {
+                  message_record_id:
+                    message.id,
+
                   sequence:
                     index + 1,
 

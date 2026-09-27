@@ -289,35 +289,48 @@ const client = {
 
     if (
       name
+      === "staff_workbench_verification_timeline"
+    ) {
+      if (
+        args.p_sort_mode !== "RECENT"
+      ) {
+        throw new Error(
+          `UNEXPECTED_TIMELINE_SORT:${args.p_sort_mode}`,
+        );
+      }
+
+      return {
+        data: [
+          verificationRow(
+            "message-shared",
+            {
+              total:
+                50,
+            },
+          ),
+
+          verificationRow(
+            "message-recent",
+            {
+              total:
+                40,
+            },
+          ),
+        ],
+
+        error:
+          null,
+      };
+    }
+
+
+    if (
+      name
       === "staff_workbench_pending_verifications"
     ) {
       switch (
         args.p_sort_mode
       ) {
-        case "RECENT":
-          return {
-            data: [
-              verificationRow(
-                "message-shared",
-                {
-                  total:
-                    50,
-                },
-              ),
-
-              verificationRow(
-                "message-recent",
-                {
-                  total:
-                    40,
-                },
-              ),
-            ],
-
-            error:
-              null,
-          };
-
         case "PRIORITY":
           return {
             data: [
@@ -468,8 +481,48 @@ assert.equal(
 
 
 // ------------------------------------------------------------
-// Three independent Verification RPC calls
+// One all-orders Timeline RPC + two pending operational feeds
 // ------------------------------------------------------------
+
+const timelineCalls =
+  rpcCalls.filter(
+    (call) =>
+      call.name
+      === "staff_workbench_verification_timeline",
+  );
+
+assert.equal(
+  timelineCalls.length,
+  1,
+  "RECENT must use exactly one all-orders Timeline RPC",
+);
+
+assert.equal(
+  timelineCalls[0]
+    .args
+    .p_sort_mode,
+  "RECENT",
+);
+
+assert.deepEqual(
+  {
+    limit:
+      timelineCalls[0]
+        .args.p_limit,
+
+    offset:
+      timelineCalls[0]
+        .args.p_offset,
+  },
+  {
+    limit:
+      2,
+
+    offset:
+      4,
+  },
+);
+
 
 const pendingCalls =
   rpcCalls.filter(
@@ -480,7 +533,8 @@ const pendingCalls =
 
 assert.equal(
   pendingCalls.length,
-  3,
+  2,
+  "only PRIORITY and HIGH_TOTAL remain pending feeds",
 );
 
 const pendingByMode =
@@ -500,29 +554,7 @@ assert.deepEqual(
   [
     "HIGH_TOTAL",
     "PRIORITY",
-    "RECENT",
   ],
-);
-
-assert.deepEqual(
-  {
-    limit:
-      pendingByMode
-        .get("RECENT")
-        .args.p_limit,
-
-    offset:
-      pendingByMode
-        .get("RECENT")
-        .args.p_offset,
-  },
-  {
-    limit:
-      2,
-
-    offset:
-      4,
-  },
 );
 
 assert.deepEqual(

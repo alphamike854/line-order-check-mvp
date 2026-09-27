@@ -330,7 +330,7 @@ export async function loadStaffWorkbenchReadModel(
     ),
 
     client.rpc(
-      "staff_workbench_pending_verifications",
+      "staff_workbench_verification_timeline",
       {
         p_settlement_session_id:
           settlementSessionId,
