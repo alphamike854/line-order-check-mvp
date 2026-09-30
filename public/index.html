@@ -493,6 +493,85 @@
             <div id="warehouseLimitList" class="settings-list"></div>
           </section>
 
+          <section class="settings-block staff-settings-block">
+            <h3>เจ้าหน้าที่ (Staff)</h3>
+            <p class="muted small-text">
+              เพิ่มเจ้าหน้าที่ ออก Access Key ใหม่ เปิด/ปิดการใช้งาน
+              และกำหนด LINE Group ที่รับผิดชอบ
+            </p>
+
+            <form id="staffCreateForm" class="compact-form">
+              <input
+                name="staff_code"
+                maxlength="50"
+                placeholder="รหัส เช่น STAFF01"
+                autocomplete="off"
+                required
+              />
+              <input
+                name="display_name"
+                maxlength="120"
+                placeholder="ชื่อเจ้าหน้าที่"
+                autocomplete="off"
+                required
+              />
+              <select name="role" required>
+                <option value="STAFF">Staff</option>
+                <option value="SUPERVISOR">Supervisor</option>
+                <option value="ADMIN">Admin</option>
+              </select>
+              <button
+                class="button primary small"
+                type="submit"
+              >
+                เพิ่ม Staff
+              </button>
+            </form>
+
+            <div
+              id="staffSettingsMessage"
+              class="muted small-text"
+            ></div>
+
+            <div
+              id="staffIssuedKeyNotice"
+              class="staff-key-notice hidden"
+            >
+              <strong>Access Key ใหม่ — แสดงครั้งเดียว</strong>
+              <p class="muted small-text">
+                บันทึกและส่งให้เจ้าหน้าที่ผ่านช่องทางที่เหมาะสม
+                ระบบจะไม่สามารถแสดง Key เดิมให้ดูย้อนหลังได้
+              </p>
+              <input
+                id="staffIssuedKey"
+                type="text"
+                readonly
+                autocomplete="off"
+              />
+              <div class="staff-key-actions">
+                <button
+                  id="copyStaffKeyButton"
+                  class="button primary small"
+                  type="button"
+                >
+                  คัดลอก Key
+                </button>
+                <button
+                  id="dismissStaffKeyButton"
+                  class="button ghost small"
+                  type="button"
+                >
+                  ปิด
+                </button>
+              </div>
+            </div>
+
+            <div
+              id="staffAccountsList"
+              class="settings-list"
+            ></div>
+          </section>
+
           <section class="settings-block">
             <h3>Alias หมวด / คำสั่ง</h3>
             <form id="aliasForm" class="compact-form">
