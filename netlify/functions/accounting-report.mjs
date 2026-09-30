@@ -1,8 +1,15 @@
 import {
   json,
-  requireDashboardAccess,
   supabase,
 } from "../../src/lib/dashboard-api.mjs";
+
+import {
+  authenticateWorkbenchActor,
+} from "../../src/lib/staff-access.mjs";
+
+import {
+  loadActorSessionLineGroupIds,
+} from "../../src/lib/staff-workbench.mjs";
 
 import {
   loadDashboardRoundContext,
@@ -299,14 +306,24 @@ export default async (req) => {
     );
   }
 
-  const denied =
-    requireDashboardAccess(req);
-
-  if (denied) {
-    return denied;
-  }
-
   try {
+    const auth =
+      await authenticateWorkbenchActor(
+        req,
+        {
+          client: supabase,
+        },
+      );
+
+    if (!auth.ok) {
+      return json(
+        {
+          ok: false,
+          error: auth.error,
+        },
+        auth.status,
+      );
+    }
     const url =
       new URL(req.url);
 
@@ -346,6 +363,49 @@ export default async (req) => {
         ? selectedLineRaw
         : null;
 
+    const staffMode =
+      auth.actor?.kind === "STAFF";
+
+    const staffLineGroupIds =
+      staffMode
+        ? await loadActorSessionLineGroupIds(
+            supabase,
+            auth.actor,
+            session.id,
+          )
+        : [];
+
+    if (
+      staffMode
+      && staffLineGroupIds.length === 0
+    ) {
+      return json(
+        {
+          ok: false,
+          error:
+            "MESSAGE_OUTSIDE_STAFF_SCOPE",
+        },
+        403,
+      );
+    }
+
+    if (
+      staffMode
+      && selectedLine
+      && !staffLineGroupIds.includes(
+        selectedLine,
+      )
+    ) {
+      return json(
+        {
+          ok: false,
+          error:
+            "MESSAGE_OUTSIDE_STAFF_SCOPE",
+        },
+        403,
+      );
+    }
+
     const summaryOnly =
       url.searchParams.get(
         "summary_only",
@@ -357,6 +417,18 @@ export default async (req) => {
       (query) => {
         let filteredQuery =
           query;
+
+        /*
+         * STAFF "ALL" means all assigned LINE Groups only.
+         * Explicit line_group is additionally checked above.
+         */
+        if (staffMode) {
+          filteredQuery =
+            filteredQuery.in(
+              "line_group_id",
+              staffLineGroupIds,
+            );
+        }
 
         if (selectedSummary) {
           filteredQuery =
