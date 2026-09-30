@@ -17759,45 +17759,27 @@ async function openReportMessageInReview(
       );
     }
 
-    let item =
-      workbench
-        ?._verificationWorkbenchItems
-        ?.get(targetId)
-      ?? null;
-
     /*
      * Report rows can point to earlier messages in the Round.
-     * Continue bounded Timeline pagination until found.
+     *
+     * A message can already exist in the shared Workbench union
+     * before its Timeline row has been materialized. Direct
+     * navigation therefore pages on the actual Timeline DOM target,
+     * not merely Workbench item presence.
      */
-    let pageGuard = 0;
-
-    while (
-      !item
-      && workbench
-        ?._verificationPagination
-        ?.has_more
-      && pageGuard < 20
-    ) {
-      pageGuard += 1;
-
-      await loadMoreStaffVerificationTimeline(
-        workbench,
-      );
-
-      item =
-        workbench
-          ?._verificationWorkbenchItems
-          ?.get(targetId)
-        ?? null;
-    }
-
-    if (!item) {
-      toast(
-        "ไม่พบรายการนี้ในรอบตรวจปัจจุบัน",
-        true,
-      );
-      return;
-    }
+    const findTargetTimelineRow = () =>
+      Array.from(
+        workbench.querySelectorAll(
+          ".verification-timeline-item[data-message-record-id]",
+        ),
+      ).find(
+        (row) =>
+          String(
+            row.dataset.messageRecordId
+              ?? "",
+          ) === targetId,
+      )
+      ?? null;
 
     /*
      * Direct navigation wins over previously selected filters.
@@ -17810,6 +17792,45 @@ async function openReportMessageInReview(
       workbench,
     );
 
+    let targetRow =
+      findTargetTimelineRow();
+
+    let pageGuard = 0;
+
+    while (
+      !targetRow
+      && workbench
+        ?._verificationPagination
+        ?.has_more
+      && pageGuard < 20
+    ) {
+      pageGuard += 1;
+
+      await loadMoreStaffVerificationTimeline(
+        workbench,
+      );
+
+      workbench
+        ._verificationTimelineFilters
+        ?.clear();
+
+      staffVerificationRenderTimeline(
+        workbench,
+      );
+
+      targetRow =
+        findTargetTimelineRow();
+    }
+
+    if (!targetRow) {
+      toast(
+        "ไม่พบรายการนี้ในรอบตรวจปัจจุบัน",
+        true,
+      );
+
+      return;
+    }
+
     selectStaffVerificationWorkbenchItem(
       workbench,
       targetId,
@@ -17818,21 +17839,16 @@ async function openReportMessageInReview(
       },
     );
 
-    const targetRow =
-      Array.from(
-        workbench.querySelectorAll(
-          ".verification-timeline-item[data-message-record-id]",
-        ),
-      ).find(
-        (row) =>
-          String(
-            row.dataset.messageRecordId
-            ?? "",
-          ) === targetId,
-      )
-      ?? null;
+    /*
+     * Selection can update Timeline DOM state. Re-resolve the row
+     * before scrolling while retaining the already materialized
+     * target as a safe fallback.
+     */
+    targetRow =
+      findTargetTimelineRow()
+      ?? targetRow;
 
-    targetRow?.scrollIntoView({
+    targetRow.scrollIntoView({
       behavior: "smooth",
       block: "center",
     });
