@@ -468,6 +468,55 @@ async function classifyAccessKey(
 }
 
 
+
+function configureStaffReportScope(
+  lineGroups = [],
+) {
+  const sessionSelect =
+    $("#reportSessionSelect");
+
+  if (sessionSelect) {
+    /*
+     * STAFF does not load Dashboard/Settlement bootstrap.
+     * Empty session_id means accounting-report resolves the
+     * current OPEN settlement server-side.
+     */
+    sessionSelect.innerHTML =
+      `<option value="">ยอดปัจจุบัน</option>`;
+
+    sessionSelect.value = "";
+  }
+
+  const lineSelect =
+    $("#reportLineGroupSelect");
+
+  if (!lineSelect) {
+    return;
+  }
+
+  const groups =
+    Array.isArray(lineGroups)
+      ? lineGroups
+      : [];
+
+  lineSelect.innerHTML =
+    `<option value="ALL">ทุก LINE Group ที่รับผิดชอบ</option>`
+    + groups
+      .map(
+        (group) =>
+          `<option value="${escapeHtml(
+            group.line_group_id,
+          )}">${escapeHtml(
+            group.line_group_name
+            || group.line_group_id,
+          )}</option>`,
+      )
+      .join("");
+
+  lineSelect.value = "ALL";
+}
+
+
 function configureAppForAuthMode(
   mode,
 ) {
@@ -506,7 +555,9 @@ function configureAppForAuthMode(
         "hidden",
         staffMode
         && tab.dataset.tab
-          !== "review",
+          !== "review"
+        && tab.dataset.tab
+          !== "report",
       );
     },
   );
@@ -567,6 +618,10 @@ async function enterStaffSession(
 
   configureAppForAuthMode(
     "STAFF",
+  );
+
+  configureStaffReportScope(
+    auth.lineGroups || [],
   );
 
   loginError.classList.add(
@@ -17629,7 +17684,16 @@ async function loadReport(options = {}) {
   const silent = options?.silent === true;
   const loadVersion = ++reportLoadVersion;
   const sessionId=$("#reportSessionSelect").value || state.settlement?.open_session?.id;
-  if(!sessionId){renderReport({session:null,groups:[]});return;}
+  if(
+    !sessionId
+    && state.authMode!=="STAFF"
+  ){
+    renderReport({
+      session:null,
+      groups:[],
+    });
+    return;
+  }
 
   const reportSummaryGroup =
     summaryGroupSelect.value || "ALL";
@@ -17646,11 +17710,29 @@ async function loadReport(options = {}) {
       : "";
 
   try {
-    const payload=await api(`/api/accounting-report?session_id=${encodeURIComponent(sessionId)}&group=${encodeURIComponent(reportSummaryGroup)}&line_group=${encodeURIComponent(reportLineGroup)}${summaryOnlyQuery}`);
+    const reportPath=
+      sessionId
+        ? `/api/accounting-report?session_id=${encodeURIComponent(sessionId)}&group=${encodeURIComponent(reportSummaryGroup)}&line_group=${encodeURIComponent(reportLineGroup)}${summaryOnlyQuery}`
+        : `/api/accounting-report?group=${encodeURIComponent(reportSummaryGroup)}&line_group=${encodeURIComponent(reportLineGroup)}${summaryOnlyQuery}`;
+
+    const payload=
+      await api(reportPath);
 
     if(loadVersion!==reportLoadVersion)return;
 
     renderReport(payload);
+
+    /*
+     * STAFF Report is read-only.
+     * Point editing remains Dashboard/Admin operation.
+     */
+    if(state.authMode==="STAFF"){
+      $$(".edit-report-points")
+        .forEach(
+          (button) =>
+            button.remove(),
+        );
+    }
   }
   catch(error){
     if(loadVersion!==reportLoadVersion)return;
@@ -18487,6 +18569,7 @@ function activateTab(name, options = {}) {
   if (
     state.authMode === "STAFF"
     && name !== "review"
+    && name !== "report"
   ) {
     return;
   }
