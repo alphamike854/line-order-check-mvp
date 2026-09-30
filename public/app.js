@@ -5509,10 +5509,14 @@ async function applyReview(card) {
       card,
       messageRecordId,
     );
-    await loadDashboard({
-      silent: true,
-      preserveReviewWorkbench: true,
-    });
+    if (
+      state.authMode === "DASHBOARD"
+    ) {
+      await loadDashboard({
+        silent: true,
+        preserveReviewWorkbench: true,
+      });
+    }
   } catch (error) {
     if (
       [
@@ -5589,10 +5593,14 @@ async function ignoreReview(event) {
       card,
       messageRecordId,
     );
-    await loadDashboard({
-      silent: true,
-      preserveReviewWorkbench: true,
-    });
+    if (
+      state.authMode === "DASHBOARD"
+    ) {
+      await loadDashboard({
+        silent: true,
+        preserveReviewWorkbench: true,
+      });
+    }
   } catch (error) {
     if (
       isReviewResolutionClaimConflict(
@@ -17697,20 +17705,27 @@ async function openReportMessageInReview(
    */
   const reportSessionId =
     String(
-      $("#reportSessionSelect")
-        ?.value
-      || state.settlement
-        ?.open_session
-        ?.id
-      || "",
+      (
+        state.authMode === "STAFF"
+          ? state.reportPayload?.session?.id
+          : (
+              $("#reportSessionSelect")?.value
+              || state.settlement?.open_session?.id
+            )
+      ) || "",
     ).trim();
 
   const currentOpenSessionId =
     String(
-      state.settlement
-        ?.open_session
-        ?.id
-      || "",
+      (
+        state.authMode === "STAFF"
+          ? (
+              state.reportPayload?.session?.status === "OPEN"
+                ? state.reportPayload?.session?.id
+                : ""
+            )
+          : state.settlement?.open_session?.id
+      ) || "",
     ).trim();
 
   if (
