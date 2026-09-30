@@ -22,6 +22,7 @@ const state = {
   actor: null,
   dashboard: null,
   settings: null,
+  staffSettings: null,
   groupsLoaded: false,
   freshnessVersion: null,
   dashboardStale: false,
@@ -14914,12 +14915,565 @@ function renderSettings() {
   }));
 }
 
+
+function staffSettingsRoleLabel(role) {
+  return {
+    ADMIN: "Admin",
+    SUPERVISOR: "Supervisor",
+    STAFF: "Staff",
+  }[String(role ?? "").toUpperCase()]
+    || String(role ?? "");
+}
+
+function setStaffSettingsMessage(
+  message = "",
+  isError = false,
+) {
+  const root =
+    $("#staffSettingsMessage");
+
+  if (!root) return;
+
+  root.textContent =
+    String(message ?? "");
+
+  root.classList.toggle(
+    "staff-settings-error",
+    Boolean(message) && isError,
+  );
+}
+
+function hideIssuedStaffKey() {
+  const notice =
+    $("#staffIssuedKeyNotice");
+
+  const input =
+    $("#staffIssuedKey");
+
+  if (input) {
+    input.value = "";
+  }
+
+  notice?.classList.add(
+    "hidden",
+  );
+}
+
+function showIssuedStaffKey(
+  accessKey,
+  staffCode,
+) {
+  const notice =
+    $("#staffIssuedKeyNotice");
+
+  const input =
+    $("#staffIssuedKey");
+
+  if (
+    !notice
+    || !input
+    || !accessKey
+  ) {
+    return;
+  }
+
+  input.value =
+    String(accessKey);
+
+  notice.classList.remove(
+    "hidden",
+  );
+
+  setStaffSettingsMessage(
+    `ออก Access Key ใหม่สำหรับ ${staffCode} แล้ว — กรุณาบันทึก Key ก่อนปิด`,
+  );
+}
+
+function staffAssignmentsFor(
+  staffId,
+) {
+  return (
+    state.staffSettings
+      ?.assignments
+    || []
+  ).filter(
+    (row) =>
+      row.staff_id === staffId
+      && row.enabled === true,
+  );
+}
+
+function staffAssignmentRoleFor(
+  staffId,
+  lineGroupId,
+) {
+  const assignment =
+    (
+      state.staffSettings
+        ?.assignments
+      || []
+    ).find(
+      (row) =>
+        row.staff_id === staffId
+        && row.line_group_id
+          === lineGroupId
+        && row.enabled === true,
+    );
+
+  return (
+    assignment
+      ?.assignment_role
+    || "REVIEWER"
+  );
+}
+
+function renderStaffSettings() {
+  const root =
+    $("#staffAccountsList");
+
+  if (!root) return;
+
+  const staff =
+    state.staffSettings?.staff
+    || [];
+
+  const lineGroups =
+    state.staffSettings
+      ?.line_groups
+    || [];
+
+  if (!staff.length) {
+    root.innerHTML =
+      `<div class="muted small-text">ยังไม่มี Staff</div>`;
+    return;
+  }
+
+  root.innerHTML =
+    staff.map((account) => {
+      const assignments =
+        staffAssignmentsFor(
+          account.id,
+        );
+
+      const isAdmin =
+        account.role === "ADMIN";
+
+      const scopeText =
+        isAdmin
+          ? "ทุก LINE Group ที่เปิดใช้งาน"
+          : `${assignments.length} กลุ่ม`;
+
+      const assignmentHtml =
+        isAdmin
+          ? `
+            <div class="muted small-text">
+              Admin เห็นทุก LINE Group ที่เปิดใช้งาน
+              จึงไม่ต้องกำหนด assignment รายกลุ่ม
+            </div>
+          `
+          : lineGroups.length
+            ? `
+              <div class="staff-assignment-list">
+                ${lineGroups.map((group) => {
+                  const checked =
+                    assignments.some(
+                      (row) =>
+                        row.line_group_id
+                          === group.line_group_id,
+                    );
+
+                  const role =
+                    staffAssignmentRoleFor(
+                      account.id,
+                      group.line_group_id,
+                    );
+
+                  return `
+                    <label class="staff-assignment-row">
+                      <input
+                        type="checkbox"
+                        class="staff-assignment-toggle"
+                        data-staff-id="${escapeHtml(account.id)}"
+                        data-line-group-id="${escapeHtml(group.line_group_id)}"
+                        data-assignment-role="${escapeHtml(role)}"
+                        ${checked ? "checked" : ""}
+                      />
+                      <span>
+                        ${escapeHtml(
+                          group.line_group_name
+                          || group.line_group_id,
+                        )}
+                        <small>
+                          ${escapeHtml(
+                            group.summary_group_id
+                            || "",
+                          )}
+                        </small>
+                      </span>
+                    </label>
+                  `;
+                }).join("")}
+              </div>
+            `
+            : `
+              <div class="muted small-text">
+                ยังไม่มี LINE Group ที่เปิดใช้งาน
+              </div>
+            `;
+
+      return `
+        <article class="staff-account-card">
+          <div class="staff-account-head">
+            <div>
+              <strong>
+                ${escapeHtml(account.staff_code)}
+                ·
+                ${escapeHtml(account.display_name)}
+              </strong>
+              <small>
+                ${escapeHtml(
+                  staffSettingsRoleLabel(
+                    account.role,
+                  ),
+                )}
+                ·
+                ${account.enabled ? "ใช้งาน" : "ปิดใช้งาน"}
+                ·
+                ${escapeHtml(scopeText)}
+              </small>
+            </div>
+
+            <div class="staff-account-actions">
+              <button
+                type="button"
+                class="button ghost small staff-reset-key"
+                data-staff-id="${escapeHtml(account.id)}"
+                data-staff-code="${escapeHtml(account.staff_code)}"
+              >
+                ออก Key ใหม่
+              </button>
+
+              <button
+                type="button"
+                class="button ghost small staff-toggle-enabled"
+                data-staff-id="${escapeHtml(account.id)}"
+                data-next-enabled="${account.enabled ? "false" : "true"}"
+              >
+                ${account.enabled ? "ปิดใช้งาน" : "เปิดใช้งาน"}
+              </button>
+            </div>
+          </div>
+
+          <details class="staff-assignment-details">
+            <summary>
+              LINE Group ที่รับผิดชอบ
+            </summary>
+            ${assignmentHtml}
+          </details>
+        </article>
+      `;
+    }).join("");
+}
+
+async function loadStaffSettingsOnly() {
+  const payload =
+    await api(
+      "/api/staff-settings",
+    );
+
+  state.staffSettings =
+    payload;
+
+  renderStaffSettings();
+
+  return payload;
+}
+
+async function staffSettingsPost(
+  action,
+  values,
+) {
+  return api(
+    "/api/staff-settings",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        action,
+        values,
+      }),
+    },
+  );
+}
+
+async function createStaffAccount(
+  event,
+) {
+  event.preventDefault();
+
+  const form =
+    event.currentTarget;
+
+  const data =
+    new FormData(form);
+
+  setStaffSettingsMessage(
+    "กำลังเพิ่ม Staff…",
+  );
+
+  try {
+    const payload =
+      await staffSettingsPost(
+        "CREATE",
+        {
+          staff_code:
+            data.get(
+              "staff_code",
+            ),
+
+          display_name:
+            data.get(
+              "display_name",
+            ),
+
+          role:
+            data.get(
+              "role",
+            ),
+        },
+      );
+
+    form.reset();
+
+    await loadStaffSettingsOnly();
+
+    showIssuedStaffKey(
+      payload.access_key,
+      payload.staff
+        ?.staff_code
+        || "Staff",
+    );
+  } catch (error) {
+    setStaffSettingsMessage(
+      error.message
+      || "เพิ่ม Staff ไม่สำเร็จ",
+      true,
+    );
+  }
+}
+
+async function handleStaffSettingsClick(
+  event,
+) {
+  const resetButton =
+    event.target.closest(
+      ".staff-reset-key",
+    );
+
+  if (resetButton) {
+    const staffId =
+      resetButton.dataset.staffId;
+
+    const staffCode =
+      resetButton.dataset.staffCode
+      || "Staff";
+
+    if (
+      !window.confirm(
+        `ออก Access Key ใหม่ให้ ${staffCode} ?\nKey เดิมจะใช้ไม่ได้ทันที`,
+      )
+    ) {
+      return;
+    }
+
+    resetButton.disabled =
+      true;
+
+    try {
+      const payload =
+        await staffSettingsPost(
+          "RESET_KEY",
+          {
+            staff_id:
+              staffId,
+          },
+        );
+
+      await loadStaffSettingsOnly();
+
+      showIssuedStaffKey(
+        payload.access_key,
+        payload.staff
+          ?.staff_code
+          || staffCode,
+      );
+    } catch (error) {
+      setStaffSettingsMessage(
+        error.message
+        || "ออก Key ใหม่ไม่สำเร็จ",
+        true,
+      );
+    } finally {
+      resetButton.disabled =
+        false;
+    }
+
+    return;
+  }
+
+  const toggleButton =
+    event.target.closest(
+      ".staff-toggle-enabled",
+    );
+
+  if (!toggleButton) {
+    return;
+  }
+
+  const enabled =
+    toggleButton
+      .dataset
+      .nextEnabled
+      === "true";
+
+  toggleButton.disabled =
+    true;
+
+  try {
+    await staffSettingsPost(
+      "SET_ENABLED",
+      {
+        staff_id:
+          toggleButton
+            .dataset
+            .staffId,
+
+        enabled,
+      },
+    );
+
+    await loadStaffSettingsOnly();
+
+    setStaffSettingsMessage(
+      enabled
+        ? "เปิดใช้งาน Staff แล้ว"
+        : "ปิดใช้งาน Staff แล้ว",
+    );
+  } catch (error) {
+    setStaffSettingsMessage(
+      error.message
+      || "เปลี่ยนสถานะ Staff ไม่สำเร็จ",
+      true,
+    );
+  } finally {
+    toggleButton.disabled =
+      false;
+  }
+}
+
+async function handleStaffAssignmentChange(
+  event,
+) {
+  const checkbox =
+    event.target.closest(
+      ".staff-assignment-toggle",
+    );
+
+  if (!checkbox) {
+    return;
+  }
+
+  checkbox.disabled =
+    true;
+
+  try {
+    await staffSettingsPost(
+      "SET_ASSIGNMENT",
+      {
+        staff_id:
+          checkbox
+            .dataset
+            .staffId,
+
+        line_group_id:
+          checkbox
+            .dataset
+            .lineGroupId,
+
+        assignment_role:
+          checkbox
+            .dataset
+            .assignmentRole
+          || "REVIEWER",
+
+        enabled:
+          checkbox.checked,
+      },
+    );
+
+    await loadStaffSettingsOnly();
+
+    setStaffSettingsMessage(
+      "บันทึก LINE Group ที่รับผิดชอบแล้ว",
+    );
+  } catch (error) {
+    checkbox.checked =
+      !checkbox.checked;
+
+    setStaffSettingsMessage(
+      error.message
+      || "บันทึก assignment ไม่สำเร็จ",
+      true,
+    );
+  } finally {
+    checkbox.disabled =
+      false;
+  }
+}
+
+async function copyIssuedStaffKey() {
+  const input =
+    $("#staffIssuedKey");
+
+  const value =
+    String(
+      input?.value
+      ?? "",
+    );
+
+  if (!value) return;
+
+  try {
+    await navigator
+      .clipboard
+      .writeText(value);
+
+    setStaffSettingsMessage(
+      "คัดลอก Access Key แล้ว",
+    );
+  } catch {
+    input.focus();
+    input.select();
+
+    setStaffSettingsMessage(
+      "เลือก Key แล้ว กรุณาคัดลอกด้วยตนเอง",
+    );
+  }
+}
+
 async function loadSettings() {
   $("#reloadSettingsButton").disabled = true;
   try {
-    const payload = await api("/api/settings");
+    const [
+      payload,
+      staffPayload,
+    ] = await Promise.all([
+      api("/api/settings"),
+      api("/api/staff-settings"),
+    ]);
     state.settings = payload.settings;
+    state.staffSettings = staffPayload;
     renderSettings();
+    renderStaffSettings();
   } catch (error) {
     toast(`โหลด Settings ไม่สำเร็จ: ${error.message}`, true);
   } finally {
@@ -15106,6 +15660,31 @@ function bindSettingForms() {
   });
 
   $("#reloadSettingsButton").addEventListener("click", loadSettings);
+
+  $("#staffCreateForm")?.addEventListener(
+    "submit",
+    createStaffAccount,
+  );
+
+  $("#staffAccountsList")?.addEventListener(
+    "click",
+    handleStaffSettingsClick,
+  );
+
+  $("#staffAccountsList")?.addEventListener(
+    "change",
+    handleStaffAssignmentChange,
+  );
+
+  $("#copyStaffKeyButton")?.addEventListener(
+    "click",
+    copyIssuedStaffKey,
+  );
+
+  $("#dismissStaffKeyButton")?.addEventListener(
+    "click",
+    hideIssuedStaffKey,
+  );
 }
 
 

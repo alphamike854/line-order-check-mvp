@@ -4197,3 +4197,95 @@ td:first-child {
 .export-preparation-more-toggle {
   min-width: 120px;
 }
+
+/* Staff Settings V1 */
+.staff-account-card {
+  border-top: 1px solid #e7edf4;
+  padding: 12px 0;
+}
+
+.staff-account-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.staff-account-head small {
+  display: block;
+  margin-top: 3px;
+  color: #7a8799;
+}
+
+.staff-account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.staff-assignment-details {
+  margin-top: 9px;
+}
+
+.staff-assignment-details summary {
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.staff-assignment-list {
+  display: grid;
+  gap: 5px;
+  margin-top: 8px;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.staff-assignment-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 6px 0;
+  font-size: 13px;
+}
+
+.staff-assignment-row small {
+  display: block;
+  color: #7a8799;
+}
+
+.staff-key-notice {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid #d7e0ea;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.staff-key-notice input {
+  width: 100%;
+  margin-top: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.staff-key-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.staff-settings-error {
+  color: #b42318;
+}
+
+@media (max-width: 620px) {
+  .staff-account-head {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .staff-account-actions {
+    justify-content: flex-start;
+  }
+}
