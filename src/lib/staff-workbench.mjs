@@ -219,6 +219,8 @@ export async function loadStaffWorkbenchReadModel(
     settlementSessionId,
     lineGroupIds,
     summaryGroupId = null,
+
+    readMode = "ALL",
     limit = 100,
     offset = 0,
     verificationLimit = 100,
@@ -288,6 +290,35 @@ export async function loadStaffWorkbenchReadModel(
       highTotalOffset,
     );
 
+  const normalizedReadMode =
+    String(
+      readMode ?? "ALL",
+    )
+      .trim()
+      .toUpperCase();
+
+  const includeBase =
+    normalizedReadMode === "ALL"
+    || normalizedReadMode === "INITIAL";
+
+  const includeVerification =
+    includeBase
+    || normalizedReadMode === "RECENT";
+
+  const includeAttention =
+    normalizedReadMode === "ALL"
+    || normalizedReadMode === "PRIORITY";
+
+  const includeHighTotal =
+    normalizedReadMode === "ALL"
+    || normalizedReadMode === "HIGH_TOTAL";
+
+  const skippedRead =
+    () => Promise.resolve({
+      data: [],
+      error: null,
+    });
+
   const [
     summaryResult,
     reviewResult,
@@ -295,108 +326,118 @@ export async function loadStaffWorkbenchReadModel(
     attentionResult,
     highTotalResult,
   ] = await Promise.all([
-    client.rpc(
-      "staff_workbench_summary",
-      {
-        p_settlement_session_id:
-          settlementSessionId,
+    includeBase
+      ? client.rpc(
+          "staff_workbench_summary",
+          {
+            p_settlement_session_id:
+              settlementSessionId,
 
-        p_line_group_ids:
-          lineGroupIds,
+            p_line_group_ids:
+              lineGroupIds,
 
-        p_summary_group_id:
-          summaryGroupId,
-      },
-    ),
+            p_summary_group_id:
+              summaryGroupId,
+          },
+        )
+      : skippedRead(),
 
-    client.rpc(
-      "staff_workbench_open_reviews",
-      {
-        p_settlement_session_id:
-          settlementSessionId,
+    includeBase
+      ? client.rpc(
+          "staff_workbench_open_reviews",
+          {
+            p_settlement_session_id:
+              settlementSessionId,
 
-        p_line_group_ids:
-          lineGroupIds,
+            p_line_group_ids:
+              lineGroupIds,
 
-        p_summary_group_id:
-          summaryGroupId,
+            p_summary_group_id:
+              summaryGroupId,
 
-        p_limit:
-          safeLimit,
+            p_limit:
+              safeLimit,
 
-        p_offset:
-          safeOffset,
-      },
-    ),
+            p_offset:
+              safeOffset,
+          },
+        )
+      : skippedRead(),
 
-    client.rpc(
-      "staff_workbench_verification_timeline",
-      {
-        p_settlement_session_id:
-          settlementSessionId,
+    includeVerification
+      ? client.rpc(
+          "staff_workbench_verification_timeline",
+          {
+            p_settlement_session_id:
+              settlementSessionId,
 
-        p_line_group_ids:
-          lineGroupIds,
+            p_line_group_ids:
+              lineGroupIds,
 
-        p_summary_group_id:
-          summaryGroupId,
+            p_summary_group_id:
+              summaryGroupId,
 
-        p_sort_mode:
-          "RECENT",
+            p_sort_mode:
+              "RECENT",
 
-        p_limit:
-          safeVerificationLimit,
+            p_limit:
+              safeVerificationLimit,
 
-        p_offset:
-          safeVerificationOffset,
-      },
-    ),
+            p_offset:
+              safeVerificationOffset,
+          },
+        )
+      : skippedRead(),
 
-    client.rpc(
-      "staff_workbench_pending_verifications",
-      {
-        p_settlement_session_id:
-          settlementSessionId,
+    includeAttention
+      ? client.rpc(
+          "staff_workbench_pending_verifications",
+          {
+            p_settlement_session_id:
+              settlementSessionId,
 
-        p_line_group_ids:
-          lineGroupIds,
+            p_line_group_ids:
+              lineGroupIds,
 
-        p_summary_group_id:
-          summaryGroupId,
+            p_summary_group_id:
+              summaryGroupId,
 
-        p_sort_mode:
-          "PRIORITY",
+            p_sort_mode:
+              "PRIORITY",
 
-        p_limit:
-          safeAttentionLimit,
+            p_limit:
+              safeAttentionLimit,
 
-        p_offset:
-          safeAttentionOffset,
-      },
-    ),
+            p_offset:
+              safeAttentionOffset,
+          },
+        )
+      : skippedRead(),
 
-    client.rpc(
-      "staff_workbench_pending_verifications",
-      {
-        p_settlement_session_id:
-          settlementSessionId,
+    includeHighTotal
+      ? client.rpc(
+          "staff_workbench_pending_verifications",
+          {
+            p_settlement_session_id:
+              settlementSessionId,
 
-        p_line_group_ids:
-          lineGroupIds,
+            p_line_group_ids:
+              lineGroupIds,
 
-        p_summary_group_id:
-          summaryGroupId,
+            p_summary_group_id:
+              summaryGroupId,
 
-        p_sort_mode:
-          "HIGH_TOTAL",
+            p_sort_mode:
+              "HIGH_TOTAL",
 
-        p_limit:
-          safeHighTotalLimit,
+            p_limit:
+              safeHighTotalLimit,
 
-        p_offset:
-          safeHighTotalOffset,
-      },
-    ),
+            p_offset:
+              safeHighTotalOffset,
+          },
+        )
+      : skippedRead(),
   ]);
 
   if (summaryResult.error) {

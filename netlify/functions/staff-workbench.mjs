@@ -64,6 +64,35 @@ export default async function handler(req) {
         ),
       );
 
+
+    const readMode =
+      String(
+        url.searchParams.get(
+          "read_mode",
+        )
+        ?? "ALL",
+      )
+        .trim()
+        .toUpperCase();
+
+    if (
+      ![
+        "ALL",
+        "INITIAL",
+        "RECENT",
+        "PRIORITY",
+        "HIGH_TOTAL",
+      ].includes(readMode)
+    ) {
+      return json(
+        {
+          ok: false,
+          error: "INVALID_READ_MODE",
+        },
+        400,
+      );
+    }
+
     // Legacy Review pagination.
     const limit =
       normalizeWorkbenchLimit(
@@ -191,6 +220,8 @@ export default async function handler(req) {
           lineGroupIds,
 
           summaryGroupId,
+
+          readMode,
 
           limit,
           offset,
