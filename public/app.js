@@ -16,6 +16,15 @@ const persistedAccessKey =
   )
   || "";
 
+/*
+ * Emergency Staff availability mode.
+ *
+ * Current Review remains operational.
+ * Heavy supplementary queues are disabled until the
+ * production statement-timeout incident is resolved.
+ */
+const STAFF_INCIDENT_MINIMAL_MODE = true;
+
 const state = {
   accessKey: persistedAccessKey,
   authMode: "",
@@ -403,6 +412,11 @@ async function classifyAccessKey(
   headers.set(
     "x-staff-key",
     accessKey,
+  );
+
+  headers.set(
+    "x-auth-classification",
+    "1",
   );
 
   const response =
@@ -13423,6 +13437,10 @@ async function loadStaffPostCloseReviewPage(
 async function appendStaffPostCloseReviewQueue(
   list,
 ) {
+  if (STAFF_INCIDENT_MINIMAL_MODE) {
+    return;
+  }
+
   if (
     state.authMode !== "STAFF"
   ) {
@@ -13731,6 +13749,10 @@ async function appendStaffVerificationQueueFailSoft(
   list,
   generation,
 ) {
+  if (STAFF_INCIDENT_MINIMAL_MODE) {
+    return;
+  }
+
   if (
     !staffVerificationSecondaryGenerationIsCurrent(
       list,

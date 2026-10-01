@@ -29,6 +29,11 @@ export default async function handler(req) {
         },
       );
 
+    const classificationOnly =
+      req.headers.get(
+        "x-auth-classification",
+      ) === "1";
+
     if (!auth.ok) {
       return json(
         {
@@ -40,10 +45,12 @@ export default async function handler(req) {
     }
 
     const lineGroups =
-      await loadWorkbenchActorLineGroups(
-        supabase,
-        auth.actor,
-      );
+      classificationOnly
+        ? []
+        : await loadWorkbenchActorLineGroups(
+            supabase,
+            auth.actor,
+          );
 
     return json({
       ok: true,
