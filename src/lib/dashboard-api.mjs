@@ -423,10 +423,6 @@ export async function fetchOpenReviewCount(
   summaryGroupId = null,
   settlementSessionId = null,
 ) {
-  const MESSAGE_PAGE_SIZE = 1000;
-  const REVIEW_MESSAGE_CHUNK_SIZE = 100;
-  const REVIEW_COUNT_CONCURRENCY = 8;
-
   const normalizedRoundIds =
     normalizeDashboardRoundIds(
       roundIds,
@@ -436,154 +432,10 @@ export async function fetchOpenReviewCount(
     return 0;
   }
 
-  const messageIds = [];
-
-  for (
-    let from = 0;
-    ;
-    from += MESSAGE_PAGE_SIZE
-  ) {
-    let query = supabase
-      .from("messages")
-      .select("id")
-      .in(
-        "summary_group_round_id",
-        normalizedRoundIds,
-      )
-      .order(
-        "created_at",
-        {
-          ascending: false,
-        },
-      )
-      .order(
-        "id",
-        {
-          ascending: false,
-        },
-      )
-      .range(
-        from,
-        from + MESSAGE_PAGE_SIZE - 1,
-      );
-
-    if (settlementSessionId) {
-      query =
-        query.eq(
-          "settlement_session_id",
-          settlementSessionId,
-        );
-    }
-
-    if (summaryGroupId) {
-      query =
-        query.eq(
-          "summary_group_id",
-          summaryGroupId,
-        );
-    }
-
-    const {
-      data,
-      error,
-    } = await query;
-
-    if (error) {
-      throw error;
-    }
-
-    const page =
-      data ?? [];
-
-    messageIds.push(
-      ...page.map(
-        (message) =>
-          message.id,
-      ),
-    );
-
-    if (
-      page.length
-      < MESSAGE_PAGE_SIZE
-    ) {
-      break;
-    }
-  }
-
-  if (!messageIds.length) {
-    return 0;
-  }
-
-  const chunks = [];
-
-  for (
-    let index = 0;
-    index < messageIds.length;
-    index += REVIEW_MESSAGE_CHUNK_SIZE
-  ) {
-    chunks.push(
-      messageIds.slice(
-        index,
-        index
-          + REVIEW_MESSAGE_CHUNK_SIZE,
-      ),
-    );
-  }
-
-  let total = 0;
-
-  for (
-    let offset = 0;
-    offset < chunks.length;
-    offset += REVIEW_COUNT_CONCURRENCY
-  ) {
-    const results =
-      await Promise.all(
-        chunks
-          .slice(
-            offset,
-            offset
-              + REVIEW_COUNT_CONCURRENCY,
-          )
-          .map(
-            (ids) =>
-              supabase
-                .from("review_items")
-                .select(
-                  "id",
-                  {
-                    count: "exact",
-                    head: true,
-                  },
-                )
-                .eq(
-                  "status",
-                  "OPEN",
-                )
-                .in(
-                  "message_record_id",
-                  ids,
-                ),
-          ),
-      );
-
-    for (
-      const result
-      of results
-    ) {
-      if (result.error) {
-        throw result.error;
-      }
-
-      total +=
-        Number(
-          result.count
-          ?? 0,
-        );
-    }
-  }
-
-  return total;
+  // EMERGENCY AVAILABILITY MODE:
+  // Temporarily suppress the expensive Review count read while
+  // the production database is under connection pressure.
+  return 0;
 }
 
 
@@ -591,9 +443,6 @@ export async function fetchUnsends(
   roundIds,
   summaryGroupId = null,
 ) {
-  const MESSAGE_PAGE_SIZE = 1000;
-  const UNSEND_MESSAGE_CHUNK_SIZE = 100;
-
   const normalizedRoundIds =
     normalizeDashboardRoundIds(
       roundIds,
@@ -603,159 +452,10 @@ export async function fetchUnsends(
     return [];
   }
 
-  const messages = [];
-
-  for (
-    let from = 0;
-    ;
-    from += MESSAGE_PAGE_SIZE
-  ) {
-    let query =
-      supabase
-        .from("messages")
-        .select(
-          "id,line_group_id,summary_group_id,summary_group_round_id"
-        )
-        .in(
-          "summary_group_round_id",
-          normalizedRoundIds,
-        )
-        .order(
-          "created_at",
-          {
-            ascending: false,
-          },
-        )
-        .order(
-          "id",
-          {
-            ascending: false,
-          },
-        )
-        .range(
-          from,
-          from
-            + MESSAGE_PAGE_SIZE
-            - 1,
-        );
-
-    if (summaryGroupId) {
-      query =
-        query.eq(
-          "summary_group_id",
-          summaryGroupId,
-        );
-    }
-
-    const {
-      data,
-      error,
-    } = await query;
-
-    if (error) {
-      throw error;
-    }
-
-    const page =
-      data ?? [];
-
-    messages.push(
-      ...page,
-    );
-
-    if (
-      page.length
-      < MESSAGE_PAGE_SIZE
-    ) {
-      break;
-    }
-  }
-
-  if (!messages.length) {
-    return [];
-  }
-
-  const messageIds =
-    messages.map(
-      (message) =>
-        message.id,
-    );
-
-  const events = [];
-
-  for (
-    let index = 0;
-    index < messageIds.length;
-    index += UNSEND_MESSAGE_CHUNK_SIZE
-  ) {
-    const ids =
-      messageIds.slice(
-        index,
-        index
-          + UNSEND_MESSAGE_CHUNK_SIZE,
-      );
-
-    const {
-      data,
-      error,
-    } = await supabase
-      .from("unsend_events")
-      .select(
-        "id,message_id,line_group_id,user_id,matched_message_record_id,derived_qty_total,unsent_at,created_at"
-      )
-      .in(
-        "matched_message_record_id",
-        ids,
-      );
-
-    if (error) {
-      throw error;
-    }
-
-    events.push(
-      ...(data ?? []),
-    );
-  }
-
-  events.sort(
-    (left, right) =>
-      Date.parse(
-        right.unsent_at
-        ?? right.created_at,
-      )
-      - Date.parse(
-        left.unsent_at
-        ?? left.created_at,
-      ),
-  );
-
-  const {
-    lineGroups,
-  } = await loadGroupConfig();
-
-  const lineNameById =
-    new Map(
-      lineGroups.map(
-        (group) => [
-          group.line_group_id,
-          group.line_group_name,
-        ],
-      ),
-    );
-
-  return events
-    .slice(0, 500)
-    .map(
-      (row) => ({
-        ...row,
-
-        line_group_name:
-          lineNameById.get(
-            row.line_group_id,
-          )
-          ?? row.line_group_id,
-      }),
-    );
+  // EMERGENCY AVAILABILITY MODE:
+  // Temporarily suppress the expensive UNSEND read while
+  // the production database is under connection pressure.
+  return [];
 }
 
 
