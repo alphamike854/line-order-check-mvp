@@ -19633,7 +19633,29 @@ function activateTab(name, options = {}) {
   if (name === "unsend") loadUnsends();
   if (name === "settings") loadSettings();
   if (name === "points") loadSpecialPoints(options.pointSessionId || null, options.pointSummaryGroupId || null);
-  if (name === "report") loadReport();
+  if (name === "report") {
+    if (state.authMode === "STAFF") {
+      loadSettlement()
+        .then(
+          () => loadReport(),
+        )
+        .catch(
+          (error) => {
+            console.error(
+              "Staff report startup failed",
+              error,
+            );
+
+            toast(
+              "โหลดรายงานไม่สำเร็จ",
+              true,
+            );
+          },
+        );
+    } else {
+      loadReport();
+    }
+  }
 }
 
 loginForm.addEventListener("submit", async (event) => {
