@@ -212,27 +212,42 @@ const countBlock =
 
 assert.match(
   countBlock,
-  /\.select\("id"\)/,
+  /normalizeDashboardRoundIds/,
 );
 
 assert.match(
   countBlock,
-  /\.in\(\s*"summary_group_round_id"\s*,\s*normalizedRoundIds\s*,?\s*\)/,
+  /dashboard_open_review_count/,
 );
 
 assert.match(
   countBlock,
-  /count:\s*"exact"/,
+  /p_round_ids:\s*[\s\S]*normalizedRoundIds/,
 );
 
 assert.match(
   countBlock,
-  /head:\s*true/,
+  /p_summary_group_id:\s*[\s\S]*summaryGroupId/,
+);
+
+assert.match(
+  countBlock,
+  /p_settlement_session_id:\s*[\s\S]*settlementSessionId/,
 );
 
 assert.doesNotMatch(
   countBlock,
-  /\.eq\(\s*"business_date"/,
+  /\.from\("messages"\)/,
+);
+
+assert.doesNotMatch(
+  countBlock,
+  /REVIEW_COUNT_CONCURRENCY/,
+);
+
+assert.doesNotMatch(
+  countBlock,
+  /business_date/,
 );
 
 console.log(
@@ -249,17 +264,47 @@ const unsendBlock =
 
 assert.match(
   unsendBlock,
+  /normalizeDashboardRoundIds/,
+);
+
+assert.match(
+  unsendBlock,
+  /dashboard_round_unsends/,
+);
+
+assert.match(
+  unsendBlock,
+  /p_round_ids:\s*[\s\S]*normalizedRoundIds/,
+);
+
+assert.match(
+  unsendBlock,
+  /p_summary_group_id:\s*[\s\S]*summaryGroupId/,
+);
+
+assert.match(
+  unsendBlock,
+  /p_limit:\s*500/,
+);
+
+assert.doesNotMatch(
+  unsendBlock,
   /\.from\("messages"\)/,
 );
 
-assert.match(
+assert.doesNotMatch(
   unsendBlock,
-  /\.in\(\s*"summary_group_round_id"\s*,\s*normalizedRoundIds\s*,?\s*\)/,
+  /\.from\("unsend_events"\)/,
 );
 
-assert.match(
+assert.doesNotMatch(
   unsendBlock,
-  /\.in\(\s*"matched_message_record_id"\s*,\s*ids\s*,?\s*\)/,
+  /UNSEND_MESSAGE_CHUNK_SIZE/,
+);
+
+assert.doesNotMatch(
+  unsendBlock,
+  /loadGroupConfig\(\)/,
 );
 
 assert.doesNotMatch(
