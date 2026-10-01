@@ -31,14 +31,13 @@ export default async (req) => {
   if (req.method !== "GET") return json({ ok:false,error:"METHOD_NOT_ALLOWED" },405);
   const denied=requireDashboardAccess(req); if(denied)return denied;
 
-  // INCIDENT_DASHBOARD_STATIC
+  // INCIDENT_DASHBOARD_MINIMAL_LIVE
   //
-  // Emergency availability path:
-  // authenticate normally, then avoid every database read while
-  // DASHBOARD_INCIDENT_MODE is enabled.
+  // Emergency read path:
+  // 1) one lightweight OPEN-session read
+  // 2) one dashboard_risk_snapshot RPC
   //
-  // settlement_session remains null intentionally so write actions
-  // cannot be presented as if production data were available.
+  // Any timeout/error falls back to the DB-free payload.
   if (
     process.env.DASHBOARD_INCIDENT_MODE
     === "true"
@@ -50,26 +49,356 @@ export default async (req) => {
       incidentUrl.searchParams.get("date")
       || null;
 
-    const requestedGroup =
+    const rawGroup =
       incidentUrl.searchParams.get("group")
       || "ALL";
+
+    const summaryGroupId =
+      normalizeSummaryGroup(rawGroup);
+
+    const staticFallback = (
+      reason =
+        "INCIDENT_DB_UNAVAILABLE"
+    ) =>
+      json({
+        ok: true,
+
+        incident_mode: true,
+        partial_data: false,
+        data_unavailable: true,
+        data_status:
+          "TEMPORARILY_UNAVAILABLE",
+        incident_reason: reason,
+
+        settlement_session: null,
+
+        business_date:
+          requestedDate,
+
+        business_dates:
+          requestedDate
+            ? [requestedDate]
+            : [],
+
+        current_rounds: [],
+
+        selection_required: false,
+
+        selected_summary_group:
+          summaryGroupId ?? "ALL",
+
+        generated_at:
+          new Date().toISOString(),
+
+        summary_groups: [],
+        line_groups: [],
+
+        metrics: {
+          messages_total: 0,
+          parsed: 0,
+          pending: 0,
+          review_open: 0,
+
+          gross_received: 0,
+          adjusted_received: 0,
+
+          point_reserve_total: 0,
+          risk_point_total: 0,
+          safety_margin: 0,
+          point_loss_tolerance: 0,
+          risk_budget: 0,
+          excess_point_risk: 0,
+
+          transfer_required_total: null,
+
+          distribution_incomplete: true,
+          distribution_point_pending: false,
+
+          confirmed_cut_total: 0,
+          risk_pct: 0,
+          last_event_at: null,
+        },
+
+        ab_advisory: null,
+
+        risk_codes: [],
+        category_risk: [],
+        overall_risk: [],
+        risk_pools: [],
+
+        distribution_plans: [],
+
+        line_group_risk: [],
+        line_group_risk_codes: [],
+        line_group_distribution_plans: [],
+
+        actual_special_codes: [],
+        point_profiles: [],
+        point_promotions: [],
+        warehouse_limits: [],
+
+        freshness: {
+          version:
+            "INCIDENT_DB_RELIEF",
+        },
+      });
+
+    const incidentRead =
+      async (
+        makeQuery,
+        timeoutMs,
+      ) => {
+        const controller =
+          new AbortController();
+
+        const timer =
+          setTimeout(
+            () =>
+              controller.abort(),
+            timeoutMs,
+          );
+
+        try {
+          return await makeQuery(
+            controller.signal,
+          );
+        } catch (error) {
+          return {
+            data: null,
+            error,
+          };
+        } finally {
+          clearTimeout(timer);
+        }
+      };
+
+    // READ 1/2:
+    // smallest possible authoritative session lookup.
+    const sessionResult =
+      await incidentRead(
+        (signal) =>
+          supabase
+            .from(
+              "settlement_sessions",
+            )
+            .select(
+              "id,business_date,status,opened_at",
+            )
+            .eq(
+              "status",
+              "OPEN",
+            )
+            .abortSignal(
+              signal,
+            )
+            .maybeSingle(),
+        2500,
+      );
+
+    if (
+      sessionResult.error
+      || !sessionResult.data
+    ) {
+      return staticFallback(
+        sessionResult.error
+          ? "OPEN_SESSION_READ_FAILED"
+          : "NO_OPEN_SETTLEMENT",
+      );
+    }
+
+    const session =
+      sessionResult.data;
+
+    // READ 2/2:
+    // reuse the production consolidated read model,
+    // avoiding the original Dashboard fan-out.
+    const snapshotResult =
+      await incidentRead(
+        (signal) =>
+          supabase
+            .rpc(
+              "dashboard_risk_snapshot",
+              {
+                p_settlement_session_id:
+                  session.id,
+
+                p_summary_group_id:
+                  summaryGroupId
+                  ?? null,
+              },
+            )
+            .abortSignal(
+              signal,
+            ),
+        4500,
+      );
+
+    if (
+      snapshotResult.error
+      || !snapshotResult.data
+      || typeof snapshotResult.data
+        !== "object"
+      || Array.isArray(
+        snapshotResult.data,
+      )
+    ) {
+      return staticFallback(
+        "RISK_SNAPSHOT_READ_FAILED",
+      );
+    }
+
+    const snapshot =
+      snapshotResult.data;
+
+    const requiredArrays = [
+      "risk_codes",
+      "category_risk",
+      "overall_risk",
+      "risk_pools",
+      "line_group_risk",
+      "line_group_risk_codes",
+    ];
+
+    if (
+      requiredArrays.some(
+        (key) =>
+          !Array.isArray(
+            snapshot[key],
+          ),
+      )
+    ) {
+      return staticFallback(
+        "RISK_SNAPSHOT_INVALID",
+      );
+    }
+
+    const riskCodes =
+      snapshot.risk_codes;
+
+    const categoryRisk =
+      snapshot.category_risk;
+
+    const overallRisk =
+      snapshot.overall_risk;
+
+    const riskPools =
+      snapshot.risk_pools;
+
+    const lineGroupRisk =
+      snapshot.line_group_risk;
+
+    const lineGroupRiskCodes =
+      snapshot.line_group_risk_codes;
+
+    const total = (key) =>
+      overallRisk.reduce(
+        (value, row) =>
+          value
+          + Number(
+            row?.[key]
+            ?? 0,
+          ),
+        0,
+      );
+
+    const grossReceived =
+      total(
+        "gross_received",
+      );
+
+    const adjustedReceived =
+      total(
+        "adjusted_received",
+      );
+
+    const riskPointTotal =
+      total(
+        "risk_point_total",
+      );
+
+    const summaryGroupIds =
+      [
+        ...new Set(
+          [
+            ...riskCodes,
+            ...categoryRisk,
+            ...overallRisk,
+          ]
+            .map(
+              (row) =>
+                row
+                  ?.summary_group_id,
+            )
+            .filter(Boolean),
+        ),
+      ].sort();
+
+    const lineMap =
+      new Map();
+
+    for (
+      const row of
+        lineGroupRisk
+    ) {
+      const id =
+        row?.line_group_id;
+
+      if (!id) continue;
+
+      lineMap.set(
+        id,
+        {
+          line_group_id:
+            id,
+
+          line_group_name:
+            row
+              ?.line_group_name
+            ?? id,
+
+          summary_group_id:
+            row
+              ?.summary_group_id
+            ?? null,
+
+          reduction_pct:
+            null,
+        },
+      );
+    }
+
+    const transferValues =
+      overallRisk
+        .map(
+          (row) =>
+            row
+              ?.transfer_required_total,
+        )
+        .filter(
+          (value) =>
+            value != null,
+        );
 
     return json({
       ok: true,
 
       incident_mode: true,
-      data_unavailable: true,
+      partial_data: true,
+      data_unavailable: false,
       data_status:
-        "TEMPORARILY_UNAVAILABLE",
+        "MINIMAL_LIVE_RISK_SNAPSHOT",
 
-      settlement_session: null,
+      settlement_session:
+        session,
 
       business_date:
-        requestedDate,
+        session.business_date,
 
       business_dates:
-        requestedDate
-          ? [requestedDate]
+        session.business_date
+          ? [
+              session.business_date,
+            ]
           : [],
 
       current_rounds: [],
@@ -77,52 +406,136 @@ export default async (req) => {
       selection_required: false,
 
       selected_summary_group:
-        requestedGroup,
+        summaryGroupId
+        ?? "ALL",
 
       generated_at:
         new Date().toISOString(),
 
-      summary_groups: [],
-      line_groups: [],
+      summary_groups:
+        summaryGroupIds.map(
+          (id) => ({
+            id,
+            name: id,
+          }),
+        ),
 
+      line_groups:
+        [
+          ...lineMap.values(),
+        ],
+
+      // Message/review counts are intentionally not
+      // queried during incident mode.
       metrics: {
         messages_total: 0,
         parsed: 0,
         pending: 0,
         review_open: 0,
 
-        gross_received: 0,
-        adjusted_received: 0,
+        gross_received:
+          grossReceived,
 
-        point_reserve_total: 0,
-        risk_point_total: 0,
-        safety_margin: 0,
-        point_loss_tolerance: 0,
-        risk_budget: 0,
-        excess_point_risk: 0,
+        adjusted_received:
+          adjustedReceived,
 
-        transfer_required_total: null,
+        point_reserve_total:
+          total(
+            "point_reserve_total",
+          ),
 
-        distribution_incomplete: false,
-        distribution_point_pending: false,
+        risk_point_total:
+          riskPointTotal,
 
-        confirmed_cut_total: 0,
-        risk_pct: 0,
-        last_event_at: null,
+        safety_margin:
+          total(
+            "safety_margin",
+          ),
+
+        point_loss_tolerance:
+          total(
+            "point_loss_tolerance",
+          ),
+
+        risk_budget:
+          total(
+            "risk_budget",
+          ),
+
+        excess_point_risk:
+          total(
+            "excess_point_risk",
+          ),
+
+        transfer_required_total:
+          transferValues.length
+            ? transferValues.reduce(
+                (
+                  value,
+                  item,
+                ) =>
+                  value
+                  + Number(
+                    item
+                    ?? 0,
+                  ),
+                0,
+              )
+            : null,
+
+        distribution_incomplete:
+          true,
+
+        distribution_point_pending:
+          false,
+
+        confirmed_cut_total:
+          total(
+            "confirmed_cut_total",
+          ),
+
+        risk_pct:
+          adjustedReceived > 0
+            ? Math.round(
+                (
+                  riskPointTotal
+                  / adjustedReceived
+                  * 100
+                )
+                * 100,
+              )
+              / 100
+            : 0,
+
+        last_event_at:
+          session.opened_at
+          ?? null,
       },
 
       ab_advisory: null,
 
-      risk_codes: [],
-      category_risk: [],
-      overall_risk: [],
-      risk_pools: [],
+      risk_codes:
+        riskCodes,
+
+      category_risk:
+        categoryRisk,
+
+      overall_risk:
+        overallRisk,
+
+      risk_pools:
+        riskPools,
 
       distribution_plans: [],
 
-      line_group_risk: [],
-      line_group_risk_codes: [],
-      line_group_distribution_plans: [],
+      line_group_risk:
+        lineGroupRisk,
+
+      line_group_risk_codes:
+        lineGroupRiskCodes,
+
+      line_group_distribution_plans:
+        [],
 
       actual_special_codes: [],
       point_profiles: [],
@@ -135,6 +548,7 @@ export default async (req) => {
       },
     });
   }
+
   try {
     const url=new URL(req.url);
     const summaryGroupId=normalizeSummaryGroup(url.searchParams.get("group"));
