@@ -26,6 +26,20 @@ export default async(req)=>{
   const denied=requireDashboardAccess(req);
   if(denied)return denied;
 
+  if (
+    process.env.DASHBOARD_INCIDENT_MODE
+    === "true"
+  ) {
+    return json({
+      ok: true,
+      settlement_session: null,
+      freshness: {
+        version:
+          "INCIDENT_DB_RELIEF",
+      },
+    });
+  }
+
   try{
     const session=
       await fetchOpenSettlementSession();

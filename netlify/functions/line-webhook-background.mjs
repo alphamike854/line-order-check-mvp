@@ -36,6 +36,57 @@ export default async (req) => {
       ? payload.events
       : [];
 
+  const incidentDelayMs =
+    Math.max(
+      0,
+      Math.min(
+        Number(
+          process.env.LINE_WEBHOOK_DB_RELIEF_MS
+          ?? 0,
+        ) || 0,
+        8 * 60 * 1000,
+      ),
+    );
+
+  if (
+    incidentDelayMs > 0
+    && events.length
+  ) {
+    const seedText =
+      String(
+        events[0]?.webhookEventId
+        ?? rawBody.length,
+      );
+
+    let seed = 0;
+
+    for (
+      let index = 0;
+      index < seedText.length;
+      index += 1
+    ) {
+      seed =
+        (
+          seed * 33
+          + seedText.charCodeAt(index)
+        ) >>> 0;
+    }
+
+    // Spread delayed invocations across two additional minutes
+    // instead of waking every webhook at the same instant.
+    const jitterMs =
+      seed % (2 * 60 * 1000);
+
+    await new Promise(
+      (resolve) =>
+        setTimeout(
+          resolve,
+          incidentDelayMs
+          + jitterMs,
+        ),
+    );
+  }
+
   const failures = [];
 
   // Keep processing sequentially for now. This avoids multiplying
