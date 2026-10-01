@@ -17589,6 +17589,74 @@ function renderSettlementStatus(payload) {
 }
 
 async function loadSettlement() {
+  if (state.authMode === "STAFF") {
+    const payload =
+      await api(
+        "/api/staff-report-sessions",
+      );
+
+    const select =
+      $("#reportSessionSelect");
+
+    const previousSessionId =
+      select.value;
+
+    const sessions = [
+      payload.open_session,
+      ...(payload.closed_sessions || []),
+    ].filter(Boolean);
+
+    select.innerHTML =
+      sessions
+        .map(
+          (session) => `
+            <option value="${escapeHtml(session.id)}">
+              ${
+                session.status === "OPEN"
+                  ? "ยอดปัจจุบัน"
+                  : `ปิด ${formatBangkokTime(session.closed_at)} · ${escapeHtml(session.business_date)}`
+              }
+            </option>
+          `,
+        )
+        .join("")
+      || `<option value="">ยังไม่มีรายงาน</option>`;
+
+    const reportSessionId =
+      previousSessionId
+      && sessions.some(
+        (session) =>
+          session.id ===
+          previousSessionId,
+      )
+        ? previousSessionId
+        : payload.open_session?.id
+          || payload.closed_sessions?.[0]?.id
+          || "";
+
+    if (reportSessionId) {
+      select.value =
+        reportSessionId;
+    }
+
+    const lineSelect =
+      $("#reportLineGroupSelect");
+
+    lineSelect.innerHTML =
+      `<option value="ALL">ทุก LINE Group</option>`
+      + (
+        payload.line_groups
+        || []
+      )
+        .map(
+          (group) =>
+            `<option value="${escapeHtml(group.line_group_id)}">${escapeHtml(group.line_group_name)}</option>`,
+        )
+        .join("");
+
+    return payload;
+  }
+
   const payload=await api("/api/settlement");renderSettlementStatus(payload);
   const select=$("#reportSessionSelect");const previousSessionId=select.value;const sessions=[payload.open_session,...(payload.closed_sessions||[])].filter(Boolean);
   const currentOpenRoundDateLabel=
