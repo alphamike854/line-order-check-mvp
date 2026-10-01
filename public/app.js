@@ -5659,8 +5659,11 @@ async function ignoreReview(event) {
 
 function staffVerificationQueueQuery(
   {
+    readMode = "INITIAL",
     offset = 0,
     limit = 50,
+    attentionOffset = 0,
+    attentionLimit = 50,
     highTotalOffset = 0,
     highTotalLimit = 50,
   } = {},
@@ -5671,6 +5674,11 @@ function staffVerificationQueueQuery(
     );
 
   params.set(
+    "read_mode",
+    String(readMode),
+  );
+
+  params.set(
     "verification_limit",
     String(limit),
   );
@@ -5678,6 +5686,16 @@ function staffVerificationQueueQuery(
   params.set(
     "verification_offset",
     String(offset),
+  );
+
+  params.set(
+    "attention_limit",
+    String(attentionLimit),
+  );
+
+  params.set(
+    "attention_offset",
+    String(attentionOffset),
   );
 
   params.set(
@@ -5692,6 +5710,7 @@ function staffVerificationQueueQuery(
 
   return params.toString();
 }
+
 
 function staffVerificationMessageRecordId(
   card,
@@ -11021,60 +11040,89 @@ async function loadMoreStaffVerificationFeed(
     return;
   }
 
-  const isHighTotal =
-    feed === "HIGH_TOTAL";
+  const mode =
+    feed === "HIGH_TOTAL"
+      ? "HIGH_TOTAL"
+      : feed === "PRIORITY"
+        ? "PRIORITY"
+        : "RECENT";
 
   const payload =
     await api(
       `/api/staff-workbench?${staffVerificationQueueQuery(
         {
+          readMode: mode,
+
           offset:
-            isHighTotal
-              ? 0
-              : nextOffset,
-          limit: 50,
-          highTotalOffset:
-            isHighTotal
+            mode === "RECENT"
               ? nextOffset
               : 0,
+
+          limit: 50,
+
+          attentionOffset:
+            mode === "PRIORITY"
+              ? nextOffset
+              : 0,
+
+          attentionLimit: 50,
+
+          highTotalOffset:
+            mode === "HIGH_TOTAL"
+              ? nextOffset
+              : 0,
+
           highTotalLimit: 50,
         },
       )}`,
     );
 
   const items =
-    isHighTotal
+    mode === "HIGH_TOTAL"
       ? (
           payload.high_total_items
           ?? []
         )
-      : (
-          payload.verification_items
-          ?? []
-        );
+      : mode === "PRIORITY"
+        ? (
+            payload.attention_items
+            ?? []
+          )
+        : (
+            payload.verification_items
+            ?? []
+          );
 
   const pagination =
-    isHighTotal
+    mode === "HIGH_TOTAL"
       ? (
           payload.high_total_pagination
           ?? {}
         )
-      : (
-          payload.verification_pagination
-          ?? {}
-        );
+      : mode === "PRIORITY"
+        ? (
+            payload.attention_pagination
+            ?? {}
+          )
+        : (
+            payload.verification_pagination
+            ?? {}
+          );
 
   staffVerificationMergeTimelineItems(
     workbench,
     items,
-    isHighTotal
-      ? "HIGH_TOTAL"
-      : "RECENT",
+    mode,
   );
 
-  if (isHighTotal) {
+  if (mode === "HIGH_TOTAL") {
     workbench._highTotalPagination =
       pagination;
+    workbench._highTotalLoaded = true;
+  } else if (mode === "PRIORITY") {
+    workbench._attentionPagination =
+      pagination;
+    workbench._attentionLoaded = true;
   } else {
     workbench._verificationPagination =
       pagination;
@@ -11089,47 +11137,58 @@ async function loadMoreStaffVerificationTimeline(
     return;
   }
 
-  const jobs = [];
+  const filters =
+    workbench._verificationTimelineFilters
+    ?? new Set();
 
   if (
+    filters.has("NEEDS_FIX")
+    && workbench
+      ?._attentionPagination
+      ?.has_more
+  ) {
+    await loadMoreStaffVerificationFeed(
+      workbench,
+      "PRIORITY",
+      Number(
+        workbench
+          ._attentionPagination
+          ?.next_offset
+        ?? 0,
+      ),
+    );
+  } else if (
+    filters.has("HIGH_TOTAL")
+    && workbench
+      ?._highTotalPagination
+      ?.has_more
+  ) {
+    await loadMoreStaffVerificationFeed(
+      workbench,
+      "HIGH_TOTAL",
+      Number(
+        workbench
+          ._highTotalPagination
+          ?.next_offset
+        ?? 0,
+      ),
+    );
+  } else if (
     workbench
       ?._verificationPagination
       ?.has_more
   ) {
-    jobs.push(
-      loadMoreStaffVerificationFeed(
-        workbench,
-        "RECENT",
-        Number(
-          workbench
-            ._verificationPagination
-            ?.next_offset
-          ?? 0,
-        ),
+    await loadMoreStaffVerificationFeed(
+      workbench,
+      "RECENT",
+      Number(
+        workbench
+          ._verificationPagination
+          ?.next_offset
+        ?? 0,
       ),
     );
   }
-
-  if (
-    workbench
-      ?._highTotalPagination
-      ?.has_more
-  ) {
-    jobs.push(
-      loadMoreStaffVerificationFeed(
-        workbench,
-        "HIGH_TOTAL",
-        Number(
-          workbench
-            ._highTotalPagination
-            ?.next_offset
-          ?? 0,
-        ),
-      ),
-    );
-  }
-
-  await Promise.all(jobs);
 
   staffVerificationRenderTimeline(
     workbench,
@@ -11188,6 +11247,60 @@ function bindStaffVerificationWorkbench(
               .verificationFilter
             ?? "",
           );
+
+        if (
+          filter === "NEEDS_FIX"
+          && !workbench._attentionLoaded
+        ) {
+          filterButton.disabled = true;
+
+          try {
+            await loadMoreStaffVerificationFeed(
+              workbench,
+              "PRIORITY",
+              0,
+            );
+          } catch (error) {
+            console.error(
+              "Priority feed load failed",
+              error,
+            );
+            toast(
+              "โหลดรายการที่ต้องแก้ไขไม่สำเร็จ",
+              true,
+            );
+            return;
+          } finally {
+            filterButton.disabled = false;
+          }
+        }
+
+        if (
+          filter === "HIGH_TOTAL"
+          && !workbench._highTotalLoaded
+        ) {
+          filterButton.disabled = true;
+
+          try {
+            await loadMoreStaffVerificationFeed(
+              workbench,
+              "HIGH_TOTAL",
+              0,
+            );
+          } catch (error) {
+            console.error(
+              "High-total feed load failed",
+              error,
+            );
+            toast(
+              "โหลดรายการยอดสูงไม่สำเร็จ",
+              true,
+            );
+            return;
+          } finally {
+            filterButton.disabled = false;
+          }
+        }
 
         if (filter === "ALL") {
           workbench
@@ -11617,6 +11730,14 @@ function appendStaffVerificationQueue(
     workbenchPayload
       ?.high_total_pagination
     ?? {};
+
+  workbench._attentionPagination =
+    workbenchPayload
+      ?.attention_pagination
+    ?? {};
+
+  workbench._attentionLoaded = false;
+  workbench._highTotalLoaded = false;
 
   staffVerificationRenderTimeline(
     workbench,
