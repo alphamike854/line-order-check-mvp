@@ -43,8 +43,26 @@ assert.match(
 
 assert.match(
   source,
-  /loadStaffWorkbenchReadModel/,
-  "R2D2B3A-06 Review scope comes from authoritative Staff Workbench",
+  /loadStaffOpenReviewReadModel/,
+  "R2D2B3A-06 Staff Review uses bounded server-scoped Review read",
+);
+
+assert.match(
+  source,
+  /staff_workbench_open_reviews/,
+  "R2D2B3A-06A bounded Review read uses authoritative Staff-scoped Review RPC",
+);
+
+assert.match(
+  source,
+  /staff_workbench_claim_state/,
+  "R2D2B3A-06B authoritative claim state remains server-side",
+);
+
+assert.doesNotMatch(
+  source,
+  /await\s+loadStaffWorkbenchReadModel\(/,
+  "R2D2B3A-06C Staff Review must not block on full multi-feed Workbench",
 );
 
 assert.match(

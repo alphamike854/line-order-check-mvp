@@ -13683,8 +13683,152 @@ function staffVerificationEnrichImageReviewEvidence(
 }
 
 
+
+function beginStaffVerificationSecondaryGeneration(
+  list,
+) {
+  if (!list) {
+    return 0;
+  }
+
+  const generation =
+    (
+      Number(
+        list
+          ._staffVerificationSecondaryGeneration
+        ?? 0,
+      )
+      + 1
+    );
+
+  list._staffVerificationSecondaryGeneration =
+    generation;
+
+  return generation;
+}
+
+
+function staffVerificationSecondaryGenerationIsCurrent(
+  list,
+  generation,
+) {
+  return Boolean(
+    list
+    && state.authMode
+      === "STAFF"
+    && Number.isInteger(
+      generation,
+    )
+    && generation > 0
+    && list
+      ._staffVerificationSecondaryGeneration
+      === generation
+  );
+}
+
+
+async function appendStaffVerificationQueueFailSoft(
+  list,
+  generation,
+) {
+  if (
+    !staffVerificationSecondaryGenerationIsCurrent(
+      list,
+      generation,
+    )
+  ) {
+    return;
+  }
+
+  /*
+   * Latest-generation-wins:
+   * an older SOUTH/other-group request may still finish
+   * over the network, but it must never mutate the current
+   * Review DOM after a newer loadReviews() has started.
+   */
+  try {
+    const payload =
+      await api(
+        `/api/staff-workbench?${staffVerificationQueueQuery()}`,
+      );
+
+    if (
+      !staffVerificationSecondaryGenerationIsCurrent(
+        list,
+        generation,
+      )
+    ) {
+      return;
+    }
+
+    list
+      .querySelector(
+        "#staffVerificationWorkbench",
+      )
+      ?.remove();
+
+    list
+      .querySelector(
+        "#staffVerificationLoadWarning",
+      )
+      ?.remove();
+
+    appendStaffVerificationQueue(
+      list,
+      payload,
+    );
+  } catch (error) {
+    if (
+      !staffVerificationSecondaryGenerationIsCurrent(
+        list,
+        generation,
+      )
+    ) {
+      return;
+    }
+
+    console.error(
+      "staff verification secondary load failed",
+      error,
+    );
+
+    if (
+      !list.querySelector(
+        "#staffVerificationLoadWarning",
+      )
+    ) {
+      list.insertAdjacentHTML(
+        "afterbegin",
+        `
+          <section
+            id="staffVerificationLoadWarning"
+            class="preview-box"
+          >
+            <div class="preview-heading">
+              รายการตรวจเพิ่มเติมยังโหลดไม่สำเร็จ
+            </div>
+            <div class="muted small-text">
+              รายการ Review ปัจจุบันยังใช้งานได้
+            </div>
+          </section>
+        `,
+      );
+    }
+  }
+}
+
+
 async function loadReviews() {
   const list = $("#reviewList");
+
+  /*
+   * Invalidate every older secondary Workbench request
+   * as soon as a newer Review load begins.
+   */
+  const staffVerificationSecondaryGeneration =
+    beginStaffVerificationSecondaryGeneration(
+      list,
+    );
 
   list.innerHTML =
     `<div class="empty">กำลังโหลด...</div>`;
@@ -13695,18 +13839,63 @@ async function loadReviews() {
         ? `/api/staff-reviews?${reviewWorkbenchQuery()}`
         : `/api/reviews?${selectedQuery()}`;
 
-    const [
-      reviewPayload,
-      workbenchPayload,
-    ] = await Promise.all([
-      api(
-        reviewReadPath,
-      ),
+    let reviewPayload;
+    let workbenchPayload;
 
-      api(
-        `/api/staff-workbench?${staffVerificationQueueQuery()}`,
-      ),
-    ]);
+    if (
+      state.authMode
+      === "STAFF"
+    ) {
+      /*
+       * Staff Review First Paint Hotfix V1
+       *
+       * Render current Review from the bounded Staff Review endpoint.
+       * Verification / PRIORITY / HIGH_TOTAL are secondary.
+       */
+      reviewPayload =
+        await api(
+          reviewReadPath,
+        );
+
+      workbenchPayload = {
+        actor:
+          reviewPayload.actor
+          ?? null,
+
+        work_items:
+          (
+            reviewPayload.items
+            || []
+          ).map(
+            (item) => ({
+              ...item,
+
+              review_id:
+                item.id,
+            }),
+          ),
+
+        verification_items: [],
+        attention_items: [],
+        high_total_items: [],
+
+        first_paint_only:
+          true,
+      };
+    } else {
+      [
+        reviewPayload,
+        workbenchPayload,
+      ] = await Promise.all([
+        api(
+          reviewReadPath,
+        ),
+
+        api(
+          `/api/staff-workbench?${staffVerificationQueueQuery()}`,
+        ),
+      ]);
+    }
 
     /*
      * Review Workbench Scope Bridge v9
@@ -13832,6 +14021,11 @@ async function loadReviews() {
         appendStaffVerificationQueue(
           list,
           workbenchPayload,
+        );
+
+        void appendStaffVerificationQueueFailSoft(
+          list,
+          staffVerificationSecondaryGeneration,
         );
 
         if (
@@ -14104,6 +14298,11 @@ async function loadReviews() {
         appendStaffVerificationQueue(
           list,
           workbenchPayload,
+        );
+
+        void appendStaffVerificationQueueFailSoft(
+          list,
+          staffVerificationSecondaryGeneration,
         );
 
         if (

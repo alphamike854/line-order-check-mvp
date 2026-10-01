@@ -11,9 +11,10 @@ import {
 
 import {
   loadActorSessionLineGroupIds,
-  loadStaffWorkbenchReadModel,
+
   normalizeWorkbenchLimit,
   normalizeWorkbenchOffset,
+  resolveWorkbenchClaimState,
 } from "../../src/lib/staff-workbench.mjs";
 
 
@@ -223,11 +224,301 @@ function staffReviewItem(
         ? row.warnings
         : [],
 
+    claim_state:
+      row.claim_state
+      ?? "UNAVAILABLE",
+
+    claimed_by_staff_id:
+      row.claimed_by_staff_id
+      ?? row.claim_staff_id
+      ?? null,
+
+    claimed_by_staff_code:
+      row.claimed_by_staff_code
+      ?? row.claim_staff_code
+      ?? null,
+
+    claimed_by_display_name:
+      row.claimed_by_display_name
+      ?? row.claim_display_name
+      ?? null,
+
+    claimed_at:
+      row.claimed_at
+      ?? null,
+
+    claim_expires_at:
+      row.claim_expires_at
+      ?? null,
+
+    lease_version:
+      row.lease_version
+      ?? null,
+
     created_at:
       row.review_created_at
       ?? row.message_created_at
       ?? row.event_timestamp
       ?? null,
+  };
+}
+
+
+
+async function loadStaffOpenReviewReadModel(
+  client,
+  {
+    settlementSessionId,
+    lineGroupIds,
+    summaryGroupId = null,
+    actorStaffId = null,
+    limit = 100,
+    offset = 0,
+  },
+) {
+  if (
+    !settlementSessionId
+    || !lineGroupIds?.length
+  ) {
+    return {
+      workItems: [],
+    };
+  }
+
+  const safeLimit =
+    normalizeWorkbenchLimit(
+      limit,
+    );
+
+  const safeOffset =
+    normalizeWorkbenchOffset(
+      offset,
+    );
+
+  /*
+   * Staff Review First Paint Hotfix V1
+   *
+   * Do not load Summary / RECENT / PRIORITY / HIGH_TOTAL.
+   * Current Review needs only its bounded Review page
+   * plus claim state required for safe mutation.
+   */
+  const reviewResult =
+    await client.rpc(
+      "staff_workbench_open_reviews",
+      {
+        p_settlement_session_id:
+          settlementSessionId,
+
+        p_line_group_ids:
+          lineGroupIds,
+
+        p_summary_group_id:
+          summaryGroupId,
+
+        p_limit:
+          safeLimit,
+
+        p_offset:
+          safeOffset,
+      },
+    );
+
+  if (reviewResult.error) {
+    throw reviewResult.error;
+  }
+
+  const rows =
+    reviewResult.data ?? [];
+
+  if (!rows.length) {
+    return {
+      workItems: [],
+    };
+  }
+
+  const messageRecordIds = [
+    ...new Set(
+      rows
+        .map(
+          (row) =>
+            row.message_record_id,
+        )
+        .filter(Boolean),
+    ),
+  ];
+
+  let claimRows = [];
+
+  if (messageRecordIds.length) {
+    const claimResult =
+      await client.rpc(
+        "staff_workbench_claim_state",
+        {
+          p_message_record_ids:
+            messageRecordIds,
+        },
+      );
+
+    if (claimResult.error) {
+      throw claimResult.error;
+    }
+
+    claimRows =
+      claimResult.data ?? [];
+  }
+
+  const staffIds = [
+    ...new Set(
+      claimRows
+        .map(
+          (row) =>
+            row.staff_id,
+        )
+        .filter(Boolean),
+    ),
+  ];
+
+  const staffById =
+    new Map();
+
+  if (staffIds.length) {
+    const {
+      data: staffRows,
+      error: staffError,
+    } = await client
+      .from(
+        "staff_accounts",
+      )
+      .select(
+        "id,staff_code,display_name",
+      )
+      .in(
+        "id",
+        staffIds,
+      );
+
+    if (staffError) {
+      throw staffError;
+    }
+
+    for (
+      const staff
+      of staffRows ?? []
+    ) {
+      staffById.set(
+        staff.id,
+        staff,
+      );
+    }
+  }
+
+  const claimByMessage =
+    new Map();
+
+  for (
+    const claim
+    of claimRows
+  ) {
+    const staff =
+      staffById.get(
+        claim.staff_id,
+      );
+
+    const staffId =
+      claim.staff_id
+      ?? null;
+
+    const staffCode =
+      staff?.staff_code
+      ?? claim.staff_code
+      ?? null;
+
+    const displayName =
+      staff?.display_name
+      ?? claim.staff_display_name
+      ?? null;
+
+    const expiresAt =
+      claim.claim_expires_at
+      ?? null;
+
+    claimByMessage.set(
+      claim.message_record_id,
+      {
+        // Existing internal Workbench contract.
+        claim_staff_id:
+          staffId,
+
+        claim_staff_code:
+          staffCode,
+
+        claim_display_name:
+          displayName,
+
+        // Browser/public contract.
+        claimed_by_staff_id:
+          staffId,
+
+        claimed_by_staff_code:
+          staffCode,
+
+        claimed_by_display_name:
+          displayName,
+
+        claimed_at:
+          claim.claimed_at
+          ?? null,
+
+        claim_expires_at:
+          expiresAt,
+
+        lease_version:
+          claim.lease_version
+          ?? null,
+
+        claim_state:
+          resolveWorkbenchClaimState({
+            actorStaffId,
+            claimStaffId:
+              staffId,
+            claimExpiresAt:
+              expiresAt,
+          }),
+      },
+    );
+  }
+
+  const unclaimed = {
+    claim_staff_id: null,
+    claim_staff_code: null,
+    claim_display_name: null,
+
+    claimed_by_staff_id: null,
+    claimed_by_staff_code: null,
+    claimed_by_display_name: null,
+
+    claimed_at: null,
+    claim_expires_at: null,
+    lease_version: null,
+
+    claim_state:
+      "AVAILABLE",
+  };
+
+  return {
+    workItems:
+      rows.map(
+        (row) => ({
+          ...row,
+
+          ...(
+            claimByMessage.get(
+              row.message_record_id,
+            )
+            ?? unclaimed
+          ),
+        }),
+      ),
   };
 }
 
@@ -338,7 +629,7 @@ export default async function handler(
     const {
       workItems,
     } =
-      await loadStaffWorkbenchReadModel(
+      await loadStaffOpenReviewReadModel(
         supabase,
         {
           settlementSessionId:
@@ -347,6 +638,9 @@ export default async function handler(
           lineGroupIds,
 
           summaryGroupId,
+
+          actorStaffId:
+            auth.actor.staff_id,
 
           limit,
 

@@ -344,16 +344,80 @@ console.log(
 );
 
 
-const appendCalls =
-  app.match(
+const loadReviewsStart =
+  app.indexOf(
+    "async function loadReviews() {",
+  );
+
+const loadReviewsEnd =
+  app.indexOf(
+    "async function loadUnsends()",
+    loadReviewsStart,
+  );
+
+assert.ok(
+  loadReviewsStart >= 0
+  && loadReviewsEnd > loadReviewsStart,
+  "loadReviews must remain structurally bounded",
+);
+
+const loadReviewsBlock =
+  app.slice(
+    loadReviewsStart,
+    loadReviewsEnd,
+  );
+
+const primaryVerificationCalls =
+  loadReviewsBlock.match(
     /appendStaffVerificationQueue\(/g,
   )
   ?? [];
 
 assert.equal(
-  appendCalls.length,
-  3,
-  "expected one definition plus two loadReviews integration calls",
+  primaryVerificationCalls.length,
+  2,
+  "Human Verification must render in both current Review branches",
+);
+
+const failSoftVerificationCalls =
+  loadReviewsBlock.match(
+    /appendStaffVerificationQueueFailSoft\(/g,
+  )
+  ?? [];
+
+assert.equal(
+  failSoftVerificationCalls.length,
+  2,
+  "both current Review branches must start fail-soft secondary Workbench loading",
+);
+
+const failSoftStart =
+  app.indexOf(
+    "async function appendStaffVerificationQueueFailSoft(",
+  );
+
+const failSoftEnd =
+  app.indexOf(
+    "async function loadReviews()",
+    failSoftStart,
+  );
+
+assert.ok(
+  failSoftStart >= 0
+  && failSoftEnd > failSoftStart,
+  "fail-soft Workbench helper must remain structurally bounded",
+);
+
+const failSoftBlock =
+  app.slice(
+    failSoftStart,
+    failSoftEnd,
+  );
+
+assert.match(
+  failSoftBlock,
+  /appendStaffVerificationQueue\(/,
+  "successful secondary Workbench read must render Human Verification",
 );
 
 console.log(
