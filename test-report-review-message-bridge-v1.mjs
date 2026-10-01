@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-const api =
+const reportApi =
   fs.readFileSync(
     "netlify/functions/accounting-report.mjs",
     "utf8",
@@ -18,12 +18,12 @@ console.log(
 );
 
 assert.match(
-  api,
+  reportApi,
   /message_record_id:\s*message\.id/,
 );
 
 assert.match(
-  api,
+  reportApi,
   /summary_quantity:\s*qty/,
 );
 
@@ -62,7 +62,10 @@ assert.ok(
 );
 
 const bridge =
-  app.slice(start, end);
+  app.slice(
+    start,
+    end,
+  );
 
 assert.match(
   bridge,
@@ -95,17 +98,21 @@ const reviewNavigation =
 
 assert.ok(
   reportSessionGuard >= 0,
-  "Report bridge must resolve selected Report settlement",
 );
 
 assert.ok(
-  reviewNavigation > reportSessionGuard,
-  "historical-session guard must run before Review navigation",
+  reviewNavigation >
+    reportSessionGuard,
 );
 
 assert.match(
   bridge,
-  /state\.settlement[\s\S]*?\.open_session[\s\S]*?\.id/,
+  /state\.reportPayload\?\.session\?\.status === "OPEN"/,
+);
+
+assert.match(
+  bridge,
+  /state\.settlement\?\.open_session\?\.id/,
 );
 
 assert.match(
@@ -119,32 +126,46 @@ assert.match(
 );
 
 console.log(
-  "PASS RR1-03A: historical settlement fails closed before Review mutation workflow",
-);
-
-
-assert.match(
-  bridge,
-  /_verificationPagination[\s\S]*has_more/,
+  "PASS RR1-03A: historical-session guard remains intact",
 );
 
 assert.match(
   bridge,
-  /await loadMoreStaffVerificationTimeline\(/,
+  /\/api\/staff-verification-message/,
 );
 
 assert.match(
   bridge,
-  /pageGuard < 20/,
+  /message_record_id/,
+);
+
+assert.doesNotMatch(
+  bridge,
+  /loadMoreStaffVerificationTimeline\(/,
+);
+
+assert.doesNotMatch(
+  bridge,
+  /pageGuard/,
 );
 
 console.log(
-  "PASS RR1-04: earlier Timeline pages remain reachable",
+  "PASS RR1-04: exact navigation uses bounded UUID lookup instead of Timeline pagination",
 );
 
 assert.match(
   bridge,
-  /_verificationTimelineFilters[\s\S]*clear\(\)/,
+  /staffVerificationMergeTimelineItems\(/,
+);
+
+assert.match(
+  bridge,
+  /_verificationTimelineFilters[\s\S]*?clear\(\)/,
+);
+
+assert.match(
+  bridge,
+  /staffVerificationRenderTimeline\(/,
 );
 
 assert.match(
@@ -158,7 +179,7 @@ assert.match(
 );
 
 console.log(
-  "PASS RR1-05: existing exact-message selection is reused",
+  "PASS RR1-05: exact item merges, renders, selects and scrolls",
 );
 
 assert.doesNotMatch(
@@ -187,7 +208,10 @@ assert.ok(
 );
 
 assert.doesNotMatch(
-  app.slice(csvStart, csvEnd),
+  app.slice(
+    csvStart,
+    csvEnd,
+  ),
   /message_record_id/,
 );
 
