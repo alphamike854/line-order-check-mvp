@@ -14031,7 +14031,7 @@ async function loadReviews() {
         if (
           state.authMode === "STAFF"
         ) {
-          await appendStaffPostCloseReviewQueue(
+          void appendStaffPostCloseReviewQueue(
             list,
           );
         }
@@ -14308,7 +14308,7 @@ async function loadReviews() {
         if (
           state.authMode === "STAFF"
         ) {
-          await appendStaffPostCloseReviewQueue(
+          void appendStaffPostCloseReviewQueue(
             list,
           );
         }

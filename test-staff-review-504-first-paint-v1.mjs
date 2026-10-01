@@ -385,3 +385,36 @@ console.log(
 console.log(
   "PASS: STAFF REVIEW 504 FIRST PAINT V1",
 );
+
+
+// ------------------------------------------------------------
+// 6. Historical Post-close Review must never block current Review.
+// ------------------------------------------------------------
+
+const blockingPostCloseCalls =
+  app.match(
+    /await\s+appendStaffPostCloseReviewQueue\(/g,
+  )
+  || [];
+
+assert.equal(
+  blockingPostCloseCalls.length,
+  0,
+  "current Staff Review first paint must not await historical Post-close Review",
+);
+
+const detachedPostCloseCalls =
+  app.match(
+    /void\s+appendStaffPostCloseReviewQueue\(/g,
+  )
+  || [];
+
+assert.equal(
+  detachedPostCloseCalls.length,
+  2,
+  "both Staff Review render branches must load Post-close Review asynchronously",
+);
+
+console.log(
+  "PASS H504-06: Post-close Review cannot block current Staff Review",
+);
