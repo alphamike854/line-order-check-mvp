@@ -30,6 +30,111 @@ const AB_ADVISORY_SHARED_MAX_LOSS=DEFAULT_AB_SHARED_MAX_LOSS;
 export default async (req) => {
   if (req.method !== "GET") return json({ ok:false,error:"METHOD_NOT_ALLOWED" },405);
   const denied=requireDashboardAccess(req); if(denied)return denied;
+
+  // INCIDENT_DASHBOARD_STATIC
+  //
+  // Emergency availability path:
+  // authenticate normally, then avoid every database read while
+  // DASHBOARD_INCIDENT_MODE is enabled.
+  //
+  // settlement_session remains null intentionally so write actions
+  // cannot be presented as if production data were available.
+  if (
+    process.env.DASHBOARD_INCIDENT_MODE
+    === "true"
+  ) {
+    const incidentUrl =
+      new URL(req.url);
+
+    const requestedDate =
+      incidentUrl.searchParams.get("date")
+      || null;
+
+    const requestedGroup =
+      incidentUrl.searchParams.get("group")
+      || "ALL";
+
+    return json({
+      ok: true,
+
+      incident_mode: true,
+      data_unavailable: true,
+      data_status:
+        "TEMPORARILY_UNAVAILABLE",
+
+      settlement_session: null,
+
+      business_date:
+        requestedDate,
+
+      business_dates:
+        requestedDate
+          ? [requestedDate]
+          : [],
+
+      current_rounds: [],
+
+      selection_required: false,
+
+      selected_summary_group:
+        requestedGroup,
+
+      generated_at:
+        new Date().toISOString(),
+
+      summary_groups: [],
+      line_groups: [],
+
+      metrics: {
+        messages_total: 0,
+        parsed: 0,
+        pending: 0,
+        review_open: 0,
+
+        gross_received: 0,
+        adjusted_received: 0,
+
+        point_reserve_total: 0,
+        risk_point_total: 0,
+        safety_margin: 0,
+        point_loss_tolerance: 0,
+        risk_budget: 0,
+        excess_point_risk: 0,
+
+        transfer_required_total: null,
+
+        distribution_incomplete: false,
+        distribution_point_pending: false,
+
+        confirmed_cut_total: 0,
+        risk_pct: 0,
+        last_event_at: null,
+      },
+
+      ab_advisory: null,
+
+      risk_codes: [],
+      category_risk: [],
+      overall_risk: [],
+      risk_pools: [],
+
+      distribution_plans: [],
+
+      line_group_risk: [],
+      line_group_risk_codes: [],
+      line_group_distribution_plans: [],
+
+      actual_special_codes: [],
+      point_profiles: [],
+      point_promotions: [],
+      warehouse_limits: [],
+
+      freshness: {
+        version:
+          "INCIDENT_DB_RELIEF",
+      },
+    });
+  }
   try {
     const url=new URL(req.url);
     const summaryGroupId=normalizeSummaryGroup(url.searchParams.get("group"));
