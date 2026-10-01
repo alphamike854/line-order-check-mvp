@@ -17760,12 +17760,16 @@ async function openReportMessageInReview(
     }
 
     /*
-     * Report rows can point to earlier messages in the Round.
+     * Report direct lookup v3
      *
-     * A message can already exist in the shared Workbench union
-     * before its Timeline row has been materialized. Direct
-     * navigation therefore pages on the actual Timeline DOM target,
-     * not merely Workbench item presence.
+     * Report already carries the exact message UUID. Do not walk
+     * RECENT/HIGH_TOTAL pagination through the full Workbench read
+     * model merely to locate that UUID.
+     *
+     * First reuse an already materialized Timeline row. If absent,
+     * request one bounded, current-scope message from the dedicated
+     * read-only endpoint, merge it into the existing Workbench union,
+     * render once, then select + scroll.
      */
     const findTargetTimelineRow = () =>
       Array.from(
@@ -17781,9 +17785,6 @@ async function openReportMessageInReview(
       )
       ?? null;
 
-    /*
-     * Direct navigation wins over previously selected filters.
-     */
     workbench
       ._verificationTimelineFilters
       ?.clear();
@@ -17795,19 +17796,50 @@ async function openReportMessageInReview(
     let targetRow =
       findTargetTimelineRow();
 
-    let pageGuard = 0;
+    if (!targetRow) {
+      const exactQuery =
+        new URLSearchParams();
 
-    while (
-      !targetRow
-      && workbench
-        ?._verificationPagination
-        ?.has_more
-      && pageGuard < 20
-    ) {
-      pageGuard += 1;
+      exactQuery.set(
+        "message_record_id",
+        targetId,
+      );
 
-      await loadMoreStaffVerificationTimeline(
+      if (targetSummaryGroup) {
+        exactQuery.set(
+          "group",
+          targetSummaryGroup,
+        );
+      }
+
+      const exactPayload =
+        await api(
+          `/api/staff-verification-message?${exactQuery.toString()}`,
+        );
+
+      const exactItem =
+        exactPayload?.item
+        ?? null;
+
+      if (
+        String(
+          exactItem?.message_record_id
+          ?? "",
+        ) !== targetId
+      ) {
+        toast(
+          "ไม่พบรายการนี้ในรอบตรวจปัจจุบัน",
+          true,
+        );
+        return;
+      }
+
+      staffVerificationMergeTimelineItems(
         workbench,
+        [
+          exactItem,
+        ],
+        "RECENT",
       );
 
       workbench
@@ -17827,7 +17859,6 @@ async function openReportMessageInReview(
         "ไม่พบรายการนี้ในรอบตรวจปัจจุบัน",
         true,
       );
-
       return;
     }
 
@@ -17840,9 +17871,8 @@ async function openReportMessageInReview(
     );
 
     /*
-     * Selection can update Timeline DOM state. Re-resolve the row
-     * before scrolling while retaining the already materialized
-     * target as a safe fallback.
+     * Selection can alter Timeline DOM state. Resolve the row again
+     * while retaining the materialized target as a fallback.
      */
     targetRow =
       findTargetTimelineRow()
@@ -17852,6 +17882,7 @@ async function openReportMessageInReview(
       behavior: "smooth",
       block: "center",
     });
+
   } catch (error) {
     console.error(
       "Report -> Review message bridge failed",

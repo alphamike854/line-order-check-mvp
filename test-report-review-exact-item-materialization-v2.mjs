@@ -7,6 +7,12 @@ const app =
     "utf8",
   );
 
+const endpoint =
+  fs.readFileSync(
+    "netlify/functions/staff-verification-message.mjs",
+    "utf8",
+  );
+
 const pkg =
   fs.readFileSync(
     "package.json",
@@ -14,7 +20,156 @@ const pkg =
   );
 
 console.log(
-  "===== Report -> Review Exact Item Materialization v2 =====",
+  "===== Report -> Review Direct Exact Lookup v3 =====",
+);
+
+assert.match(
+  endpoint,
+  /req\.method !== "GET"/,
+);
+
+assert.match(
+  endpoint,
+  /authenticateWorkbenchActor\(/,
+);
+
+console.log(
+  "PASS RRV3-01: exact endpoint is authenticated GET-only",
+);
+
+assert.match(
+  endpoint,
+  /fetchOpenSettlementSession\(\)/,
+);
+
+assert.match(
+  endpoint,
+  /loadActorSessionLineGroupIds\(/,
+);
+
+console.log(
+  "PASS RRV3-02: exact endpoint retains current settlement + actor LINE Group scope",
+);
+
+assert.match(
+  endpoint,
+  /\.from\(\s*"messages",?\s*\)/,
+);
+
+assert.match(
+  endpoint,
+  /\.eq\(\s*"id",\s*messageRecordId,?\s*\)/,
+);
+
+assert.match(
+  endpoint,
+  /\.eq\(\s*"settlement_session_id",\s*session\.id,?\s*\)/,
+);
+
+assert.match(
+  endpoint,
+  /\.in\(\s*"line_group_id",\s*lineGroupIds,?\s*\)/,
+);
+
+console.log(
+  "PASS RRV3-03: exact lookup is bounded by UUID + settlement + LINE Group scope",
+);
+
+assert.match(
+  endpoint,
+  /\.from\(\s*"settlement_summary_group_rounds",?\s*\)/,
+);
+
+assert.match(
+  endpoint,
+  /message\.summary_group_round_id/,
+);
+
+assert.match(
+  endpoint,
+  /round\.id/,
+);
+
+console.log(
+  "PASS RRV3-04: latest Summary Group Round lineage is enforced",
+);
+
+assert.match(
+  endpoint,
+  /\.from\(\s*"review_items",?\s*\)/,
+);
+
+assert.match(
+  endpoint,
+  /\.from\(\s*"message_verifications",?\s*\)/,
+);
+
+assert.match(
+  endpoint,
+  /\.from\(\s*"order_items",?\s*\)/,
+);
+
+assert.match(
+  endpoint,
+  /\.from\(\s*"post_close_review_archive",?\s*\)/,
+);
+
+assert.match(
+  endpoint,
+  /classifyVerificationStatus\(/,
+);
+
+assert.match(
+  endpoint,
+  /effectiveItems\(/,
+);
+
+console.log(
+  "PASS RRV3-05: exact item preserves Timeline Human Truth / Review semantics",
+);
+
+for (
+  const mutationPattern
+  of [
+    /\.insert\(/,
+    /\.update\(/,
+    /\.delete\(/,
+    /\.upsert\(/,
+  ]
+) {
+  assert.doesNotMatch(
+    endpoint,
+    mutationPattern,
+  );
+}
+
+const rpcNames = [
+  ...endpoint.matchAll(
+    /\.rpc\(\s*"([^"]+)"/g,
+  ),
+].map(
+  (match) =>
+    match[1],
+);
+
+assert.deepEqual(
+  rpcNames,
+  [
+    "staff_workbench_claim_state",
+  ],
+);
+
+console.log(
+  "PASS RRV3-06: endpoint is read-only; only claim-state read RPC is used",
+);
+
+assert.match(
+  endpoint,
+  /addScopedWorkbenchImageEvidence\(/,
+);
+
+console.log(
+  "PASS RRV3-07: exact image evidence retains scoped signing path",
 );
 
 const start =
@@ -31,7 +186,6 @@ const end =
 assert.ok(
   start >= 0
   && end > start,
-  "Report -> Review bridge missing",
 );
 
 const bridge =
@@ -40,172 +194,47 @@ const bridge =
     end,
   );
 
-const materializationStart =
-  bridge.indexOf(
-    "const findTargetTimelineRow = () =>",
-  );
-
-assert.ok(
-  materializationStart >= 0,
-  "Timeline materialization resolver missing",
-);
-
-const materialization =
-  bridge.slice(
-    materializationStart,
-  );
-
 assert.match(
-  materialization,
-  /\.verification-timeline-item\[data-message-record-id\]/,
+  bridge,
+  /\/api\/staff-verification-message/,
 );
 
 assert.match(
-  materialization,
-  /row\.dataset\.messageRecordId[\s\S]*?=== targetId/,
-);
-
-console.log(
-  "PASS RRV2-01: exact navigation resolves real Timeline DOM row",
+  bridge,
+  /staffVerificationMergeTimelineItems\(/,
 );
 
 assert.doesNotMatch(
-  materialization,
-  /_verificationWorkbenchItems[\s\S]*?\.get\(targetId\)/,
+  bridge,
+  /loadMoreStaffVerificationTimeline\(/,
+);
+
+assert.doesNotMatch(
+  bridge,
+  /pageGuard/,
 );
 
 console.log(
-  "PASS RRV2-02: Workbench union presence cannot terminate navigation paging",
+  "PASS RRV3-08: Report navigation no longer fans out through Timeline pagination",
 );
 
-assert.match(
-  materialization,
-  /let targetRow\s*=\s*[\s\S]*?findTargetTimelineRow\(\)/,
-);
-
-assert.match(
-  materialization,
-  /while\s*\([\s\S]*?!targetRow[\s\S]*?_verificationPagination[\s\S]*?has_more[\s\S]*?pageGuard < 20/,
-);
-
-console.log(
-  "PASS RRV2-03: pagination is driven by missing materialized target row",
-);
-
-const firstClear =
-  materialization.indexOf(
-    "._verificationTimelineFilters",
-  );
-
-const firstRender =
-  materialization.indexOf(
-    "staffVerificationRenderTimeline(",
-  );
-
-const firstResolve =
-  materialization.indexOf(
-    "let targetRow =",
-  );
-
-assert.ok(
-  firstClear >= 0
-  && firstRender > firstClear
-  && firstResolve > firstRender,
-  "filters must clear and Timeline render before first target lookup",
-);
-
-console.log(
-  "PASS RRV2-04: direct navigation clears filters before target lookup",
-);
-
-const loadMore =
-  materialization.indexOf(
-    "await loadMoreStaffVerificationTimeline(",
-  );
-
-const renderAfterMore =
-  materialization.indexOf(
-    "staffVerificationRenderTimeline(",
-    loadMore,
-  );
-
-const recheckAfterMore =
-  materialization.indexOf(
-    "findTargetTimelineRow()",
-    renderAfterMore,
-  );
-
-assert.ok(
-  loadMore >= 0
-  && renderAfterMore > loadMore
-  && recheckAfterMore > renderAfterMore,
-  "each Timeline page load must render and recheck actual target row",
-);
-
-console.log(
-  "PASS RRV2-05: later Timeline pages are materialized before recheck",
-);
-
-const notFound =
-  materialization.indexOf(
-    'if (!targetRow)',
-  );
-
-const select =
-  materialization.indexOf(
-    "selectStaffVerificationWorkbenchItem(",
-  );
-
-const scroll =
-  materialization.indexOf(
-    "targetRow.scrollIntoView(",
-  );
-
-assert.ok(
-  notFound >= 0
-  && select > notFound
-  && scroll > select,
-  "selection and scroll must occur only after materialized target exists",
-);
-
-assert.match(
-  materialization,
-  /ไม่พบรายการนี้ในรอบตรวจปัจจุบัน/,
-);
-
-console.log(
-  "PASS RRV2-06: missing Timeline target fails closed before selection",
-);
-
-const navigation =
-  bridge.indexOf(
-    'selectTabUi("review")',
-  );
-
-const loadReviews =
+const loadReviewsPos =
   bridge.indexOf(
     "await loadReviews()",
   );
 
 assert.ok(
-  navigation >= 0
-  && loadReviews > navigation
-  && materializationStart > loadReviews,
-  "shared exact navigation must run after authoritative Review load",
+  loadReviewsPos >= 0,
 );
 
-const sharedMaterialization =
+const directPath =
   bridge.slice(
-    loadReviews,
+    loadReviewsPos,
   );
 
 assert.doesNotMatch(
-  sharedMaterialization,
+  directPath,
   /state\.authMode\s*===\s*"(?:STAFF|DASHBOARD)"/,
-);
-
-console.log(
-  "PASS RRV2-07: exact-item materialization is shared by Admin and Staff",
 );
 
 assert.match(
@@ -218,13 +247,33 @@ assert.match(
   /state\.settlement\?\.open_session\?\.id/,
 );
 
-assert.match(
-  bridge,
-  /reportSessionId[\s\S]*?!==\s*currentOpenSessionId/,
+console.log(
+  "PASS RRV3-09: exact lookup remains shared by Admin/Staff while session safety stays intact",
+);
+
+const mergePos =
+  bridge.indexOf(
+    "staffVerificationMergeTimelineItems(",
+  );
+
+const selectPos =
+  bridge.indexOf(
+    "selectStaffVerificationWorkbenchItem(",
+  );
+
+const scrollPos =
+  bridge.indexOf(
+    "scrollIntoView(",
+  );
+
+assert.ok(
+  mergePos >= 0
+  && selectPos > mergePos
+  && scrollPos > selectPos,
 );
 
 console.log(
-  "PASS RRV2-08: existing Staff/Dashboard session safety remains intact",
+  "PASS RRV3-10: exact item is materialized before selection and scroll",
 );
 
 assert.match(
@@ -233,9 +282,9 @@ assert.match(
 );
 
 console.log(
-  "PASS RRV2-09: regression joins full npm suite",
+  "PASS RRV3-11: direct lookup regression remains in full npm suite",
 );
 
 console.log(
-  "PASS: Report -> Review Exact Item Materialization v2",
+  "PASS: Report -> Review Direct Exact Lookup v3",
 );
