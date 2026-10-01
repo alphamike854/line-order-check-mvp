@@ -61,11 +61,13 @@ export default async function handler(req) {
       .map((row) => row.summary_group_id)
       .sort();
 
-    if (
-      openGroups.length !== 2 ||
-      openGroups.join(",") !== "NORTH,WEST"
-    ) {
-      return fail(`UNEXPECTED_OPEN_GROUPS_${openGroups.join("_")}`);
+    // Incident recovery now runs only while every Summary Group
+    // is CLOSED. This prevents recovery work from overlapping
+    // with any newly opened live round.
+    if (openGroups.length !== 0) {
+      return fail(
+        `OPEN_ROUNDS_PRESENT_${openGroups.join("_")}`,
+      );
     }
 
     const { data: roundRows, error: roundError } = await supabase
