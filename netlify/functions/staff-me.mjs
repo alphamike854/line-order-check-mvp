@@ -26,6 +26,14 @@ export default async function handler(req) {
         req,
         {
           client: supabase,
+
+          // Emergency availability:
+          // Access-key classification must not require
+          // a staff_accounts lookup for Dashboard auth.
+          dashboardReviewerStaffCode:
+            req.headers.get("x-auth-classification") === "1"
+              ? ""
+              : process.env.DASHBOARD_REVIEWER_STAFF_CODE,
         },
       );
 
