@@ -857,4 +857,5 @@ export default async function handler(req) {
 export const config = {
   path:
     "/api/staff-verification-message",
+  region: "sin",
 };

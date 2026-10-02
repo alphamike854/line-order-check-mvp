@@ -730,4 +730,5 @@ export default async function handler(
 export const config = {
   path:
     "/api/staff-reviews",
+  region: "sin",
 };

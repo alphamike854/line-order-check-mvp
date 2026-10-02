@@ -238,4 +238,5 @@ export default async(req)=>{
 
 export const config={
   path:"/api/dashboard-freshness",
+  region: "sin",
 };
