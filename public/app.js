@@ -5746,6 +5746,21 @@ function staffVerificationLeaseVersion(
 }
 
 
+function staffVerificationParseReady(
+  item,
+) {
+  return (
+    String(
+      item?.parse_status
+      ?? "",
+    )
+      .trim()
+      .toUpperCase()
+    === "PARSED"
+  );
+}
+
+
 function staffVerificationCanMutate(
   card,
 ) {
@@ -5755,6 +5770,9 @@ function staffVerificationCanMutate(
     && staffVerificationTimelineStatus(
       card?._staffVerificationItem,
     ) === "PENDING"
+    && staffVerificationParseReady(
+      card?._staffVerificationItem,
+    )
     && card?._staffVerificationItem
       ?.claim_state === "MINE"
     && staffVerificationLeaseVersion(
@@ -6400,6 +6418,26 @@ function staffVerificationClaimStatusHtml(
     `;
   }
 
+  if (!staffVerificationParseReady(item)) {
+    return `
+      <div class="reason">
+        <strong>
+          รายการนี้ไม่พร้อมตรวจยืนยัน
+        </strong>
+        <span class="muted">
+          · สถานะข้อความ
+          ${escapeHtml(
+            String(
+              item?.parse_status
+              ?? "-",
+            ),
+          )}
+          · อ่านอย่างเดียว
+        </span>
+      </div>
+    `;
+  }
+
   const claimState =
     item?.claim_state
     ?? "AVAILABLE";
@@ -6520,6 +6558,9 @@ function staffVerificationResolutionHtml(
     staffVerificationTimelineStatus(
       item,
     ) !== "PENDING"
+    || !staffVerificationParseReady(
+      item,
+    )
     || item?.claim_state !== "MINE"
   ) {
     return "";
