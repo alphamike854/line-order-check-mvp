@@ -143,71 +143,87 @@ export async function loadActorSessionLineGroupIds(
     ];
   }
 
-  const {
-    data: assignments,
-    error: assignmentError,
-  } = await client
-    .from(
-      "line_group_staff_assignments",
-    )
-    .select(
-      "line_group_id",
-    )
-    .eq(
-      "staff_id",
-      actor.staff_id,
-    )
-    .eq(
-      "enabled",
-      true,
-    );
+  /*
+   * Assignment ownership and session configuration
+   * are independent reads.
+   *
+   * Previous implementation waited for assignment
+   * rows before starting the session-config query.
+   * Run both reads concurrently, then preserve the
+   * exact same intersection in memory.
+   */
+  const [
+    assignmentResult,
+    configResult,
+  ] = await Promise.all([
+    client
+      .from(
+        "line_group_staff_assignments",
+      )
+      .select(
+        "line_group_id",
+      )
+      .eq(
+        "staff_id",
+        actor.staff_id,
+      )
+      .eq(
+        "enabled",
+        true,
+      ),
 
-  if (assignmentError) {
-    throw assignmentError;
+    client
+      .from(
+        "settlement_line_group_config",
+      )
+      .select(
+        "line_group_id",
+      )
+      .eq(
+        "settlement_session_id",
+        settlementSessionId,
+      ),
+  ]);
+
+  if (assignmentResult.error) {
+    throw assignmentResult.error;
   }
 
-  const assignedIds = [
-    ...new Set(
-      (assignments ?? []).map(
+  if (configResult.error) {
+    throw configResult.error;
+  }
+
+  const assignedIds =
+    new Set(
+      (
+        assignmentResult.data
+        ?? []
+      ).map(
         (row) =>
           row.line_group_id,
       ),
-    ),
-  ];
-
-  if (!assignedIds.length) {
-    return [];
-  }
-
-  const {
-    data: configured,
-    error: configError,
-  } = await client
-    .from(
-      "settlement_line_group_config",
-    )
-    .select(
-      "line_group_id",
-    )
-    .eq(
-      "settlement_session_id",
-      settlementSessionId,
-    )
-    .in(
-      "line_group_id",
-      assignedIds,
     );
 
-  if (configError) {
-    throw configError;
+  if (!assignedIds.size) {
+    return [];
   }
 
   return [
     ...new Set(
-      (configured ?? []).map(
-        (row) =>
-          row.line_group_id,
-      ),
+      (
+        configResult.data
+        ?? []
+      )
+        .map(
+          (row) =>
+            row.line_group_id,
+        )
+        .filter(
+          (lineGroupId) =>
+            assignedIds.has(
+              lineGroupId,
+            ),
+        ),
     ),
   ];
 }

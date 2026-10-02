@@ -192,9 +192,118 @@ assert.ok(
 
 console.log("PASS UX12-01: operational date uses Round authority");
 console.log("PASS UX12-02: current report selector uses Round date");
-console.log("PASS UX12-03: overall report added");
-console.log("PASS UX12-04: totals partition by business date");
-console.log("PASS UX12-05: purchase/reduction/Point/balance totals exposed");
+
+const detailFirstLoadStart =
+  app.indexOf(
+    "async function loadReport(options = {})",
+  );
+
+const detailFirstLoadEnd =
+  app.indexOf(
+    "function bindV5Controls()",
+    detailFirstLoadStart,
+  );
+
+assert.ok(
+  detailFirstLoadStart >= 0
+    && detailFirstLoadEnd
+      > detailFirstLoadStart,
+);
+
+const detailFirstLoad =
+  app.slice(
+    detailFirstLoadStart,
+    detailFirstLoadEnd,
+  );
+
+const detailFirstAllGuard =
+  detailFirstLoad.indexOf(
+    'if (reportLineGroup === "ALL")',
+  );
+
+const detailFirstApi =
+  detailFirstLoad.indexOf(
+    "await api(reportPath)",
+  );
+
+assert.ok(
+  detailFirstAllGuard >= 0
+    && detailFirstApi
+      > detailFirstAllGuard,
+);
+
+assert.match(
+  detailFirstLoad.slice(
+    detailFirstAllGuard,
+    detailFirstApi,
+  ),
+  /เลือก LINE Group เพื่อดูและตรวจรายละเอียด[\s\S]*?return;/,
+);
+
+assert.doesNotMatch(
+  detailFirstLoad,
+  /summary_only=1/,
+);
+
+console.log(
+  "PASS UX12-03: overall Report summary removed from active browser path",
+);
+
+const detailMetricLine =
+  report
+    .split("\n")
+    .find(
+      (line) =>
+        line.includes(
+          'class="report-metrics"',
+        )
+        && line.includes(
+          "g.received_total",
+        ),
+    );
+
+assert.ok(
+  detailMetricLine,
+  "LINE Group detail metrics missing",
+);
+
+assert.match(
+  detailMetricLine,
+  /ยอดรับจริง/,
+);
+
+assert.match(
+  detailMetricLine,
+  /Point พิเศษ/,
+);
+
+assert.doesNotMatch(
+  detailMetricLine,
+  /ยอดหลังลด|ยอดสุทธิเทียบ|<span>ลด<\/span>/,
+);
+
+console.log(
+  "PASS UX12-04: LINE Group header retains only received total + Special Point",
+);
+
+assert.match(
+  report,
+  /g\.ledger\.map/,
+);
+
+assert.match(
+  report,
+  /report-review-message/,
+);
+
+assert.match(
+  report,
+  /ตรวจรายการนี้/,
+);
+
+console.log(
+  "PASS UX12-05: message ledger and exact Review action remain available",
+);
 console.log("PASS UX12-06: CORRECT uses local completion");
 console.log("PASS UX12-07: IGNORE uses local completion");
 console.log("PASS UX12-08: local completion has no duplicate RELEASE call");

@@ -1,144 +1,201 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-const source =
+const app =
   fs.readFileSync(
     "public/app.js",
-    "utf8"
+    "utf8",
   );
 
-const start =
-  source.indexOf(
-    "let reportLoadVersion = 0;"
+function sliceBetween(
+  source,
+  startMarker,
+  endMarker,
+) {
+  const start =
+    source.indexOf(startMarker);
+
+  const end =
+    source.indexOf(
+      endMarker,
+      start,
+    );
+
+  assert.ok(
+    start >= 0
+      && end > start,
+    `cannot isolate ${startMarker}`,
   );
 
-const end =
-  source.indexOf(
+  return source.slice(
+    start,
+    end,
+  );
+}
+
+console.log(
+  "===== Report LINE Group Detail-First Safety v1 =====",
+);
+
+const loadReport =
+  sliceBetween(
+    app,
+    "async function loadReport(options = {})",
     "function bindV5Controls()",
-    start
+  );
+
+assert.match(
+  app,
+  /let reportLoadVersion = 0;/,
+);
+
+assert.match(
+  loadReport,
+  /const loadVersion\s*=\s*\+\+reportLoadVersion;/,
+);
+
+console.log(
+  "PASS RLS-01: report generation guard retained",
+);
+
+assert.match(
+  loadReport,
+  /const reportSummaryGroup\s*=\s*summaryGroupSelect\.value\s*\|\|\s*"ALL"/,
+);
+
+assert.match(
+  loadReport,
+  /const reportLineGroup\s*=\s*\$\("#reportLineGroupSelect"\)\.value\s*\|\|\s*"ALL"/,
+);
+
+console.log(
+  "PASS RLS-02: stable Report scope snapshot retained",
+);
+
+const allGuardIndex =
+  loadReport.indexOf(
+    'if (reportLineGroup === "ALL")',
+  );
+
+const apiIndex =
+  loadReport.indexOf(
+    "await api(reportPath)",
   );
 
 assert.ok(
-  start >= 0 &&
-  end > start
+  allGuardIndex >= 0,
+  "ALL guard missing",
 );
 
-const block =
-  source.slice(start, end);
+assert.ok(
+  apiIndex > allGuardIndex,
+  "API call must follow ALL guard",
+);
 
-console.log(
-  "===== Report LINE Group Request Safety v9.20 ====="
+const allGuard =
+  loadReport.slice(
+    allGuardIndex,
+    apiIndex,
+  );
+
+assert.match(
+  allGuard,
+  /เลือก LINE Group เพื่อดูและตรวจรายละเอียด/,
 );
 
 assert.match(
-  block,
-  /let reportLoadVersion = 0;/
-);
-
-assert.match(
-  block,
-  /const loadVersion = \+\+reportLoadVersion;/
-);
-
-console.log(
-  "PASS RLS-01: report requests are generation tracked"
-);
-
-assert.match(
-  block,
-  /const reportSummaryGroup =\s*summaryGroupSelect\.value \|\| "ALL";/
-);
-
-assert.match(
-  block,
-  /const reportLineGroup =\s*\$\("#reportLineGroupSelect"\)\.value \|\| "ALL";/
+  allGuard,
+  /\breturn;/,
 );
 
 console.log(
-  "PASS RLS-02: report filters use stable request snapshot"
-);
-
-assert.match(
-  block,
-  /const summaryOnly=\s*reportLineGroup==="ALL";/
-);
-
-assert.match(
-  block,
-  /summaryOnly\s*\?\s*"&summary_only=1"\s*:\s*""/
-);
-
-console.log(
-  "PASS RLS-03: ALL requests summary-only instead of full ledger"
-);
-
-assert.match(
-  block,
-  /line_group=\$\{encodeURIComponent\(reportLineGroup\)\}/
+  "PASS RLS-03: ALL stops before Accounting API",
 );
 
 assert.doesNotMatch(
-  block,
-  /line_group=\$\{encodeURIComponent\(\$\("#reportLineGroupSelect"\)/
+  loadReport,
+  /summary_only=1/,
+);
+
+assert.doesNotMatch(
+  loadReport,
+  /summaryOnlyQuery/,
 );
 
 console.log(
-  "PASS RLS-04: selected LINE Group is sent explicitly"
-);
-
-const firstGuard =
-  block.indexOf(
-    "if(loadVersion!==reportLoadVersion)return;"
-  );
-
-const render =
-  block.indexOf(
-    "renderReport(payload);"
-  );
-
-assert.ok(
-  firstGuard >= 0 &&
-  render > firstGuard
-);
-
-console.log(
-  "PASS RLS-05: stale successful response cannot overwrite latest report"
-);
-
-const catchStart =
-  block.indexOf(
-    "catch(error)"
-  );
-
-const secondGuard =
-  block.indexOf(
-    "if(loadVersion!==reportLoadVersion)return;",
-    firstGuard + 1
-  );
-
-assert.ok(
-  catchStart >= 0 &&
-  secondGuard > catchStart
-);
-
-console.log(
-  "PASS RLS-06: stale failure cannot overwrite latest report"
+  "PASS RLS-04: browser summary-only request removed",
 );
 
 assert.match(
-  source,
-  /payload\?\.summary_only===true/
+  loadReport,
+  /line_group=\$\{encodeURIComponent\(\s*reportLineGroup/,
+);
+
+console.log(
+  "PASS RLS-05: selected LINE Group is explicit",
+);
+
+const staleGuards =
+  loadReport.match(
+    /loadVersion\s*!==\s*reportLoadVersion/g,
+  )
+  ?? [];
+
+assert.ok(
+  staleGuards.length >= 2,
+  "success/failure stale guards required",
+);
+
+console.log(
+  "PASS RLS-06: stale success/failure guards retained",
 );
 
 assert.match(
-  source,
-  /summaryOnly\s*\|\|\s*!payload\?\.session/
+  allGuard,
+  /exportButton\.disabled\s*=\s*true/,
 );
 
 console.log(
-  "PASS RLS-07: summary-only payload cannot export incomplete ledger CSV"
+  "PASS RLS-07: ALL cannot export nonexistent ledger",
+);
+
+const metricLine =
+  app
+    .split("\n")
+    .find(
+      (line) =>
+        line.includes(
+          'class="report-metrics"',
+        )
+        && line.includes(
+          "g.received_total",
+        ),
+    );
+
+assert.ok(
+  metricLine,
+  "selected LINE Group metric row missing",
+);
+
+assert.match(
+  metricLine,
+  /ยอดรับจริง/,
+);
+
+assert.match(
+  metricLine,
+  /Point พิเศษ/,
+);
+
+assert.doesNotMatch(
+  metricLine,
+  /ยอดหลังลด|ยอดสุทธิเทียบ|<span>ลด<\/span>/,
 );
 
 console.log(
-  "PASS: report LINE Group request safety v9.20"
+  "PASS RLS-08: detail card exposes only received total + Special Point",
+);
+
+console.log(
+  "PASS: Report LINE Group Detail-First Safety v1",
 );

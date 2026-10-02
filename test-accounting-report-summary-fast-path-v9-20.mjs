@@ -104,32 +104,107 @@ console.log(
   "PASS RS-04: API returns before ledger pagination in summary mode"
 );
 
+
+
+
+
+const loadReportStart =
+  app.indexOf(
+    "async function loadReport(options = {})",
+  );
+
+const loadReportEnd =
+  app.indexOf(
+    "function bindV5Controls()",
+    loadReportStart,
+  );
+
+assert.ok(
+  loadReportStart >= 0
+    && loadReportEnd > loadReportStart,
+);
+
+const loadReport =
+  app.slice(
+    loadReportStart,
+    loadReportEnd,
+  );
+
+const allGuardIndex =
+  loadReport.indexOf(
+    'if (reportLineGroup === "ALL")',
+  );
+
+const apiCallIndex =
+  loadReport.indexOf(
+    "await api(reportPath)",
+  );
+
+assert.ok(
+  allGuardIndex >= 0
+    && apiCallIndex > allGuardIndex,
+);
+
+const allGuard =
+  loadReport.slice(
+    allGuardIndex,
+    apiCallIndex,
+  );
+
 assert.match(
-  app,
-  /reportLineGroup==="ALL"/
+  allGuard,
+  /return;/,
 );
 
 assert.match(
-  app,
-  /"&summary_only=1"/
+  allGuard,
+  /เลือก LINE Group เพื่อดูและตรวจรายละเอียด/,
 );
 
-assert.match(
-  app,
-  /payload\?\.summary_only===true/
+assert.doesNotMatch(
+  loadReport,
+  /summary_only=1/,
 );
 
 console.log(
-  "PASS RS-05: ALL UI consumes summary-only API mode"
+  "PASS RS-05: ALL UI skips Accounting summary API",
+);
+
+const detailMetricLine =
+  app
+    .split("\n")
+    .find(
+      (line) =>
+        line.includes(
+          'class="report-metrics"',
+        )
+        && line.includes(
+          "g.received_total",
+        ),
+    );
+
+assert.ok(
+  detailMetricLine,
+  "detail metric line missing",
 );
 
 assert.match(
-  app,
-  /if\(summaryOnly\)\{[\s\S]*?ยอดรับจริง[\s\S]*?ยอดสุทธิเทียบ/
+  detailMetricLine,
+  /ยอดรับจริง/,
+);
+
+assert.match(
+  detailMetricLine,
+  /Point พิเศษ/,
+);
+
+assert.doesNotMatch(
+  detailMetricLine,
+  /ยอดหลังลด|ยอดสุทธิเทียบ|<span>ลด<\/span>/,
 );
 
 console.log(
-  "PASS RS-06: summary cards expose accounting totals"
+  "PASS RS-06: selected LINE Group exposes received total + Special Point only",
 );
 
 console.log(

@@ -18710,7 +18710,7 @@ function renderReport(payload) {
 
       return `<section class="report-card">
         <div class="report-title"><div><h3>${escapeHtml(g.line_group_name)}</h3><span>${escapeHtml(groupName(g.summary_group_id))} · ${escapeHtml(roundIdentity)}</span></div><span>${formatNumber(g.message_count)} ข้อความ</span></div>
-        <div class="report-metrics"><div><span>ยอดรับจริง</span><strong>${formatNumber(g.received_total)}</strong></div><div><span>ลด</span><strong>${formatNumber(g.reduction_pct)}%</strong></div><div><span>ยอดหลังลด</span><strong>${formatNumber(g.after_reduction)}</strong></div><div><span>Point พิเศษ</span><strong>${pointSpecified?formatNumber(g.special_point_total):"รอระบุ"}</strong></div><div class="net"><span>ยอดสุทธิเทียบ</span><strong>${finalReady?formatNumber(g.reconciliation_total):"—"}</strong></div></div>
+        <div class="report-metrics"><div><span>ยอดรับจริง</span><strong>${formatNumber(g.received_total)}</strong></div><div><span>Point พิเศษ</span><strong>${pointSpecified?formatNumber(g.special_point_total):"รอระบุ"}</strong></div></div>
         <div class="special-summary"><h4>Point พิเศษ</h4>${g.special_point_codes.length?`<div class="table-wrap"><table><thead><tr><th>รหัส</th><th class="num">จำนวนรวม</th><th class="num">ตัวคูณ</th><th class="num">Point</th></tr></thead><tbody>${g.special_point_codes.map(x=>`<tr><td><strong>${escapeHtml(x.category)}${escapeHtml(x.code)}</strong></td><td class="num">${formatNumber(x.quantity)}</td><td class="num">×${formatNumber(x.multiplier)}</td><td class="num">${formatNumber(x.points)}</td></tr>`).join("")}</tbody></table></div>`:`<div class="muted">${pointSpecified?"ยังไม่มียอดตรงรหัส Point ที่ระบุ":"รอระบุ"}</div>`}</div>
         <div class="table-wrap"><table><thead><tr><th>ลำดับ</th><th>เวลา</th><th>รหัสแรก</th><th class="num">สรุปจำนวน</th><th>Point พิเศษ</th><th>ตรวจ</th></tr></thead><tbody>${g.ledger.map(row=>`<tr><td>${String(row.sequence).padStart(3,"0")}</td><td>${escapeHtml(new Intl.DateTimeFormat("th-TH",{timeZone:"Asia/Bangkok",hour:"2-digit",minute:"2-digit",second:"2-digit"}).format(new Date(row.event_timestamp)))}</td><td class="report-first-code"><strong>${escapeHtml(row.first_code||"-")}</strong></td><td class="num"><strong>${formatNumber(row.summary_quantity)}</strong></td><td>${row.special_points.length?`★ ${row.special_points.map(x=>`${escapeHtml(x.category)}${escapeHtml(x.code)}=${formatNumber(x.quantity)} ×${formatNumber(x.multiplier)}`).join(", ")}`:""}</td><td><button type="button" class="button ghost small report-review-message" data-message-record-id="${escapeHtml(row.message_record_id||"")}" data-summary-group-id="${escapeHtml(g.summary_group_id||"")}">ตรวจรายการนี้</button></td></tr>`).join("")}</tbody><tfoot><tr><th colspan="3">รวม</th><th class="num">${formatNumber(g.received_total)}</th><th></th><th></th></tr></tfoot></table></div>
       </section>`;
@@ -18734,14 +18734,18 @@ let reportLoadVersion = 0;
 async function loadReport(options = {}) {
   const silent = options?.silent === true;
   const loadVersion = ++reportLoadVersion;
-  const sessionId=$("#reportSessionSelect").value || state.settlement?.open_session?.id;
-  if(
+
+  const sessionId =
+    $("#reportSessionSelect").value
+    || state.settlement?.open_session?.id;
+
+  if (
     !sessionId
-    && state.authMode!=="STAFF"
-  ){
+    && state.authMode !== "STAFF"
+  ) {
     renderReport({
-      session:null,
-      groups:[],
+      session: null,
+      groups: [],
     });
     return;
   }
@@ -18750,51 +18754,100 @@ async function loadReport(options = {}) {
     summaryGroupSelect.value || "ALL";
 
   const reportLineGroup =
-    $("#reportLineGroupSelect").value || "ALL";
+    $("#reportLineGroupSelect").value
+    || "ALL";
 
-  const summaryOnly=
-    reportLineGroup==="ALL";
+  /*
+   * Detail-first Report:
+   * ALL is selector-only and must never trigger
+   * the expensive cross-LINE-Group Accounting summary.
+   */
+  if (reportLineGroup === "ALL") {
+    state.reportPayload = null;
 
-  const summaryOnlyQuery=
-    summaryOnly
-      ? "&summary_only=1"
-      : "";
+    const exportButton =
+      $("#exportReportCsvButton");
+
+    if (exportButton) {
+      exportButton.disabled = true;
+    }
+
+    $("#reportContent").innerHTML =
+      `<div class="empty">
+        เลือก LINE Group เพื่อดูและตรวจรายละเอียด
+      </div>`;
+
+    return;
+  }
 
   try {
-    const reportPath=
+    const reportPath =
       sessionId
-        ? `/api/accounting-report?session_id=${encodeURIComponent(sessionId)}&group=${encodeURIComponent(reportSummaryGroup)}&line_group=${encodeURIComponent(reportLineGroup)}${summaryOnlyQuery}`
-        : `/api/accounting-report?group=${encodeURIComponent(reportSummaryGroup)}&line_group=${encodeURIComponent(reportLineGroup)}${summaryOnlyQuery}`;
+        ? `/api/accounting-report?session_id=${encodeURIComponent(
+            sessionId,
+          )}&group=${encodeURIComponent(
+            reportSummaryGroup,
+          )}&line_group=${encodeURIComponent(
+            reportLineGroup,
+          )}`
+        : `/api/accounting-report?group=${encodeURIComponent(
+            reportSummaryGroup,
+          )}&line_group=${encodeURIComponent(
+            reportLineGroup,
+          )}`;
 
-    const payload=
+    const payload =
       await api(reportPath);
 
-    if(loadVersion!==reportLoadVersion)return;
+    if (
+      loadVersion !== reportLoadVersion
+    ) {
+      return;
+    }
 
     renderReport(payload);
 
     /*
-     * STAFF Report is read-only.
-     * Point editing remains Dashboard/Admin operation.
+     * STAFF Report remains read-only.
+     * Point editing remains Dashboard/Admin only.
      */
-    if(state.authMode==="STAFF"){
+    if (state.authMode === "STAFF") {
       $$(".edit-report-points")
         .forEach(
           (button) =>
             button.remove(),
         );
     }
-  }
-  catch(error){
-    if(loadVersion!==reportLoadVersion)return;
+  } catch (error) {
+    if (
+      loadVersion !== reportLoadVersion
+    ) {
+      return;
+    }
 
-    state.reportPayload=null;
-    const exportButton=$("#exportReportCsvButton");
-    if(exportButton) exportButton.disabled=true;
-    if (silent) console.warn("silent report refresh failed", error);
-    else $("#reportContent").innerHTML=`<div class="empty">โหลดรายงานไม่สำเร็จ</div>`;
+    state.reportPayload = null;
+
+    const exportButton =
+      $("#exportReportCsvButton");
+
+    if (exportButton) {
+      exportButton.disabled = true;
+    }
+
+    if (silent) {
+      console.warn(
+        "silent report refresh failed",
+        error,
+      );
+    } else {
+      $("#reportContent").innerHTML =
+        `<div class="empty">
+          โหลดรายงานไม่สำเร็จ
+        </div>`;
+    }
   }
 }
+
 
 function bindV5Controls() {
   $("#prepareOpenButton").addEventListener("click",()=>{

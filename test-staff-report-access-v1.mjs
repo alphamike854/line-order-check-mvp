@@ -161,20 +161,23 @@ const loadReport =
 
 assert.match(
   loadReport,
-  /!sessionId[\s\S]*?state\.authMode!=="STAFF"/,
+  /!sessionId[\s\S]*?state\.authMode\s*!==\s*"STAFF"/,
 );
+
 assert.match(
   loadReport,
   /\/api\/accounting-report\?group=/,
 );
+
 console.log(
   "PASS SRA-11: Staff Report can resolve current session server-side",
 );
 
 assert.match(
   loadReport,
-  /state\.authMode==="STAFF"[\s\S]*?\.edit-report-points/,
+  /state\.authMode\s*===\s*"STAFF"[\s\S]*?\.edit-report-points/,
 );
+
 console.log(
   "PASS SRA-12: Staff Report removes Point mutation control",
 );
