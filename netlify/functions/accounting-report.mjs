@@ -335,8 +335,15 @@ export default async (req) => {
     const url =
       new URL(req.url);
 
+    const __reportDiagSessionStartedAt =
+      Date.now();
+
     const session =
       await resolveSession(url);
+
+    __reportDiagTimings.session_lookup_ms =
+      Date.now()
+      - __reportDiagSessionStartedAt;
 
     if (!session) {
       return json({
@@ -374,6 +381,9 @@ export default async (req) => {
     const staffMode =
       auth.actor?.kind === "STAFF";
 
+    const __reportDiagStaffScopeStartedAt =
+      Date.now();
+
     const staffLineGroupIds =
       staffMode
         ? await loadActorSessionLineGroupIds(
@@ -382,6 +392,12 @@ export default async (req) => {
             session.id,
           )
         : [];
+
+    __reportDiagTimings.staff_scope_ms =
+      staffMode
+        ? Date.now()
+          - __reportDiagStaffScopeStartedAt
+        : 0;
 
     if (
       staffMode
@@ -480,10 +496,20 @@ export default async (req) => {
       );
 
 
+    const __reportDiagRoundConfigStartedAt =
+      Date.now();
+
     let {
       data: configRows,
       error: configError,
     } = await configQuery;
+
+    __reportDiagTimings.round_config_ms =
+      Date.now()
+      - __reportDiagRoundConfigStartedAt;
+
+    __reportDiagTimings.legacy_config_ms =
+      0;
 
 
     if (configError) {
@@ -515,10 +541,17 @@ export default async (req) => {
             ),
         );
 
+      const __reportDiagLegacyConfigStartedAt =
+        Date.now();
+
       ({
         data: configRows,
         error: configError,
       } = await configQuery);
+
+      __reportDiagTimings.legacy_config_ms =
+        Date.now()
+        - __reportDiagLegacyConfigStartedAt;
 
       if (configError) {
         throw configError;
