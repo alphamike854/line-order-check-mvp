@@ -170,7 +170,59 @@ export default async function handler(req) {
       ?? [];
 
     // --------------------------------------------------------
-    // 5. Accounting summary RPC
+    // 5. Accounting Point Context RPC
+    // --------------------------------------------------------
+    startedAt =
+      Date.now();
+
+    const {
+      error: pointContextError,
+    } = await supabase.rpc(
+      "accounting_round_point_context",
+      {
+        p_session_id:
+          session.id,
+
+        p_round_ids:
+          roundIds,
+      },
+    );
+
+    timings.point_context_rpc_ms =
+      elapsed(startedAt);
+
+    if (pointContextError) {
+      throw pointContextError;
+    }
+
+    // --------------------------------------------------------
+    // 6. Accounting Point Status RPC
+    // --------------------------------------------------------
+    startedAt =
+      Date.now();
+
+    const {
+      error: pointStatusError,
+    } = await supabase.rpc(
+      "accounting_round_point_status",
+      {
+        p_session_id:
+          session.id,
+
+        p_round_ids:
+          roundIds,
+      },
+    );
+
+    timings.point_status_rpc_ms =
+      elapsed(startedAt);
+
+    if (pointStatusError) {
+      throw pointStatusError;
+    }
+
+    // --------------------------------------------------------
+    // 7. Accounting summary RPC
     // --------------------------------------------------------
     startedAt =
       Date.now();
@@ -228,6 +280,22 @@ export default async function handler(req) {
     if (summaryError) {
       throw summaryError;
     }
+
+    // --------------------------------------------------------
+    // 8. Round context revalidation read
+    // --------------------------------------------------------
+    startedAt =
+      Date.now();
+
+    await loadDashboardRoundContext({
+      supabase,
+      settlementSessionId:
+        session.id,
+      summaryGroupId,
+    });
+
+    timings.round_revalidation_ms =
+      elapsed(startedAt);
 
     timings.total_ms =
       elapsed(totalStartedAt);
