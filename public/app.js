@@ -18114,6 +18114,140 @@ function editReportPoints(
 
 /* Report -> Review Message Bridge v1 */
 
+
+/* Report -> Review -> Report continuity v1 */
+let reportReturnContext = null;
+
+function captureReportReturnContext(messageRecordId) {
+  if (state.authMode !== "STAFF") return;
+
+  const lineGroupId =
+    $("#reportLineGroupSelect")?.value || "";
+
+  if (
+    !messageRecordId
+    || !state.reportPayload?.session
+    || !lineGroupId
+    || lineGroupId === "ALL"
+  ) {
+    return;
+  }
+
+  reportReturnContext = {
+    payload: state.reportPayload,
+    messageRecordId: String(messageRecordId),
+    lineGroupId,
+    summaryGroupId:
+      summaryGroupSelect.value || "ALL",
+    sessionId:
+      $("#reportSessionSelect")?.value
+      || state.reportPayload.session.id
+      || "",
+    scrollY: window.scrollY || 0,
+  };
+}
+
+function restoreReportReturnContext() {
+  const context = reportReturnContext;
+
+  if (!context) return false;
+
+  reportReturnContext = null;
+
+  const lineSelect =
+    $("#reportLineGroupSelect");
+
+  if (
+    lineSelect
+    && [...lineSelect.options].some(
+      option =>
+        option.value === context.lineGroupId,
+    )
+  ) {
+    lineSelect.value = context.lineGroupId;
+  }
+
+  if (
+    [...(summaryGroupSelect?.options || [])].some(
+      option =>
+        option.value === context.summaryGroupId,
+    )
+  ) {
+    summaryGroupSelect.value =
+      context.summaryGroupId;
+  }
+
+  const sessionSelect =
+    $("#reportSessionSelect");
+
+  if (
+    sessionSelect
+    && context.sessionId
+    && [...sessionSelect.options].some(
+      option =>
+        option.value === context.sessionId,
+    )
+  ) {
+    sessionSelect.value = context.sessionId;
+  }
+
+  const restorePosition = () => {
+    const button =
+      [...document.querySelectorAll(
+        ".report-review-message[data-message-record-id]",
+      )].find(
+        el =>
+          el.dataset.messageRecordId
+          === context.messageRecordId,
+      );
+
+    const row =
+      button?.closest("tr");
+
+    if (row) {
+      row.scrollIntoView({
+        block: "center",
+        behavior: "auto",
+      });
+    } else {
+      window.scrollTo(
+        0,
+        Number(context.scrollY || 0),
+      );
+    }
+  };
+
+  /* Paint the cached Report immediately. */
+  renderReport(context.payload);
+
+  /*
+   * Cached return must retain the same Staff
+   * read-only boundary as normal loadReport().
+   */
+  if (state.authMode === "STAFF") {
+    $$(".edit-report-points")
+      .forEach(
+        button => button.remove(),
+      );
+  }
+
+  restorePosition();
+
+  /* Reconcile only after the operator can continue working. */
+  loadReport({
+    silent: true,
+  }).then(() => {
+    if (!state.reportPayload) {
+      state.reportPayload =
+        context.payload;
+    }
+
+    restorePosition();
+  });
+
+  return true;
+}
+
 async function openReportMessageInReview(
   messageRecordId,
   summaryGroupId = null,
@@ -18191,6 +18325,10 @@ async function openReportMessageInReview(
     );
     return;
   }
+
+  captureReportReturnContext(
+    targetId,
+  );
 
   /*
    * activateTab("review") starts loadReviews without await.
@@ -19728,6 +19866,13 @@ function activateTab(name, options = {}) {
   if (name === "settings") loadSettings();
   if (name === "points") loadSpecialPoints(options.pointSessionId || null, options.pointSummaryGroupId || null);
   if (name === "report") {
+    if (
+      state.authMode === "STAFF"
+      && restoreReportReturnContext()
+    ) {
+      return;
+    }
+
     if (state.authMode === "STAFF") {
       loadSettlement()
         .then(
