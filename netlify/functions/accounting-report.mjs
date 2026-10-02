@@ -307,6 +307,10 @@ export default async (req) => {
   }
 
   try {
+    const __reportDiagTimings = {};
+    const __reportDiagTotalStartedAt = Date.now();
+    let __reportDiagStartedAt = Date.now();
+
     const auth =
       await authenticateWorkbenchActor(
         req,
@@ -324,6 +328,10 @@ export default async (req) => {
         auth.status,
       );
     }
+    __reportDiagTimings.auth_ms =
+      Date.now() - __reportDiagStartedAt;
+    __reportDiagStartedAt = Date.now();
+
     const url =
       new URL(req.url);
 
@@ -573,6 +581,10 @@ export default async (req) => {
         : null;
 
 
+    __reportDiagTimings.pre_round_ms =
+      Date.now() - __reportDiagStartedAt;
+    __reportDiagStartedAt = Date.now();
+
     const roundContext =
       await loadDashboardRoundContext({
         supabase,
@@ -582,6 +594,10 @@ export default async (req) => {
           roundScopeSummaryGroup,
       });
 
+
+    __reportDiagTimings.round_context_ms =
+      Date.now() - __reportDiagStartedAt;
+    __reportDiagStartedAt = Date.now();
 
     const roundIds =
       roundContext.roundIds;
@@ -898,6 +914,10 @@ export default async (req) => {
     }
 
 
+    __reportDiagTimings.pre_summary_setup_ms =
+      Date.now() - __reportDiagStartedAt;
+    __reportDiagStartedAt = Date.now();
+
     if (summaryOnly) {
       const {
         data: summaryRows,
@@ -915,6 +935,10 @@ export default async (req) => {
             selectedSummary,
         },
       );
+
+      __reportDiagTimings.summary_rpc_ms =
+        Date.now() - __reportDiagStartedAt;
+      __reportDiagStartedAt = Date.now();
 
       if (summaryError) {
         throw summaryError;
@@ -1038,6 +1062,10 @@ export default async (req) => {
           );
 
 
+      __reportDiagTimings.summary_build_ms =
+        Date.now() - __reportDiagStartedAt;
+      __reportDiagStartedAt = Date.now();
+
       await revalidateRoundContext({
         initialContext:
           roundContext,
@@ -1048,7 +1076,17 @@ export default async (req) => {
       });
 
 
+      __reportDiagTimings.revalidation_ms =
+        Date.now() - __reportDiagStartedAt;
+      __reportDiagTimings.total_ms =
+        Date.now() - __reportDiagTotalStartedAt;
+
       return json({
+        diagnostic_timing:
+          staffMode
+            ? __reportDiagTimings
+            : undefined,
+
         ok: true,
         summary_only: true,
 
