@@ -707,30 +707,71 @@ export default async (req) => {
         );
 
 
+    const __reportDiagPointParallelStartedAt =
+      Date.now();
+
+    let __reportDiagPointContextRpcMs =
+      null;
+
+    let __reportDiagPointStatusRpcMs =
+      null;
+
     const [
       pointContextResult,
       pointStatusResult,
     ] = await Promise.all([
-      supabase.rpc(
-        "accounting_round_point_context",
-        {
-          p_session_id:
-            session.id,
-          p_round_ids:
-            roundIds,
-        },
-      ),
+      (async () => {
+        const startedAt =
+          Date.now();
 
-      supabase.rpc(
-        "accounting_round_point_status",
-        {
-          p_session_id:
-            session.id,
-          p_round_ids:
-            roundIds,
-        },
-      ),
+        try {
+          return await supabase.rpc(
+            "accounting_round_point_context",
+            {
+              p_session_id:
+                session.id,
+              p_round_ids:
+                roundIds,
+            },
+          );
+        } finally {
+          __reportDiagPointContextRpcMs =
+            Date.now()
+            - startedAt;
+        }
+      })(),
+
+      (async () => {
+        const startedAt =
+          Date.now();
+
+        try {
+          return await supabase.rpc(
+            "accounting_round_point_status",
+            {
+              p_session_id:
+                session.id,
+              p_round_ids:
+                roundIds,
+            },
+          );
+        } finally {
+          __reportDiagPointStatusRpcMs =
+            Date.now()
+            - startedAt;
+        }
+      })(),
     ]);
+
+    __reportDiagTimings.point_context_rpc_ms =
+      __reportDiagPointContextRpcMs;
+
+    __reportDiagTimings.point_status_rpc_ms =
+      __reportDiagPointStatusRpcMs;
+
+    __reportDiagTimings.point_parallel_total_ms =
+      Date.now()
+      - __reportDiagPointParallelStartedAt;
 
 
     if (
