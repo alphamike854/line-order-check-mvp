@@ -8,7 +8,8 @@
     "test:v14b2c1": "node test-round-line-group-historical-attribution-v14b2c1.mjs"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.57.4"
+    "@supabase/supabase-js": "^2.57.4",
+    "@upstash/qstash": "2.12.0"
   },
   "devDependencies": {
     "supabase": "^2.116.0"

@@ -1412,6 +1412,167 @@ export default async (req) => {
       ? payload.events
       : [];
 
+  const qstashEnabled =
+    [
+      "1",
+      "true",
+      "yes",
+      "on",
+    ].includes(
+      String(
+        process.env
+          .LINE_WEBHOOK_QSTASH_ENABLED
+        ?? "",
+      )
+        .trim()
+        .toLowerCase(),
+    );
+
+  if (qstashEnabled) {
+    const qstashToken =
+      String(
+        process.env.QSTASH_TOKEN
+        ?? "",
+      ).trim();
+
+    if (!qstashToken) {
+      console.error(
+        "QStash ingress enabled but token missing",
+      );
+
+      return json(
+        {
+          ok: false,
+          error: "QSTASH_NOT_CONFIGURED",
+        },
+        503,
+      );
+    }
+
+    const consumerUrl =
+      new URL(
+        "/api/line-webhook-qstash",
+        req.url,
+      ).toString();
+
+    /*
+     * Events without webhookEventId are already
+     * ignored by processEvent(), so preserve that
+     * behavior rather than failing the webhook.
+     */
+    const queueableEvents =
+      events.filter(
+        (event) =>
+          Boolean(
+            event?.webhookEventId,
+          ),
+      );
+
+    try {
+      const {
+        Client,
+      } = await import(
+        "@upstash/qstash"
+      );
+
+      const qstash =
+        new Client({
+          token: qstashToken,
+          enableTelemetry: false,
+
+          // Retry only the publish-to-QStash
+          // request itself.
+          retry: {
+            retries: 2,
+            backoff:
+              (retryCount) =>
+                Math.min(
+                  1000,
+                  50
+                  * (2 ** retryCount),
+                ),
+          },
+        });
+
+      await Promise.all(
+        queueableEvents.map(
+          (event) =>
+            qstash.publishJSON({
+              url: consumerUrl,
+
+              body: {
+                destination:
+                  payload.destination,
+                event,
+              },
+
+              /*
+               * LINE redelivery uses the same
+               * webhookEventId. QStash dedupe
+               * absorbs short-window duplicate
+               * publishes; claim_webhook_event
+               * remains authoritative idempotency.
+               */
+              deduplicationId:
+                `line-webhook-${
+                  event.webhookEventId
+                }`,
+
+              /*
+               * Global ingress backpressure:
+               * max 2 active consumers and
+               * max 5 dispatches/second.
+               */
+              flowControl: {
+                key:
+                  "line-webhook-ingress-v1",
+                parallelism: 2,
+                rate: 5,
+                period: "1s",
+              },
+
+              /*
+               * Avoid the old fast retry storm.
+               * Retry delivery after 1m, 2m,
+               * 3m... if Supabase is unhealthy.
+               */
+              retries: 5,
+              retryDelay:
+                "60000 * (1 + retried)",
+
+              label:
+                "line-webhook-ingress-v1",
+            }),
+        ),
+      );
+    } catch (error) {
+      console.error(
+        "Failed to publish LINE events to QStash",
+        error,
+      );
+
+      /*
+       * Return non-2xx to LINE only when
+       * QStash did not durably accept the work.
+       * LINE may then redeliver.
+       */
+      return json(
+        {
+          ok: false,
+          error:
+            "QSTASH_PUBLISH_FAILED",
+        },
+        503,
+      );
+    }
+
+    return json({
+      ok: true,
+      queued: true,
+      received: events.length,
+    });
+  }
+
   const workerUrl = new URL(
     "/.netlify/functions/line-webhook-background",
     req.url,
