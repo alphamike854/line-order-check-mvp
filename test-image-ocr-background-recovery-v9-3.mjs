@@ -65,7 +65,7 @@ assert.match(
 // processing so the terminal boundary is deterministic.
 assert.match(
   webhook,
-  /existingMessage,\s*Number\(claim\?\.attempt_count \?\? 1\)/,
+  /existingMessage,[\s\S]{0,320}?Number\([\s\S]{0,120}?claim\?\.attempt_count[\s\S]{0,80}?\?\?[\s\S]{0,20}?1[\s\S]{0,20}?\)/,
 );
 
 // Existing recovery lifecycle remains responsible for

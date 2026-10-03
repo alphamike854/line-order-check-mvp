@@ -1,3 +1,5 @@
+import { Client } from "@upstash/qstash";
+
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { parseOrder } from "../../src/lib/order-parser.mjs";
@@ -1183,6 +1185,154 @@ async function storeImageReviewEvidence(message, image) {
   return storagePath;
 }
 
+
+// Q2B image-media isolation foundation.
+// Default OFF: production behavior remains inline until explicitly enabled.
+function isLineImageMediaQStashEnabled() {
+  return [
+    "1",
+    "true",
+    "yes",
+    "on",
+  ].includes(
+    String(
+      process.env.LINE_IMAGE_MEDIA_QSTASH_ENABLED
+        ?? "",
+    )
+      .trim()
+      .toLowerCase(),
+  );
+}
+
+async function enqueueLineImageMediaQStash({
+  destination,
+  event,
+  message,
+  mediaQueueUrl,
+}) {
+  const token =
+    String(
+      process.env.QSTASH_TOKEN
+        ?? "",
+    ).trim();
+
+  if (!token) {
+    throw new Error(
+      "IMAGE_MEDIA_QSTASH_TOKEN_MISSING",
+    );
+  }
+
+  if (!mediaQueueUrl) {
+    throw new Error(
+      "IMAGE_MEDIA_QSTASH_URL_MISSING",
+    );
+  }
+
+  const client =
+    new Client({
+      token,
+    });
+
+  const published =
+    await client.publishJSON({
+      url:
+        mediaQueueUrl,
+      body: {
+        destination,
+        event,
+        message_id:
+          message.id,
+        summary_group_round_id:
+          message.summary_group_round_id,
+      },
+      retries: 5,
+      deduplicationId:
+        `line-image-media-${event.webhookEventId}`,
+      flowControl: {
+        key:
+          "line-image-media-v1",
+        parallelism: 1,
+        rate: 2,
+        period: "1s",
+      },
+    });
+
+  return {
+    queued: true,
+    qstash_message_id:
+      published?.messageId
+      ?? null,
+  };
+}
+
+export async function processImageMediaJob({
+  destination,
+  event,
+  messageId,
+  processingAttempt = 1,
+}) {
+  if (
+    !destination
+    || !event?.webhookEventId
+    || event?.type !== "message"
+    || event?.message?.type !== "image"
+    || !messageId
+  ) {
+    throw new Error(
+      "INVALID_IMAGE_MEDIA_JOB",
+    );
+  }
+
+  const message =
+    await findMessageByWebhookEvent(
+      event.webhookEventId,
+    );
+
+  if (!message) {
+    throw new Error(
+      "IMAGE_MEDIA_MESSAGE_NOT_FOUND",
+    );
+  }
+
+  if (
+    String(message.id)
+    !== String(messageId)
+  ) {
+    throw new Error(
+      "IMAGE_MEDIA_MESSAGE_ID_MISMATCH",
+    );
+  }
+
+  if (!message.summary_group_round_id) {
+    throw new Error(
+      "IMAGE_MEDIA_MESSAGE_NOT_ADMITTED",
+    );
+  }
+
+  if (
+    await isExistingMessageComplete(
+      message,
+    )
+  ) {
+    return {
+      skipped:
+        "MESSAGE_ALREADY_COMPLETE",
+    };
+  }
+
+  return handleImageMessage(
+    destination,
+    event,
+    null,
+    null,
+    message,
+    null,
+    processingAttempt,
+    null,
+    true,
+  );
+}
+
 async function handleImageMessage(
   destination,
   event,
@@ -1191,6 +1341,8 @@ async function handleImageMessage(
   existingMessage = null,
   summaryGroupRoundId = null,
   processingAttempt = 1,
+  mediaQueueUrl = null,
+  mediaWorker = false,
 ) {
   const message =
     existingMessage
@@ -1214,9 +1366,11 @@ async function handleImageMessage(
   // immutable summary_group_round_id assigned at DB admission time.
   //
   // Mirror failure remains isolated from Parser/OCR/Review.
-  await enqueueLineMessageMirrorBestEffort(
-    message,
-  );
+  if (!mediaWorker) {
+    await enqueueLineMessageMirrorBestEffort(
+      message,
+    );
+  }
 
   // Legacy pre-cutover rows without Round ownership retain
   // historical Review behavior.
@@ -1335,6 +1489,31 @@ async function handleImageMessage(
       [],
     );
     return { status: "REVIEW", reason: "IMAGE_OCR_CONFIG_MISSING" };
+  }
+
+  if (
+    !mediaWorker
+    && message.summary_group_round_id
+    && isLineImageMediaQStashEnabled()
+    && mediaQueueUrl
+  ) {
+    const queued =
+      await enqueueLineImageMediaQStash({
+        destination,
+        event,
+        message,
+        mediaQueueUrl,
+      });
+
+    return {
+      status: "PENDING",
+      queued:
+        "IMAGE_MEDIA_QSTASH",
+      message_id:
+        message.id,
+      qstash_message_id:
+        queued.qstash_message_id,
+    };
   }
 
   let image;
@@ -1615,7 +1794,7 @@ async function handleUnsend(destination, event) {
   };
 }
 
-export async function processEvent(destination, event, admissionHint = null) {
+export async function processEvent(destination, event, admissionHint = null, options = null) {
   if (!event.webhookEventId) {
     return { skipped: "NO_WEBHOOK_EVENT_ID" };
   }
@@ -1771,6 +1950,8 @@ export async function processEvent(destination, event, admissionHint = null) {
         existingMessage,
         admissionRoundId,
         Number(claim?.attempt_count ?? 1),
+        options?.mediaQueueUrl ?? null,
+        false,
       );
     } else if (event.type === "unsend") {
       result = await handleUnsend(destination, event);

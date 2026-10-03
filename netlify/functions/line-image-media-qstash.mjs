@@ -1,12 +1,18 @@
 "use strict";
 
-import { Receiver } from "@upstash/qstash";
+import {
+  Receiver,
+} from "@upstash/qstash";
 
 import {
-  processEvent,
+  processImageMediaJob,
 } from "./line-webhook.mjs";
 
-function json(body, status = 200) {
+function json(
+  body,
+  status = 200,
+  headers = {},
+) {
   return new Response(
     JSON.stringify(body),
     {
@@ -14,6 +20,7 @@ function json(body, status = 200) {
       headers: {
         "content-type":
           "application/json; charset=utf-8",
+        ...headers,
       },
     },
   );
@@ -24,7 +31,8 @@ export default async (req) => {
     return json(
       {
         ok: false,
-        error: "METHOD_NOT_ALLOWED",
+        error:
+          "METHOD_NOT_ALLOWED",
       },
       405,
     );
@@ -32,14 +40,16 @@ export default async (req) => {
 
   const currentSigningKey =
     String(
-      process.env.QSTASH_CURRENT_SIGNING_KEY
-      ?? "",
+      process.env
+        .QSTASH_CURRENT_SIGNING_KEY
+        ?? "",
     ).trim();
 
   const nextSigningKey =
     String(
-      process.env.QSTASH_NEXT_SIGNING_KEY
-      ?? "",
+      process.env
+        .QSTASH_NEXT_SIGNING_KEY
+        ?? "",
     ).trim();
 
   if (
@@ -49,26 +59,31 @@ export default async (req) => {
     return json(
       {
         ok: false,
-        error: "QSTASH_SIGNING_KEYS_MISSING",
+        error:
+          "QSTASH_SIGNING_KEYS_MISSING",
       },
       503,
     );
   }
 
   const signature =
-    req.headers.get("upstash-signature");
+    req.headers.get(
+      "upstash-signature",
+    );
 
   if (!signature) {
     return json(
       {
         ok: false,
-        error: "QSTASH_SIGNATURE_MISSING",
+        error:
+          "QSTASH_SIGNATURE_MISSING",
       },
       401,
     );
   }
 
-  const rawBody = await req.text();
+  const rawBody =
+    await req.text();
 
   const receiver =
     new Receiver({
@@ -87,7 +102,7 @@ export default async (req) => {
       });
   } catch (error) {
     console.error(
-      "QStash signature verification failed",
+      "Image media QStash signature verification failed",
       error,
     );
   }
@@ -96,7 +111,8 @@ export default async (req) => {
     return json(
       {
         ok: false,
-        error: "INVALID_QSTASH_SIGNATURE",
+        error:
+          "INVALID_QSTASH_SIGNATURE",
       },
       401,
     );
@@ -105,12 +121,14 @@ export default async (req) => {
   let payload;
 
   try {
-    payload = JSON.parse(rawBody);
+    payload =
+      JSON.parse(rawBody);
   } catch {
     return json(
       {
         ok: false,
-        error: "INVALID_JSON",
+        error:
+          "INVALID_JSON",
       },
       400,
     );
@@ -122,65 +140,58 @@ export default async (req) => {
   const event =
     payload?.event;
 
-  const admission =
-    payload?.admission
-    ?? null;
+  const messageId =
+    payload?.message_id;
 
   if (
     !destination
     || !event?.webhookEventId
+    || event?.message?.type
+      !== "image"
+    || !messageId
   ) {
     return json(
       {
         ok: false,
-        error: "INVALID_QSTASH_EVENT",
+        error:
+          "INVALID_IMAGE_MEDIA_JOB",
       },
       400,
     );
   }
 
+  const retried =
+    Math.max(
+      0,
+      Number(
+        req.headers.get(
+          "upstash-retried",
+        )
+        ?? 0,
+      ) || 0,
+    );
+
+  const processingAttempt =
+    retried + 1;
+
   try {
     const result =
-      await processEvent(
+      await processImageMediaJob({
         destination,
         event,
-        admission,
-        {
-          mediaQueueUrl:
-            new URL(
-              "/api/line-image-media-qstash",
-              req.url,
-            ).toString(),
-        },
-      );
-
-    /*
-     * claim_webhook_event may still own an
-     * active claim from an earlier delivery.
-     *
-     * Returning non-2xx makes QStash retry
-     * later instead of treating IN_FLIGHT
-     * as completed.
-     */
-    if (
-      result?.skipped
-      === "EVENT_IN_FLIGHT"
-    ) {
-      return json(
-        {
-          ok: false,
-          error: "EVENT_IN_FLIGHT_RETRY",
-        },
-        503,
-      );
-    }
+        messageId,
+        processingAttempt,
+      });
 
     return json({
       ok: true,
+      processing_attempt:
+        processingAttempt,
+      result,
     });
   } catch (error) {
     console.error(
-      "QStash LINE event processing failed",
+      "Image media QStash processing failed",
       event.webhookEventId,
       error,
     );
@@ -188,7 +199,10 @@ export default async (req) => {
     return json(
       {
         ok: false,
-        error: "PROCESSING_FAILED",
+        error:
+          "IMAGE_MEDIA_PROCESSING_FAILED",
+        processing_attempt:
+          processingAttempt,
       },
       500,
     );
@@ -196,6 +210,7 @@ export default async (req) => {
 };
 
 export const config = {
-  path: "/api/line-webhook-qstash",
+  path:
+    "/api/line-image-media-qstash",
   region: "sin",
 };
