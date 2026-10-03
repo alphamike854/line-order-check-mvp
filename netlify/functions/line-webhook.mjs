@@ -158,6 +158,353 @@ async function markSummaryGroupClosedReview(
   };
 }
 
+
+const LINE_WEBHOOK_INGRESS_ADMISSION_TIMEOUT_MS =
+  1500;
+
+// Q1A temporal admission v2.
+// Admission belongs to the original LINE event timestamp,
+// never to the later QStash consumer execution time.
+function normalizeLineEventTimestamp(eventTimestamp) {
+  const epochMs =
+    Number(eventTimestamp);
+
+  if (
+    !Number.isFinite(epochMs)
+    || epochMs <= 0
+  ) {
+    return null;
+  }
+
+  const date =
+    new Date(epochMs);
+
+  if (
+    Number.isNaN(
+      date.getTime(),
+    )
+  ) {
+    return null;
+  }
+
+  return {
+    epoch_ms:
+      epochMs,
+    iso:
+      date.toISOString(),
+  };
+}
+
+function isQStashIngressEnabledForAdmission() {
+  return [
+    "1",
+    "true",
+    "yes",
+    "on",
+  ].includes(
+    String(
+      process.env.LINE_WEBHOOK_QSTASH_ENABLED
+        ?? "",
+    )
+      .trim()
+      .toLowerCase(),
+  );
+}
+
+function isLineOrderIngressMessage(event) {
+  return (
+    event?.source?.type === "group"
+    && event?.type === "message"
+    && (
+      event?.message?.type === "text"
+      || event?.message?.type === "image"
+    )
+  );
+}
+
+function isLineUnsendIngressEvent(event) {
+  return (
+    event?.source?.type === "group"
+    && event?.type === "unsend"
+  );
+}
+
+function validTemporalAdmissionHint(
+  admissionHint,
+  event,
+) {
+  const roundId =
+    String(
+      admissionHint?.round_id
+      ?? "",
+    ).trim();
+
+  const hintTimestamp =
+    Number(
+      admissionHint?.event_timestamp,
+    );
+
+  const eventTimestamp =
+    Number(
+      event?.timestamp,
+    );
+
+  const hintLineGroupId =
+    String(
+      admissionHint?.line_group_id
+      ?? "",
+    );
+
+  const eventLineGroupId =
+    String(
+      event?.source?.groupId
+      ?? "",
+    );
+
+  const hintWebhookEventId =
+    String(
+      admissionHint?.webhook_event_id
+      ?? "",
+    );
+
+  const eventWebhookEventId =
+    String(
+      event?.webhookEventId
+      ?? "",
+    );
+
+  if (
+    !roundId
+    || !Number.isFinite(
+      hintTimestamp,
+    )
+    || !Number.isFinite(
+      eventTimestamp,
+    )
+    || hintTimestamp
+      !== eventTimestamp
+    || !hintLineGroupId
+    || hintLineGroupId
+      !== eventLineGroupId
+    || !hintWebhookEventId
+    || hintWebhookEventId
+      !== eventWebhookEventId
+  ) {
+    return null;
+  }
+
+  return {
+    admitted: true,
+    reason:
+      "PUBLISHER_TEMPORAL_ADMISSION",
+    round_id:
+      roundId,
+    resumed: false,
+    carried: true,
+  };
+}
+
+export async function readLineWebhookIngressAdmission(
+  lineGroupId,
+  eventTimestamp,
+  webhookEventId = null,
+) {
+  const normalized =
+    normalizeLineEventTimestamp(
+      eventTimestamp,
+    );
+
+  if (!normalized) {
+    return {
+      admitted: false,
+      reason:
+        "INVALID_EVENT_TIMESTAMP",
+      round_id: null,
+      resumed: false,
+    };
+  }
+
+  const controller =
+    new AbortController();
+
+  const timer =
+    setTimeout(
+      () => controller.abort(),
+      LINE_WEBHOOK_INGRESS_ADMISSION_TIMEOUT_MS,
+    );
+
+  try {
+    const {
+      data,
+      error,
+    } = await supabase
+      .rpc(
+        "line_webhook_ingress_admission",
+        {
+          p_line_group_id:
+            lineGroupId,
+          p_event_timestamp:
+            normalized.iso,
+          p_webhook_event_id:
+            webhookEventId,
+        },
+      )
+      .abortSignal(
+        controller.signal,
+      );
+
+    if (error) {
+      throw new Error(
+        "LINE_WEBHOOK_INGRESS_ADMISSION_UNAVAILABLE: "
+        + (
+          error.message
+          ?? String(error)
+        ),
+      );
+    }
+
+    return {
+      admitted:
+        data?.admitted === true,
+      reason:
+        String(
+          data?.reason
+          ?? "UNKNOWN",
+        ),
+      resumed:
+        data?.resumed === true,
+      round_id:
+        data?.round_id
+        ?? null,
+      settlement_session_id:
+        data?.settlement_session_id
+        ?? null,
+      summary_group_id:
+        data?.summary_group_id
+        ?? null,
+      event_timestamp:
+        normalized.epoch_ms,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function selectQStashIngressEvents(
+  events,
+  admissionHints,
+) {
+  const selected = [];
+
+  for (const event of events ?? []) {
+    if (!event?.webhookEventId) {
+      continue;
+    }
+
+    if (
+      event?.source?.type
+      !== "group"
+    ) {
+      continue;
+    }
+
+    // UNSEND must survive independently of current Round state.
+    if (
+      isLineUnsendIngressEvent(
+        event,
+      )
+    ) {
+      selected.push(event);
+      continue;
+    }
+
+    if (
+      !isLineOrderIngressMessage(
+        event,
+      )
+    ) {
+      continue;
+    }
+
+    const lineGroupId =
+      String(
+        event?.source?.groupId
+        ?? "",
+      ).trim();
+
+    if (!lineGroupId) {
+      continue;
+    }
+
+    try {
+      const admission =
+        await readLineWebhookIngressAdmission(
+          lineGroupId,
+          event.timestamp,
+          null,
+        );
+
+      if (
+        admission.admitted
+        && admission.round_id
+      ) {
+        selected.push(event);
+
+        admissionHints.set(
+          event.webhookEventId,
+          {
+            round_id:
+              admission.round_id,
+            event_timestamp:
+              Number(
+                event.timestamp,
+              ),
+            line_group_id:
+              lineGroupId,
+            webhook_event_id:
+              event.webhookEventId,
+          },
+        );
+
+        continue;
+      }
+
+      console.info(
+        "LINE QStash temporal ingress skipped",
+        {
+          webhookEventId:
+            event.webhookEventId,
+          lineGroupId,
+          eventTimestamp:
+            event.timestamp
+            ?? null,
+          reason:
+            admission.reason,
+        },
+      );
+    } catch (error) {
+      // Public gateway fails OPEN into QStash when DB state
+      // cannot be determined. The consumer will retry temporal
+      // admission before touching claim_webhook_event.
+      console.warn(
+        "LINE QStash temporal admission unavailable; fail-open",
+        {
+          webhookEventId:
+            event.webhookEventId,
+          lineGroupId,
+          error:
+            error?.message
+            ?? String(error),
+        },
+      );
+
+      selected.push(event);
+    }
+  }
+
+  return selected;
+}
+
 async function claimWebhookEvent(destination, event) {
   const { data, error } = await supabase.rpc(
     "claim_webhook_event",
@@ -430,6 +777,8 @@ function lineMessageAdmissionFailureReason(error) {
     "SETTLEMENT_NOT_OPEN",
     "GROUP_NOT_CONFIGURED",
     "SUMMARY_GROUP_NOT_OPEN",
+    "MESSAGE_EVENT_OUTSIDE_ROUND",
+    "MESSAGE_LINE_GROUP_CONFIG_MISMATCH",
   ]) {
     if (detail.includes(reason)) return reason;
   }
@@ -443,6 +792,7 @@ async function createMessage({
   messageType,
   rawText = null,
   parseStatus = "PENDING",
+  summaryGroupRoundId = null,
 }) {
   const timestamp =
     new Date(event.timestamp).toISOString();
@@ -465,6 +815,8 @@ async function createMessage({
       rawText,
     parse_status:
       parseStatus,
+    summary_group_round_id:
+      summaryGroupRoundId,
   };
 
   const {
@@ -626,6 +978,7 @@ async function handleTextMessage(
   group,
   session,
   existingMessage = null,
+  summaryGroupRoundId = null,
 ) {
   const text =
     event.message.text ?? "";
@@ -637,6 +990,7 @@ async function handleTextMessage(
       event,
       messageType: "text",
       rawText: text,
+      summaryGroupRoundId,
     });
 
   if (message?.ignored) {
@@ -835,6 +1189,7 @@ async function handleImageMessage(
   group,
   session,
   existingMessage = null,
+  summaryGroupRoundId = null,
   processingAttempt = 1,
 ) {
   const message =
@@ -844,6 +1199,7 @@ async function handleImageMessage(
       event,
       messageType: "image",
       parseStatus: "PENDING",
+      summaryGroupRoundId,
     });
 
   if (message?.ignored) {
@@ -1259,10 +1615,84 @@ async function handleUnsend(destination, event) {
   };
 }
 
-export async function processEvent(destination, event) {
+export async function processEvent(destination, event, admissionHint = null) {
   if (!event.webhookEventId) {
     return { skipped: "NO_WEBHOOK_EVENT_ID" };
   }
+
+
+  // Q1A temporal consumer boundary.
+  //
+  // Healthy publisher path already resolved Round ownership and
+  // carries a signed QStash admission hint, avoiding a second DB read.
+  //
+  // Fail-open publisher path has no hint, so consumer resolves the
+  // event-time Round here BEFORE claim_webhook_event.
+  if (
+    event?.source?.type
+    !== "group"
+  ) {
+    return {
+      skipped: "NOT_GROUP",
+    };
+  }
+
+  const ingressMessage =
+    isLineOrderIngressMessage(
+      event,
+    );
+
+  const ingressUnsend =
+    isLineUnsendIngressEvent(
+      event,
+    );
+
+  if (
+    !ingressMessage
+    && !ingressUnsend
+  ) {
+    return {
+      skipped:
+        "UNSUPPORTED_EVENT",
+    };
+  }
+
+  let temporalAdmission =
+    null;
+
+  if (ingressMessage) {
+    temporalAdmission =
+      validTemporalAdmissionHint(
+        admissionHint,
+        event,
+      );
+
+    if (!temporalAdmission) {
+      temporalAdmission =
+        await readLineWebhookIngressAdmission(
+          event.source.groupId,
+          event.timestamp,
+          event.webhookEventId,
+        );
+    }
+
+    if (
+      !temporalAdmission?.admitted
+      || !temporalAdmission?.round_id
+    ) {
+      return {
+        skipped:
+          "INGRESS_NOT_OPEN_AT_EVENT_TIME",
+        reason:
+          temporalAdmission?.reason
+          ?? "NO_ROUND_AT_EVENT_TIME",
+      };
+    }
+  }
+
+  const admissionRoundId =
+    temporalAdmission?.round_id
+    ?? null;
 
   const claim = await claimWebhookEvent(destination, event);
 
@@ -1327,6 +1757,7 @@ export async function processEvent(destination, event) {
         group,
         session,
         existingMessage,
+        admissionRoundId,
       );
     } else if (
       event.type === "message" &&
@@ -1338,6 +1769,7 @@ export async function processEvent(destination, event) {
         group,
         session,
         existingMessage,
+        admissionRoundId,
         Number(claim?.attempt_count ?? 1),
       );
     } else if (event.type === "unsend") {
@@ -1411,6 +1843,48 @@ export default async (req) => {
     Array.isArray(payload.events)
       ? payload.events
       : [];
+
+  const qstashAdmissionHints =
+    new Map();
+
+  // Q1A public ingress pre-filter.
+  //
+  // Confirmed CLOSED / NOT_STARTED TEXT and IMAGE traffic
+  // does not enter QStash.
+  //
+  // A DB timeout/error fails open into QStash so LINE events
+  // are not lost during a Supabase incident.
+  if (
+    isQStashIngressEnabledForAdmission()
+  ) {
+    const originalEventCount =
+      events.length;
+
+    const admittedEvents =
+      await selectQStashIngressEvents(
+        events,
+        qstashAdmissionHints,
+      );
+
+    if (!admittedEvents.length) {
+      return json({
+        ok: true,
+        queued: false,
+        received:
+          originalEventCount,
+        admitted: 0,
+        skipped:
+          "NO_ADMITTED_EVENTS",
+      });
+    }
+
+    events.splice(
+      0,
+      events.length,
+      ...admittedEvents,
+    );
+  }
+
 
   const qstashEnabled =
     [
@@ -1504,6 +1978,11 @@ export default async (req) => {
                 destination:
                   payload.destination,
                 event,
+                admission:
+                  qstashAdmissionHints.get(
+                    event.webhookEventId,
+                  )
+                  ?? null,
               },
 
               /*

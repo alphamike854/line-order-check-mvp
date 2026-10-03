@@ -122,6 +122,10 @@ export default async (req) => {
   const event =
     payload?.event;
 
+  const admission =
+    payload?.admission
+    ?? null;
+
   if (
     !destination
     || !event?.webhookEventId
@@ -140,6 +144,7 @@ export default async (req) => {
       await processEvent(
         destination,
         event,
+        admission,
       );
 
     /*
