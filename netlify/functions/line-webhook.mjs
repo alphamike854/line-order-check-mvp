@@ -1333,6 +1333,50 @@ export async function processImageMediaJob({
   );
 }
 
+async function loadImageOcrCheckpoint(
+  messageRecordId,
+) {
+  const {
+    data,
+    error,
+  } = await supabase
+    .from("messages")
+    .select(
+      [
+        "ocr_text",
+        "ocr_provider",
+        "ocr_model",
+        "ocr_status",
+        "image_content_type",
+        "image_size_bytes",
+      ].join(","),
+    )
+    .eq(
+      "id",
+      messageRecordId,
+    )
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  if (
+    !data
+    || !["DONE", "UNCERTAIN"].includes(
+      data.ocr_status,
+    )
+    || !String(
+      data.ocr_text
+      ?? "",
+    ).trim()
+  ) {
+    return null;
+  }
+
+  return data;
+}
+
 async function handleImageMessage(
   destination,
   event,
@@ -1518,11 +1562,34 @@ async function handleImageMessage(
 
   let image;
   let ocr;
+  let ocrCheckpoint = null;
+
+  if (mediaWorker) {
+    ocrCheckpoint =
+      await loadImageOcrCheckpoint(
+        message.id,
+      );
+
+    if (ocrCheckpoint) {
+      ocr = {
+        text:
+          ocrCheckpoint.ocr_text,
+        provider:
+          ocrCheckpoint.ocr_provider,
+        model:
+          ocrCheckpoint.ocr_model,
+        uncertain:
+          ocrCheckpoint.ocr_status
+          === "UNCERTAIN",
+      };
+    }
+  }
 
   // Only LINE image download / Gemini transcription errors belong to
   // IMAGE_OCR_FAILED. Parser or database persistence failures must escape
   // to processEvent so the webhook claim is released and LINE receives 500.
-  try {
+  if (!ocr) {
+    try {
     image = await downloadLineImage(
       event.message.id,
       LINE_CHANNEL_ACCESS_TOKEN,
@@ -1608,17 +1675,67 @@ async function handleImageMessage(
     };
   }
 
+  }
+
   const baseUpdate = {
-    ocr_text: ocr.text,
-    ocr_provider: ocr.provider,
-    ocr_model: ocr.model,
-    ocr_status: ocr.uncertain ? "UNCERTAIN" : "DONE",
-    ocr_error: null,
-    image_content_type: image.mimeType,
-    image_size_bytes: image.sizeBytes,
+    ocr_text:
+      ocr.text,
+    ocr_provider:
+      ocr.provider,
+    ocr_model:
+      ocr.model,
+    ocr_status:
+      ocr.uncertain
+        ? "UNCERTAIN"
+        : "DONE",
+    ocr_error:
+      null,
+    image_content_type:
+      image?.mimeType
+      ?? ocrCheckpoint?.image_content_type
+      ?? null,
+    image_size_bytes:
+      image?.sizeBytes
+      ?? ocrCheckpoint?.image_size_bytes
+      ?? null,
   };
 
+  /*
+   * Q2C durable OCR checkpoint:
+   *
+   * Once LINE download + Gemini succeeded, persist the OCR result
+   * before deterministic parsing / canonical persistence.
+   *
+   * If anything after this point fails, a QStash redelivery can
+   * resume from messages.ocr_* without paying for Gemini again.
+   */
+  if (!ocrCheckpoint) {
+    const {
+      error: checkpointError,
+    } = await supabase
+      .from("messages")
+      .update(
+        baseUpdate,
+      )
+      .eq(
+        "id",
+        message.id,
+      );
+
+    if (checkpointError) {
+      throw checkpointError;
+    }
+  }
+
   if (ocr.uncertain) {
+    if (!image) {
+      image =
+        await downloadLineImage(
+          event.message.id,
+          LINE_CHANNEL_ACCESS_TOKEN,
+        );
+    }
+
     await storeImageReviewEvidence(
       message,
       image,
@@ -1689,6 +1806,14 @@ async function handleImageMessage(
     );
 
   if (parserNeedsHumanReview) {
+    if (!image) {
+      image =
+        await downloadLineImage(
+          event.message.id,
+          LINE_CHANNEL_ACCESS_TOKEN,
+        );
+    }
+
     await storeImageReviewEvidence(
       message,
       image,
