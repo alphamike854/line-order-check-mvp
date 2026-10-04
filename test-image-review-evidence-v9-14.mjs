@@ -239,96 +239,119 @@ console.log(
 );
 
 // ============================================================
-// R3A-06 OCR UNCERTAIN stores evidence
+// R3A-06 successful OCR always stores original evidence
 // ============================================================
+
+const checkpointWriteIndex =
+  imageHandler.indexOf(
+    "if (!ocrCheckpoint) {",
+  );
+
+const allImageEvidenceIndex =
+  imageHandler.indexOf(
+    "const imageEvidenceStored =",
+  );
 
 const uncertainIndex =
   imageHandler.indexOf(
     "if (ocr.uncertain) {",
   );
 
-const uncertainEvidenceIndex =
+const parserResultIndex =
   imageHandler.indexOf(
-    "await storeImageReviewEvidence(",
-    uncertainIndex,
-  );
-
-const uncertainReviewIndex =
-  imageHandler.indexOf(
-    'code: "OCR_UNCERTAIN"',
-    uncertainIndex,
+    "const config = await loadParserConfig();",
   );
 
 assert.ok(
-  uncertainIndex >= 0,
+  checkpointWriteIndex >= 0,
+  "durable OCR checkpoint must remain",
 );
 
 assert.ok(
-  uncertainEvidenceIndex > uncertainIndex,
+  allImageEvidenceIndex > checkpointWriteIndex,
+  "image evidence must be stored only after OCR checkpoint boundary",
 );
 
 assert.ok(
-  uncertainReviewIndex > uncertainEvidenceIndex,
+  uncertainIndex > allImageEvidenceIndex,
+  "evidence must exist before OCR uncertainty handling",
+);
+
+assert.ok(
+  parserResultIndex > allImageEvidenceIndex,
+  "evidence must exist before deterministic parser execution",
 );
 
 console.log(
-  "PASS R3A-06 OCR uncertainty preserves image evidence",
+  "PASS R3A-06 successful OCR preserves original image evidence",
 );
 
 // ============================================================
-// R3A-07 parser REVIEW / PARTIAL only
+// R3A-07 Q2C resume restores only missing image evidence
 // ============================================================
 
 assert.match(
-  imageHandler,
-  /const parserNeedsHumanReview =[\s\S]*?\["REVIEW", "PARTIAL"\]\.includes\([\s\S]*?effectiveResult\.status/,
+  webhook,
+  /async function loadImageOcrCheckpoint[\s\S]*?"image_storage_path"/,
+);
+
+const imageEvidenceRegion =
+  imageHandler.slice(
+    allImageEvidenceIndex,
+    uncertainIndex,
+  );
+
+assert.match(
+  imageEvidenceRegion,
+  /ocrCheckpoint\?\.image_storage_path/,
 );
 
 assert.match(
-  imageHandler,
-  /effectiveResult\.status === "PARSED"[\s\S]*?!\(effectiveResult\.items \?\? \[\]\)\.length/,
+  imageEvidenceRegion,
+  /downloadLineImage/,
 );
 
-const parserGuardIndex =
-  imageHandler.indexOf(
-    "if (parserNeedsHumanReview) {",
+assert.match(
+  imageEvidenceRegion,
+  /storeImageReviewEvidence/,
+);
+
+assert.doesNotMatch(
+  imageEvidenceRegion,
+  /transcribeOrderImage/,
+  "checkpoint resume evidence recovery must never rerun Gemini",
+);
+
+console.log(
+  "PASS R3A-07 checkpoint resume restores missing image without rerunning OCR",
+);
+
+// ============================================================
+// R3A-08 PARSED / REVIEW / PARTIAL share one evidence path
+// ============================================================
+
+assert.doesNotMatch(
+  imageHandler,
+  /const parserNeedsHumanReview =/,
+  "parser status must no longer decide whether original image is archived",
+);
+
+const uncertainToParser =
+  imageHandler.slice(
+    uncertainIndex,
+    parserResultIndex,
   );
 
-const parserEvidenceIndex =
-  imageHandler.indexOf(
-    "await storeImageReviewEvidence(",
-    parserGuardIndex,
-  );
+assert.doesNotMatch(
+  uncertainToParser,
+  /storeImageReviewEvidence/,
+  "UNCERTAIN must reuse the common evidence path",
+);
 
 const persistIndex =
   imageHandler.indexOf(
     "return persistParsedResult(",
-    parserGuardIndex,
-  );
-
-assert.ok(
-  parserGuardIndex >= 0,
-);
-
-assert.ok(
-  parserEvidenceIndex > parserGuardIndex,
-);
-
-assert.ok(
-  persistIndex > parserEvidenceIndex,
-);
-
-console.log(
-  "PASS R3A-07 parser human-review results preserve evidence",
-);
-
-// ============================================================
-// R3A-08 normal PARSED / IGNORE path has no unconditional store
-// ============================================================
-
-const parserResultIndex =
-  imageHandler.indexOf(
-    "const result = parseOrder(ocr.text, config);",
+    parserResultIndex,
   );
 
 const parserToPersist =
@@ -337,22 +360,14 @@ const parserToPersist =
     persistIndex,
   );
 
-const storeOccurrences =
-  (
-    parserToPersist.match(
-      /storeImageReviewEvidence/g,
-    )
-    ?? []
-  ).length;
-
-assert.equal(
-  storeOccurrences,
-  1,
-  "parser path must have exactly one guarded evidence call",
+assert.doesNotMatch(
+  parserToPersist,
+  /storeImageReviewEvidence/,
+  "parser result must reuse already-stored original image evidence",
 );
 
 console.log(
-  "PASS R3A-08 PARSED/IGNORE remain non-archived",
+  "PASS R3A-08 PARSED/REVIEW/PARTIAL share durable image evidence",
 );
 
 // ============================================================

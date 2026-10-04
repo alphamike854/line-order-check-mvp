@@ -205,8 +205,20 @@ assert.match(
 
 assert.match(
   loadMore,
-  /Promise\.all/,
-  "one Timeline Load More action must preserve independent backend pagination",
+  /filters\.has\("NEEDS_FIX"\)[\s\S]*"PRIORITY"/,
+  "NEEDS_FIX Load More must use PRIORITY pagination",
+);
+
+assert.match(
+  loadMore,
+  /filters\.has\("HIGH_TOTAL"\)[\s\S]*"HIGH_TOTAL"/,
+  "HIGH_TOTAL Load More must use HIGH_TOTAL pagination",
+);
+
+assert.match(
+  loadMore,
+  /_verificationPagination[\s\S]*"RECENT"/,
+  "default Timeline Load More must preserve RECENT pagination",
 );
 
 const binding =
@@ -323,9 +335,10 @@ assert.match(
 );
 
 
-assert.match(
+assert.doesNotMatch(
   append,
   /data-verification-timeline-summary/,
+  "duplicate Timeline summary must remain removed",
 );
 
 assert.match(

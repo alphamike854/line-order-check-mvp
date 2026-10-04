@@ -1349,6 +1349,7 @@ async function loadImageOcrCheckpoint(
         "ocr_status",
         "image_content_type",
         "image_size_bytes",
+        "image_storage_path",
       ].join(","),
     )
     .eq(
@@ -1727,7 +1728,23 @@ async function handleImageMessage(
     }
   }
 
-  if (ocr.uncertain) {
+  /*
+   * Every successfully OCR'd accepted LINE image keeps its original
+   * private evidence for operator verification.
+   *
+   * Q2C resume safety:
+   * - an existing OCR checkpoint is reused;
+   * - Gemini is never called again here;
+   * - LINE image bytes are downloaded only when Storage evidence
+   *   is still missing.
+   */
+  const imageEvidenceStored =
+    Boolean(
+      ocrCheckpoint?.image_storage_path
+      ?? message.image_storage_path
+    );
+
+  if (!imageEvidenceStored) {
     if (!image) {
       image =
         await downloadLineImage(
@@ -1740,7 +1757,10 @@ async function handleImageMessage(
       message,
       image,
     );
+  }
 
+
+  if (ocr.uncertain) {
     await supabase
       .from("messages")
       .update({
@@ -1794,31 +1814,6 @@ async function handleImageMessage(
           ],
         }
       : result;
-
-  const parserNeedsHumanReview =
-    ocrParseNeedsHumanReview
-    || ["REVIEW", "PARTIAL"].includes(
-      effectiveResult.status,
-    )
-    || (
-      effectiveResult.status === "PARSED"
-      && !(effectiveResult.items ?? []).length
-    );
-
-  if (parserNeedsHumanReview) {
-    if (!image) {
-      image =
-        await downloadLineImage(
-          event.message.id,
-          LINE_CHANNEL_ACCESS_TOKEN,
-        );
-    }
-
-    await storeImageReviewEvidence(
-      message,
-      image,
-    );
-  }
 
   // Intentionally outside the OCR try/catch:
   // persistence failures must propagate to processEvent -> markWebhookFailed

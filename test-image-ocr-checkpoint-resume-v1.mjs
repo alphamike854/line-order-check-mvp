@@ -104,17 +104,17 @@ assert.match(
 );
 
 /*
- * A resumed checkpoint that later needs Review may fetch the original
- * image again for evidence, but must not call Gemini again.
+ * A resumed checkpoint missing original image evidence may fetch the
+ * image again for Storage, but must not call Gemini again.
  */
 assert.match(
   source,
-  /if \(ocr\.uncertain\) \{[\s\S]*if \(!image\) \{[\s\S]*downloadLineImage\(/,
+  /const imageEvidenceStored =[\s\S]*ocrCheckpoint\?\.image_storage_path[\s\S]*if \(!imageEvidenceStored\) \{[\s\S]*if \(!image\) \{[\s\S]*downloadLineImage\(/,
 );
 
 assert.match(
   source,
-  /if \(parserNeedsHumanReview\) \{[\s\S]*if \(!image\) \{[\s\S]*downloadLineImage\(/,
+  /const imageEvidenceStored =[\s\S]*if \(!imageEvidenceStored\) \{[\s\S]*storeImageReviewEvidence\(/,
 );
 
 /*
@@ -174,7 +174,7 @@ console.log(
   "PASS Q2C-04: DONE/UNCERTAIN checkpoints are resumable",
 );
 console.log(
-  "PASS Q2C-05: review may redownload image without re-running Gemini",
+  "PASS Q2C-05: checkpoint resume may recover missing image evidence without re-running Gemini",
 );
 console.log(
   "PASS Q2C-06: bounded OCR attempt-3 terminal semantics retained",

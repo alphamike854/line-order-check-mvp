@@ -2014,29 +2014,6 @@ body{background:#f3f6fa}
   gap: 12px;
 }
 
-.verification-timeline-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 12px;
-  padding: 10px 12px;
-  border: 1px solid #dce5ef;
-  border-radius: 12px;
-  background: #f8fafc;
-  color: #53657a;
-  font-size: 12px;
-}
-
-.verification-timeline-summary span {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.verification-timeline-summary strong {
-  color: #173a5e;
-  font-variant-numeric: tabular-nums;
-}
-
 .verification-timeline-filters {
   display: flex;
   flex-wrap: wrap;

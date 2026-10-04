@@ -10572,39 +10572,6 @@ function staffVerificationUpdateTimelineControls(
         ?.size;
   }
 
-  const summary =
-    workbench.querySelector(
-      "[data-verification-timeline-summary]",
-    );
-
-  if (summary) {
-    summary.innerHTML = `
-      <span>
-        ทั้งหมด
-        <strong>${formatNumber(
-          counts.all,
-        )}</strong>
-      </span>
-      <span>
-        🔴 ต้องแก้ไข
-        <strong>${formatNumber(
-          counts.needsFix,
-        )}</strong>
-      </span>
-      <span>
-        🟠 ยอดสูง
-        <strong>${formatNumber(
-          counts.highTotal,
-        )}</strong>
-      </span>
-      <span>
-        ⚙️ ระบบ Auto
-        <strong>${formatNumber(
-          counts.auto,
-        )}</strong>
-      </span>
-    `;
-  }
 }
 
 
@@ -11554,11 +11521,6 @@ function appendStaffVerificationQueue(
             </select>
           </label>
         </div>
-
-        <div
-          class="verification-timeline-summary"
-          data-verification-timeline-summary
-        ></div>
 
         <div class="verification-timeline-filters">
           <button
