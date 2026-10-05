@@ -532,6 +532,19 @@ function configureStaffReportScope(
 }
 
 
+function hideReviewBadgeUntilLoaded() {
+  const badge =
+    $("#reviewBadge");
+
+  if (badge) {
+    badge.classList.add(
+      "hidden",
+    );
+  }
+}
+
+
+
 function hideUnsendBadgeUntilLoaded() {
   const badge =
     $("#unsendBadge");
@@ -734,6 +747,7 @@ async function enterDashboardSession(
     "DASHBOARD",
   );
 
+  hideReviewBadgeUntilLoaded();
   hideUnsendBadgeUntilLoaded();
 
   loginError.classList.add(
@@ -14639,6 +14653,18 @@ async function appendStaffVerificationQueueFailSoft(
 async function loadReviews() {
   const list = $("#reviewList");
 
+  const reviewBadge =
+    $("#reviewBadge");
+
+  if (
+    state.authMode === "DASHBOARD"
+    && reviewBadge
+  ) {
+    reviewBadge.classList.add(
+      "hidden",
+    );
+  }
+
   /*
    * Invalidate every older secondary Workbench request
    * as soon as a newer Review load begins.
@@ -14806,6 +14832,52 @@ async function loadReviews() {
       workbenchPayload,
       items,
     );
+
+    if (
+
+      state.authMode === "DASHBOARD"
+
+      && reviewBadge
+
+    ) {
+
+      const reviewCount =
+
+        items.length;
+
+
+      reviewBadge.textContent =
+
+        formatNumber(
+
+          reviewCount,
+
+        );
+
+
+      reviewBadge.classList.remove(
+
+        "hidden",
+
+      );
+
+
+      if (
+
+        state.dashboard
+
+        ?.metrics
+
+      ) {
+
+        state.dashboard.metrics.review_open =
+
+          reviewCount;
+
+      }
+
+    }
+
 
     if (!items.length) {
       list.innerHTML =
@@ -20377,6 +20449,10 @@ async function loadDashboard({
   silent = false,
   preserveReviewWorkbench = false,
 } = {}) {
+  if (!preserveReviewWorkbench) {
+    hideReviewBadgeUntilLoaded();
+  }
+
   hideUnsendBadgeUntilLoaded();
 
   const freshness =
