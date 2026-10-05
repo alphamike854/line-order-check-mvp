@@ -538,6 +538,33 @@ function configureAppForAuthMode(
   const staffMode =
     mode === "STAFF";
 
+  /*
+   * Review/Unsend badges are populated by Dashboard-oriented
+   * aggregate/read paths. Staff mode must not present the
+   * initial HTML value "0" as authoritative operational truth.
+   *
+   * Keep the labels/tabs governed by the existing Staff shell,
+   * but hide these numeric badges while in Staff mode.
+   * Dashboard mode restores their normal visibility.
+   */
+  for (
+    const selector
+    of [
+      "#reviewBadge",
+      "#unsendBadge",
+    ]
+  ) {
+    const badge =
+      $(selector);
+
+    if (badge) {
+      badge.classList.toggle(
+        "hidden",
+        staffMode,
+      );
+    }
+  }
+
   // Dashboard operational chrome must never be exposed as an
   // active Staff workflow. Hidden controls are also protected
   // server-side, but the browser shell should reflect the same
