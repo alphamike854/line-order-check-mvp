@@ -185,6 +185,10 @@ export async function fetchOpenReviews(
         "summary_group_round_id",
         normalizedRoundIds,
       )
+      .eq(
+        "unsent",
+        false,
+      )
       .order(
         "created_at",
         {

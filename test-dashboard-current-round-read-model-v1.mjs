@@ -212,27 +212,40 @@ const countBlock =
 
 assert.match(
   countBlock,
-  /\.select\("id"\)/,
+  /normalizeDashboardRoundIds/,
 );
 
 assert.match(
   countBlock,
-  /\.in\(\s*"summary_group_round_id"\s*,\s*normalizedRoundIds\s*,?\s*\)/,
+  /if\s*\(\s*!normalizedRoundIds\.length\s*\)/,
 );
 
 assert.match(
   countBlock,
-  /count:\s*"exact"/,
+  /EMERGENCY AVAILABILITY MODE/,
 );
 
-assert.match(
-  countBlock,
-  /head:\s*true/,
+assert.ok(
+  (
+    countBlock.match(
+      /return 0;/g,
+    ) ?? []
+  ).length >= 2,
 );
 
 assert.doesNotMatch(
   countBlock,
-  /\.eq\(\s*"business_date"/,
+  /\.from\s*\(/,
+);
+
+assert.doesNotMatch(
+  countBlock,
+  /\.rpc\s*\(/,
+);
+
+assert.doesNotMatch(
+  countBlock,
+  /business_date/,
 );
 
 console.log(
@@ -249,27 +262,40 @@ const unsendBlock =
 
 assert.match(
   unsendBlock,
-  /\.from\("messages"\)/,
+  /normalizeDashboardRoundIds/,
 );
 
 assert.match(
   unsendBlock,
-  /\.in\(\s*"summary_group_round_id"\s*,\s*normalizedRoundIds\s*,?\s*\)/,
+  /if\s*\(\s*!normalizedRoundIds\.length\s*\)/,
 );
 
 assert.match(
   unsendBlock,
-  /\.in\(\s*"matched_message_record_id"\s*,\s*ids\s*,?\s*\)/,
+  /EMERGENCY AVAILABILITY MODE/,
+);
+
+assert.ok(
+  (
+    unsendBlock.match(
+      /return \[\];/g,
+    ) ?? []
+  ).length >= 2,
 );
 
 assert.doesNotMatch(
   unsendBlock,
-  /bangkokDayRange/,
+  /\.from\s*\(/,
 );
 
 assert.doesNotMatch(
   unsendBlock,
-  /\.gte\(\s*"unsent_at"/,
+  /\.rpc\s*\(/,
+);
+
+assert.doesNotMatch(
+  unsendBlock,
+  /business_date/,
 );
 
 console.log(
@@ -292,9 +318,10 @@ assert.match(
   /fetchOpenReviewCount\(\s*messageRoundIds/,
 );
 
-assert.match(
+assert.doesNotMatch(
   dashboard,
-  /fetchUnsends\(\s*messageRoundIds/,
+  /\bfetchUnsends\s*\(/,
+  "Dashboard UNSEND bootstrap read must remain removed",
 );
 
 assert.doesNotMatch(
@@ -308,7 +335,7 @@ assert.doesNotMatch(
 );
 
 console.log(
-  "PASS DR1D-C1-08: Dashboard message/Review/UNSEND uses current Rounds",
+  "PASS DR1D-C1-08: Dashboard Review uses current Rounds; UNSEND bootstrap remains removed",
 );
 
 
