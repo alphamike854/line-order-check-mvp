@@ -9,7 +9,6 @@ import {
 import {
   fetchOpenSettlementSession,
   fetchOpenReviewCount,
-  fetchUnsends,
   json,
   loadGroupConfig,
   normalizeSummaryGroup,
@@ -634,7 +633,6 @@ export default async (req) => {
       riskBudgetResult,
       settingsFreshResult,
       reviewOpenCount,
-      unsends,
       batchFreshResult,
     ]=await Promise.all([
       riskSnapshotQuery,
@@ -688,10 +686,6 @@ export default async (req) => {
         session.id
       ),
 
-      fetchUnsends(
-        messageRoundIds,
-        summaryGroupId
-      ),
 
       supabase
         .from("settlement_transfer_batches")

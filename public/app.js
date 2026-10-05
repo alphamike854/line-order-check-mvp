@@ -532,6 +532,19 @@ function configureStaffReportScope(
 }
 
 
+function hideUnsendBadgeUntilLoaded() {
+  const badge =
+    $("#unsendBadge");
+
+  if (badge) {
+    badge.classList.add(
+      "hidden",
+    );
+  }
+}
+
+
+
 function configureAppForAuthMode(
   mode,
 ) {
@@ -720,6 +733,8 @@ async function enterDashboardSession(
   configureAppForAuthMode(
     "DASHBOARD",
   );
+
+  hideUnsendBadgeUntilLoaded();
 
   loginError.classList.add(
     "hidden",
@@ -15131,10 +15146,29 @@ async function loadReviews() {
 
 async function loadUnsends() {
   const body = $("#unsendBody");
+
+  const badge =
+    $("#unsendBadge");
+
+  if (badge) {
+    badge.classList.add(
+      "hidden",
+    );
+  }
+
   body.innerHTML = `<tr><td colspan="5" class="empty">กำลังโหลด...</td></tr>`;
   try {
     const payload = await api(`/api/unsends?${selectedQuery()}`);
-    $("#unsendBadge").textContent = formatNumber(payload.items.length);
+    if (badge) {
+      badge.textContent =
+        formatNumber(
+          payload.items.length,
+        );
+
+      badge.classList.remove(
+        "hidden",
+      );
+    }
     if (!payload.items.length) {
       body.innerHTML = `<tr><td colspan="5" class="empty">ไม่มี Unsend ในชุดยอดปัจจุบัน</td></tr>`;
       return;
@@ -20343,6 +20377,21 @@ async function loadDashboard({
   silent = false,
   preserveReviewWorkbench = false,
 } = {}) {
+  hideUnsendBadgeUntilLoaded();
+
+  const freshness =
+    $("#freshness");
+
+  let dashboardMetricsRendered =
+    false;
+
+  if (!silent && freshness) {
+    freshness.textContent =
+      state.dashboard
+        ? "กำลังอัปเดตข้อมูล..."
+        : "กำลังโหลดข้อมูล...";
+  }
+
   if (!silent) {
     refreshButton.disabled = true;
     refreshButton.textContent = "กำลังอัปเดต...";
@@ -20430,6 +20479,10 @@ async function loadDashboard({
       state.groupsLoaded = true;
     }
     renderMetrics(payload.metrics);
+
+    dashboardMetricsRendered =
+      true;
+
     renderSummary();
     renderAllocation();
     void loadExportPreparationReadOnly();
@@ -20456,6 +20509,15 @@ async function loadDashboard({
     if (activeTab === "report") await loadReport();
   } catch (error) {
     if (error.message !== "UNAUTHORIZED") {
+      if (
+        !silent
+        && !dashboardMetricsRendered
+        && freshness
+      ) {
+        freshness.textContent =
+          "โหลดข้อมูลไม่สำเร็จ";
+      }
+
       if (silent) console.warn("silent dashboard refresh failed", error);
       else toast("อัปเดตข้อมูลไม่สำเร็จ", true);
     }
