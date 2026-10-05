@@ -1037,6 +1037,63 @@ export async function loadStaffMessageVerificationRevisionAccess(
     );
   }
 
+  /*
+   * Revision Preview/Apply must use the same authoritative
+   * latest OPEN Round contract as the revision RPC boundary.
+   *
+   * Do not infer Round state from message_verifications alone.
+   */
+  const {
+    data: latestRound,
+    error: latestRoundError,
+  } = await client
+    .from(
+      "settlement_summary_group_rounds",
+    )
+    .select(
+      "id,round_no,status",
+    )
+    .eq(
+      "settlement_session_id",
+      settlementSessionId,
+    )
+    .eq(
+      "summary_group_id",
+      verification.summary_group_id,
+    )
+    .order(
+      "round_no",
+      {
+        ascending: false,
+      },
+    )
+    .limit(1)
+    .maybeSingle();
+
+  if (latestRoundError) {
+    throw latestRoundError;
+  }
+
+  if (
+    !latestRound
+    || String(
+      latestRound.id
+      ?? "",
+    )
+      !== String(
+        verification
+          .summary_group_round_id
+        ?? "",
+      )
+    || latestRound.status
+      !== "OPEN"
+  ) {
+    throw new Error(
+      "REVISION_OPEN_ROUND_ONLY",
+    );
+  }
+
+
   const currentRevisionNo =
     normalizeVerificationRevisionNo(
       verification.revision_no,
@@ -1150,6 +1207,12 @@ export async function loadStaffMessageVerificationRevisionAccess(
 
   return {
     ...verification,
+
+    round_no:
+      latestRound.round_no,
+
+    round_status:
+      latestRound.status,
 
     revision_no:
       currentRevisionNo,
