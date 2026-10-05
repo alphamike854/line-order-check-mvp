@@ -22,6 +22,7 @@ import {
 import {
   claimStaffMessageVerificationRevisionWork,
   claimStaffMessageVerificationWork,
+  normalizeVerificationRevisionNo,
   releaseStaffMessageVerificationWork,
 } from "../../src/lib/staff-message-verification.mjs";
 
@@ -52,6 +53,8 @@ const KNOWN_CLIENT_ERRORS =
     "SETTLEMENT_NOT_OPEN",
     "NO_OPEN_SETTLEMENT",
     "STAFF_NOT_ACTIVE",
+    "MESSAGE_NOT_AVAILABLE_FOR_OPEN_REVISION",
+    "STALE_VERIFICATION_REVISION",
   ]);
 
 
@@ -128,6 +131,29 @@ export default async function handler(req) {
       normalizeClaimAction(
         body?.action,
       );
+
+    const revisionNo =
+      revisionMode
+      && action === "CLAIM"
+        ? normalizeVerificationRevisionNo(
+            body?.revision_no,
+          )
+        : null;
+
+    if (
+      revisionMode
+      && action === "CLAIM"
+      && !revisionNo
+    ) {
+      return json(
+        {
+          ok: false,
+          error:
+            "REVISION_NO_REQUIRED",
+        },
+        400,
+      );
+    }
 
     if (!action) {
       return json(
@@ -230,6 +256,9 @@ export default async function handler(req) {
 
               settlementSessionId:
                 session.id,
+
+              expectedRevisionNo:
+                revisionNo,
 
               leaseSeconds:
                 normalizeClaimLeaseSeconds(

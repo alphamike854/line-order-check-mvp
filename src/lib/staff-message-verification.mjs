@@ -850,6 +850,7 @@ export async function claimStaffMessageVerificationRevisionWork(
     staffId,
     allowedLineGroupIds,
     settlementSessionId,
+    expectedRevisionNo,
     leaseSeconds,
   },
 ) {
@@ -876,6 +877,11 @@ export async function claimStaffMessageVerificationRevisionWork(
 
       p_settlement_session_id:
         settlementSessionId,
+
+      p_expected_revision_no:
+        normalizeVerificationRevisionNo(
+          expectedRevisionNo,
+        ),
 
       p_lease_seconds:
         normalizeClaimLeaseSeconds(
