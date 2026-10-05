@@ -5781,6 +5781,115 @@ function staffVerificationCanMutate(
   );
 }
 
+
+/*
+ * Human Verification Revision Browser v1
+ *
+ * First-pass Human Verification remains PENDING-only.
+ * Edit Again is intentionally a separate OPEN-Round flow.
+ */
+function staffVerificationRevisionStatusEligible(
+  item,
+) {
+  const status =
+    staffVerificationTimelineStatus(
+      item,
+    );
+
+  return Boolean(
+    (
+      status === "HUMAN_VERIFIED"
+      || status === "HUMAN_CORRECTED"
+    )
+    && String(
+      item?.round_status
+      ?? "",
+    )
+      .trim()
+      .toUpperCase()
+      === "OPEN"
+  );
+}
+
+
+function staffVerificationRevisionEditing(
+  card,
+) {
+  return Boolean(
+    card?._staffVerificationItem
+      ?._revision_editing
+    === true,
+  );
+}
+
+
+function staffVerificationRevisionNo(
+  card,
+) {
+  const value =
+    Number(
+      card?._staffVerificationItem
+        ?.revision_no,
+    );
+
+  return (
+    Number.isSafeInteger(value)
+    && value >= 1
+  )
+    ? value
+    : null;
+}
+
+
+function staffVerificationCanRevise(
+  card,
+) {
+  return Boolean(
+    card?._staffVerificationActor
+      ?.staff_id
+    && staffVerificationRevisionStatusEligible(
+      card?._staffVerificationItem,
+    )
+    && staffVerificationRevisionEditing(
+      card,
+    )
+    && card?._staffVerificationItem
+      ?.claim_state === "MINE"
+    && staffVerificationLeaseVersion(
+      card,
+    )
+    && staffVerificationRevisionNo(
+      card,
+    )
+  );
+}
+
+
+function staffVerificationRevisionInitialText(
+  item,
+) {
+  const currentHumanTruth =
+    item?.corrected_text
+    ?? item?.verified_normalized_text
+    ?? null;
+
+  if (
+    currentHumanTruth != null
+    && String(
+      currentHumanTruth,
+    ).trim()
+  ) {
+    return String(
+      currentHumanTruth,
+    );
+  }
+
+  return staffVerificationFullSourceText(
+    item,
+  );
+}
+
+
 function staffVerificationIssueText(
   issue,
 ) {
@@ -6554,6 +6663,129 @@ function staffVerificationResolutionHtml(
   item,
   correctedText = null,
 ) {
+
+  const status =
+    staffVerificationTimelineStatus(
+      item,
+    );
+
+  if (
+    staffVerificationRevisionStatusEligible(
+      item,
+    )
+  ) {
+    const claimState =
+      item?.claim_state
+      ?? "AVAILABLE";
+
+    if (
+      claimState === "CLAIMED_BY_OTHER"
+      || claimState === "OTHER"
+    ) {
+      return "";
+    }
+
+    const editing =
+      item?._revision_editing
+      === true;
+
+    const revisionNo =
+      Number(
+        item?.revision_no,
+      );
+
+    if (
+      editing
+      && claimState === "MINE"
+      && Number.isSafeInteger(
+        revisionNo,
+      )
+      && revisionNo >= 1
+    ) {
+      const initialText =
+        staffVerificationRevisionInitialText(
+          item,
+        );
+
+      return `
+        <div class="staff-verification-resolution">
+          <div class="staff-verification-primary-action">
+            <strong>
+              แก้ไข Human Truth อีกครั้ง
+            </strong>
+
+            <span class="muted small-text">
+              Revision ปัจจุบัน #${escapeHtml(
+                revisionNo,
+              )}
+            </span>
+          </div>
+
+          <details
+            class="staff-verification-correction-panel"
+            open
+          >
+            <summary>
+              แก้ไขอีกครั้ง
+            </summary>
+
+            <div class="staff-verification-correction-body">
+              <div class="muted small-text">
+                เริ่มจาก Human Truth ปัจจุบัน
+                แก้ข้อความ แล้วตรวจผลก่อนยืนยัน
+              </div>
+
+              <label class="editor-label">
+                ข้อความที่ถูกต้อง
+
+                <textarea
+                  class="review-editor staff-verification-correction"
+                  rows="4"
+                >${escapeHtml(initialText)}</textarea>
+              </label>
+
+              <div class="review-actions">
+                <button
+                  type="button"
+                  class="button ghost small preview-staff-verification-correction"
+                >
+                  ตรวจผลที่แก้ไข
+                </button>
+
+                <button
+                  type="button"
+                  class="button primary small apply-staff-verification-correction"
+                  disabled
+                >
+                  ยืนยันการแก้ไข
+                </button>
+              </div>
+
+              <div class="staff-verification-preview"></div>
+            </div>
+          </details>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="staff-verification-resolution">
+        <div class="staff-verification-primary-action">
+          <button
+            type="button"
+            class="button primary small start-staff-verification-revision"
+          >
+            แก้ไขอีกครั้ง
+          </button>
+
+          <span class="muted small-text">
+            ใช้เมื่อผลที่ตรวจไว้ต้องการแก้ไขอีกครั้ง
+          </span>
+        </div>
+      </div>
+    `;
+  }
+
   if (
     staffVerificationTimelineStatus(
       item,
@@ -7280,6 +7512,11 @@ const STAFF_VERIFICATION_STATE_CONFLICTS =
   new Set([
     "MESSAGE_NOT_FOUND",
     "MESSAGE_ALREADY_VERIFIED",
+    "MESSAGE_NOT_VERIFIED",
+    "MESSAGE_NOT_READY_FOR_REVISION",
+    "VERIFICATION_MESSAGE_CONTEXT_MISMATCH",
+    "STALE_VERIFICATION_REVISION",
+    "REVISION_OPEN_ROUND_ONLY",
     "MESSAGE_ALREADY_UNSENT",
     "MESSAGE_NOT_READY_FOR_VERIFICATION",
     "MESSAGE_HAS_NO_ORDER_ITEMS",
@@ -7671,6 +7908,256 @@ function staffVerificationApplyLocalClaimState(
 }
 
 
+async function startStaffVerificationRevision(
+  card,
+  button,
+) {
+  const root =
+    card?.closest(
+      "#staffVerificationQueue",
+    );
+
+  const workbench =
+    root?.closest?.(
+      "#staffVerificationWorkbench",
+    )
+    ?? null;
+
+  const messageRecordId =
+    staffVerificationMessageRecordId(
+      card,
+    );
+
+  const currentItem =
+    card?._staffVerificationItem
+    ?? null;
+
+  if (
+    !root
+    || !workbench
+    || !messageRecordId
+    || state.authMode !== "STAFF"
+    || !staffVerificationRevisionStatusEligible(
+      currentItem,
+    )
+  ) {
+    return;
+  }
+
+  button.disabled = true;
+
+  try {
+    const query =
+      new URLSearchParams();
+
+    query.set(
+      "message_record_id",
+      messageRecordId,
+    );
+
+    const summaryGroupId =
+      String(
+        currentItem?.summary_group_id
+        ?? "",
+      ).trim();
+
+    if (summaryGroupId) {
+      query.set(
+        "group",
+        summaryGroupId,
+      );
+    }
+
+    const exactPayload =
+      await api(
+        `/api/staff-verification-message?${query.toString()}`,
+      );
+
+    const exactItem =
+      exactPayload?.item
+      ?? null;
+
+    if (
+      String(
+        exactItem?.message_record_id
+        ?? "",
+      ) !== messageRecordId
+    ) {
+      throw new Error(
+        "MESSAGE_NOT_FOUND",
+      );
+    }
+
+    if (
+      !staffVerificationRevisionStatusEligible(
+        exactItem,
+      )
+    ) {
+      throw new Error(
+        "REVISION_OPEN_ROUND_ONLY",
+      );
+    }
+
+    const revisionNo =
+      Number(
+        exactItem?.revision_no,
+      );
+
+    if (
+      !Number.isSafeInteger(
+        revisionNo,
+      )
+      || revisionNo < 1
+    ) {
+      throw new Error(
+        "MESSAGE_NOT_VERIFIED",
+      );
+    }
+
+    const claimPayload =
+      await api(
+        "/api/staff-verification-claim",
+        {
+          method: "POST",
+          body:
+            JSON.stringify({
+              action:
+                "CLAIM",
+
+              message_record_id:
+                messageRecordId,
+
+              revision_mode:
+                true,
+
+              lease_seconds:
+                300,
+            }),
+        },
+      );
+
+    const claim =
+      claimPayload?.claim
+      ?? {};
+
+    const leaseVersion =
+      Number(
+        claim?.lease_version,
+      );
+
+    if (
+      !Number.isSafeInteger(
+        leaseVersion,
+      )
+      || leaseVersion < 1
+    ) {
+      throw new Error(
+        "LEASE_VERSION_REQUIRED",
+      );
+    }
+
+    const actor =
+      workbench
+        ._verificationWorkbenchActor
+      ?? {};
+
+    const nextItem = {
+      ...currentItem,
+      ...exactItem,
+
+      _revision_editing:
+        true,
+
+      claim_state:
+        "MINE",
+
+      claimed_by_staff_id:
+        actor.staff_id
+        ?? exactItem?.claimed_by_staff_id
+        ?? null,
+
+      claimed_by_staff_code:
+        actor.staff_code
+        ?? exactItem?.claimed_by_staff_code
+        ?? null,
+
+      claimed_by_display_name:
+        actor.display_name
+        ?? exactItem?.claimed_by_display_name
+        ?? null,
+
+      claimed_at:
+        claim?.claimed_at
+        ?? exactItem?.claimed_at
+        ?? null,
+
+      claim_expires_at:
+        claim?.claim_expires_at
+        ?? exactItem?.claim_expires_at
+        ?? null,
+
+      lease_version:
+        leaseVersion,
+    };
+
+    workbench
+      ._verificationWorkbenchItems
+      .set(
+        messageRecordId,
+        nextItem,
+      );
+
+    staffVerificationRenderTimeline(
+      workbench,
+    );
+
+    selectStaffVerificationWorkbenchItem(
+      workbench,
+      messageRecordId,
+      {
+        scroll: false,
+      },
+    );
+
+    toast(
+      "เปิดแก้ไขอีกครั้งแล้ว",
+    );
+
+  } catch (error) {
+    if (
+      isStaffVerificationStateConflict(
+        error,
+      )
+    ) {
+      try {
+        await reloadStaffVerificationQueue(
+          root,
+        );
+      } catch (refreshError) {
+        console.warn(
+          "refresh Human Verification after revision start conflict failed",
+          refreshError,
+        );
+      }
+    }
+
+    toast(
+      `เปิดแก้ไขอีกครั้งไม่สำเร็จ: ${
+        staffVerificationErrorCode(
+          error,
+        )
+      }`,
+      true,
+    );
+
+  } finally {
+    if (button.isConnected) {
+      button.disabled = false;
+    }
+  }
+}
+
+
 async function mutateStaffVerificationClaim(
   card,
   action,
@@ -7924,14 +8411,29 @@ async function confirmStaffVerification(
 }
 
 
+/*
+ * Human Verification Revision Payload Fence v1
+ *
+ * Revision Preview/Apply are bound to both lease_version and
+ * revision_no. First-pass correction remains unchanged.
+ */
 async function previewStaffVerificationCorrection(
   card,
   button,
 ) {
-  if (
-    !staffVerificationCanMutate(
+  const revisionMode =
+    staffVerificationRevisionEditing(
       card,
-    )
+    );
+
+  if (
+    revisionMode
+      ? !staffVerificationCanRevise(
+          card,
+        )
+      : !staffVerificationCanMutate(
+          card,
+        )
   ) {
     return;
   }
@@ -7950,6 +8452,13 @@ async function previewStaffVerificationCorrection(
     staffVerificationLeaseVersion(
       card,
     );
+
+  const revisionNo =
+    revisionMode
+      ? staffVerificationRevisionNo(
+          card,
+        )
+      : null;
 
   const editor =
     card.querySelector(
@@ -8015,6 +8524,18 @@ async function previewStaffVerificationCorrection(
 
               corrected_text:
                 correctedText,
+
+              ...(
+                revisionMode
+                  ? {
+                      revision_mode:
+                        true,
+
+                      revision_no:
+                        revisionNo,
+                    }
+                  : {}
+              ),
             }),
         },
       );
@@ -8022,6 +8543,22 @@ async function previewStaffVerificationCorrection(
     const preview =
       payload?.preview
       ?? {};
+
+    if (
+      revisionMode
+      && (
+        payload?.revision_mode
+          !== true
+        || Number(
+          payload?.revision_no,
+        )
+          !== revisionNo
+      )
+    ) {
+      throw new Error(
+        "STALE_VERIFICATION_REVISION",
+      );
+    }
 
     if (
       preview?.can_apply
@@ -8034,6 +8571,10 @@ async function previewStaffVerificationCorrection(
         correctedText,
 
         leaseVersion,
+
+        revisionMode,
+
+        revisionNo,
 
         roundStatus:
           preview.round_status
@@ -8098,10 +8639,19 @@ async function applyStaffVerificationCorrection(
   card,
   button,
 ) {
-  if (
-    !staffVerificationCanMutate(
+  const revisionMode =
+    staffVerificationRevisionEditing(
       card,
-    )
+    );
+
+  if (
+    revisionMode
+      ? !staffVerificationCanRevise(
+          card,
+        )
+      : !staffVerificationCanMutate(
+          card,
+        )
   ) {
     return;
   }
@@ -8120,6 +8670,13 @@ async function applyStaffVerificationCorrection(
     staffVerificationLeaseVersion(
       card,
     );
+
+  const revisionNo =
+    revisionMode
+      ? staffVerificationRevisionNo(
+          card,
+        )
+      : null;
 
   const editor =
     card.querySelector(
@@ -8150,6 +8707,10 @@ async function applyStaffVerificationCorrection(
       !== correctedText
     || preview.leaseVersion
       !== leaseVersion
+    || preview.revisionMode
+      !== revisionMode
+    || preview.revisionNo
+      !== revisionNo
   ) {
     clearStaffVerificationPreview(
       card,
@@ -8204,6 +8765,18 @@ async function applyStaffVerificationCorrection(
 
               preview_token:
                 preview.token,
+
+              ...(
+                revisionMode
+                  ? {
+                      revision_mode:
+                        true,
+
+                      revision_no:
+                        revisionNo,
+                    }
+                  : {}
+              ),
             }),
         },
       );
@@ -8211,6 +8784,26 @@ async function applyStaffVerificationCorrection(
     const result =
       payload?.verification
       ?? {};
+
+    if (revisionMode) {
+      const nextRevisionNo =
+        Number(
+          payload?.revision_no
+          ?? result?.revision_no,
+        );
+
+      if (
+        !Number.isSafeInteger(
+          nextRevisionNo,
+        )
+        || nextRevisionNo
+          <= revisionNo
+      ) {
+        throw new Error(
+          "STALE_VERIFICATION_REVISION",
+        );
+      }
+    }
 
     clearStaffVerificationPreview(
       card,
@@ -8284,6 +8877,8 @@ function bindStaffVerificationActions(
       const button =
         event.target.closest(
           [
+            ".start-staff-verification-revision",
+
             ".claim-staff-verification",
             ".renew-staff-verification",
             ".release-staff-verification",
@@ -8306,6 +8901,19 @@ function bindStaffVerificationActions(
         );
 
       if (!card) {
+        return;
+      }
+
+      if (
+        button.classList.contains(
+          "start-staff-verification-revision",
+        )
+      ) {
+        void startStaffVerificationRevision(
+          card,
+          button,
+        );
+
         return;
       }
 

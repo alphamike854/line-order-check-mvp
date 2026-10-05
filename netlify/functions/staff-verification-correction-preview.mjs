@@ -29,6 +29,8 @@ import {
 import {
   canonicalVerificationOrderItems,
   loadStaffMessageVerificationCorrectionAccess,
+  loadStaffMessageVerificationRevisionAccess,
+  normalizeVerificationRevisionNo,
 } from "../../src/lib/staff-message-verification.mjs";
 
 import {
@@ -41,6 +43,11 @@ const CORRECTION_CONFLICTS =
   new Set([
     "MESSAGE_NOT_FOUND",
     "MESSAGE_ALREADY_VERIFIED",
+    "MESSAGE_NOT_VERIFIED",
+    "MESSAGE_NOT_READY_FOR_REVISION",
+    "VERIFICATION_MESSAGE_CONTEXT_MISMATCH",
+    "STALE_VERIFICATION_REVISION",
+    "REVISION_OPEN_ROUND_ONLY",
     "MESSAGE_ALREADY_UNSENT",
     "MESSAGE_NOT_READY_FOR_VERIFICATION",
     "MESSAGE_HAS_NO_ORDER_ITEMS",
@@ -81,6 +88,13 @@ function errorStatus(
   return 500;
 }
 
+
+/*
+ * Human Verification Revision Preview v1
+ *
+ * revision_mode is explicit.
+ * Revision Preview is fenced by both lease_version and revision_no.
+ */
 
 export default async function handler(
   req,
@@ -143,6 +157,9 @@ export default async function handler(
       );
     }
 
+    const revisionMode =
+      body?.revision_mode === true;
+
     const messageRecordId =
       normalizeMessageRecordId(
         body?.message_record_id,
@@ -170,6 +187,27 @@ export default async function handler(
           ok: false,
           error:
             "LEASE_VERSION_REQUIRED",
+        },
+        400,
+      );
+    }
+
+    const revisionNo =
+      revisionMode
+        ? normalizeVerificationRevisionNo(
+            body?.revision_no,
+          )
+        : null;
+
+    if (
+      revisionMode
+      && !revisionNo
+    ) {
+      return json(
+        {
+          ok: false,
+          error:
+            "REVISION_NO_REQUIRED",
         },
         400,
       );
@@ -225,19 +263,44 @@ export default async function handler(
     }
 
     const access =
-      await loadStaffMessageVerificationCorrectionAccess(
-        supabase,
-        {
-          messageRecordId,
-          staffId:
-            auth.actor.staff_id,
-          allowedLineGroupIds,
-          settlementSessionId:
-            session.id,
-          expectedLeaseVersion:
-            leaseVersion,
-        },
-      );
+      revisionMode
+        ? await loadStaffMessageVerificationRevisionAccess(
+            supabase,
+            {
+              messageRecordId,
+
+              staffId:
+                auth.actor.staff_id,
+
+              allowedLineGroupIds,
+
+              settlementSessionId:
+                session.id,
+
+              expectedLeaseVersion:
+                leaseVersion,
+
+              expectedRevisionNo:
+                revisionNo,
+            },
+          )
+        : await loadStaffMessageVerificationCorrectionAccess(
+            supabase,
+            {
+              messageRecordId,
+
+              staffId:
+                auth.actor.staff_id,
+
+              allowedLineGroupIds,
+
+              settlementSessionId:
+                session.id,
+
+              expectedLeaseVersion:
+                leaseVersion,
+            },
+          );
 
     const parserConfig =
       await loadParserConfig();
@@ -309,6 +372,8 @@ export default async function handler(
 
           leaseVersion,
 
+          revisionNo,
+
           sourceParserVersion:
             access
               .source_parser_version,
@@ -370,6 +435,12 @@ export default async function handler(
 
       lease_version:
         leaseVersion,
+
+      revision_mode:
+        revisionMode,
+
+      revision_no:
+        revisionNo,
 
       preview_token:
         previewToken,

@@ -806,3 +806,453 @@ export async function correctStaffMessageVerificationOrder(
 
   return data;
 }
+
+
+/* Human Verification Revision Application v1 */
+
+/*
+ * Revision is deliberately separate from first-pass verification.
+ *
+ * The original functions:
+ *   claimStaffMessageVerificationWork
+ *   verifyStaffMessageOrder
+ *   correctStaffMessageVerificationOrder
+ *
+ * retain their existing MESSAGE_ALREADY_VERIFIED semantics.
+ */
+
+
+export function normalizeVerificationRevisionNo(
+  value,
+) {
+  const revisionNo =
+    Number(
+      value,
+    );
+
+  if (
+    !Number.isSafeInteger(
+      revisionNo,
+    )
+    || revisionNo < 1
+  ) {
+    return null;
+  }
+
+  return revisionNo;
+}
+
+
+export async function claimStaffMessageVerificationRevisionWork(
+  client,
+  {
+    messageRecordId,
+    staffId,
+    allowedLineGroupIds,
+    settlementSessionId,
+    leaseSeconds,
+  },
+) {
+  const {
+    data,
+    error,
+  } = await client.rpc(
+    "claim_staff_message_verification_revision_work",
+    {
+      p_message_record_id:
+        normalizeMessageRecordId(
+          messageRecordId,
+        ),
+
+      p_staff_id:
+        staffId,
+
+      p_allowed_line_group_ids:
+        Array.isArray(
+          allowedLineGroupIds,
+        )
+          ? allowedLineGroupIds
+          : [],
+
+      p_settlement_session_id:
+        settlementSessionId,
+
+      p_lease_seconds:
+        normalizeClaimLeaseSeconds(
+          leaseSeconds,
+        ),
+    },
+  );
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
+
+export async function loadStaffMessageVerificationRevisionAccess(
+  client,
+  {
+    messageRecordId,
+    staffId,
+    allowedLineGroupIds,
+    settlementSessionId,
+    expectedLeaseVersion,
+    expectedRevisionNo,
+  },
+) {
+  const safeMessageRecordId =
+    normalizeMessageRecordId(
+      messageRecordId,
+    );
+
+  if (!safeMessageRecordId) {
+    throw new Error(
+      "MESSAGE_RECORD_ID_REQUIRED",
+    );
+  }
+
+  const safeLeaseVersion =
+    normalizeLeaseVersion(
+      expectedLeaseVersion,
+    );
+
+  if (!safeLeaseVersion) {
+    throw new Error(
+      "LEASE_VERSION_REQUIRED",
+    );
+  }
+
+  const safeRevisionNo =
+    normalizeVerificationRevisionNo(
+      expectedRevisionNo,
+    );
+
+  if (!safeRevisionNo) {
+    throw new Error(
+      "REVISION_NO_REQUIRED",
+    );
+  }
+
+  const safeAllowedLineGroupIds =
+    Array.isArray(
+      allowedLineGroupIds,
+    )
+      ? allowedLineGroupIds
+          .map(
+            (value) =>
+              String(
+                value
+                ?? "",
+              ).trim(),
+          )
+          .filter(Boolean)
+      : [];
+
+  const {
+    data: verification,
+    error: verificationError,
+  } = await client
+    .from(
+      "message_verifications",
+    )
+    .select(
+      [
+        "message_record_id",
+        "settlement_session_id",
+        "summary_group_id",
+        "summary_group_round_id",
+        "line_group_id",
+        "business_date",
+
+        "verification_mode",
+
+        "source_parser_version",
+        "source_normalized_text",
+        "source_order_items",
+
+        "corrected_text",
+
+        "verified_parser_version",
+        "verified_normalized_text",
+        "verified_order_items",
+        "verified_first_order_code",
+
+        "canonical_mutation_applied",
+
+        "revision_no",
+
+        "last_revised_at",
+        "last_revised_by_staff_id",
+        "last_revised_by_staff_code",
+        "last_revised_by_display_name",
+      ].join(","),
+    )
+    .eq(
+      "message_record_id",
+      safeMessageRecordId,
+    )
+    .maybeSingle();
+
+  if (verificationError) {
+    throw verificationError;
+  }
+
+  if (!verification) {
+    throw new Error(
+      "MESSAGE_NOT_VERIFIED",
+    );
+  }
+
+  if (
+    String(
+      verification
+        .settlement_session_id
+      ?? "",
+    )
+      !== String(
+        settlementSessionId
+        ?? "",
+      )
+  ) {
+    throw new Error(
+      "MESSAGE_OUTSIDE_CURRENT_SETTLEMENT",
+    );
+  }
+
+  if (
+    !safeAllowedLineGroupIds
+      .includes(
+        String(
+          verification
+            .line_group_id
+          ?? "",
+        ),
+      )
+  ) {
+    throw new Error(
+      "MESSAGE_OUTSIDE_STAFF_SCOPE",
+    );
+  }
+
+  const currentRevisionNo =
+    normalizeVerificationRevisionNo(
+      verification.revision_no,
+    );
+
+  if (
+    !currentRevisionNo
+    || currentRevisionNo
+      !== safeRevisionNo
+  ) {
+    throw new Error(
+      "STALE_VERIFICATION_REVISION",
+    );
+  }
+
+  const {
+    data: claim,
+    error: claimError,
+  } = await client
+    .from(
+      "staff_message_work_claims",
+    )
+    .select(
+      [
+        "message_record_id",
+        "staff_id",
+        "claimed_at",
+        "claim_expires_at",
+        "lease_version",
+      ].join(","),
+    )
+    .eq(
+      "message_record_id",
+      safeMessageRecordId,
+    )
+    .maybeSingle();
+
+  if (claimError) {
+    throw claimError;
+  }
+
+  if (!claim) {
+    throw new Error(
+      "CLAIM_REQUIRED",
+    );
+  }
+
+  if (
+    String(
+      claim.staff_id
+      ?? "",
+    )
+      !== String(
+        staffId
+        ?? "",
+      )
+  ) {
+    throw new Error(
+      "CLAIM_OWNED_BY_OTHER",
+    );
+  }
+
+  const claimLeaseVersion =
+    normalizeLeaseVersion(
+      claim.lease_version,
+    );
+
+  if (
+    !claimLeaseVersion
+    || claimLeaseVersion
+      !== safeLeaseVersion
+  ) {
+    throw new Error(
+      "STALE_CLAIM_VERSION",
+    );
+  }
+
+  const claimExpiresAtMs =
+    Date.parse(
+      claim.claim_expires_at
+      ?? "",
+    );
+
+  if (
+    !Number.isFinite(
+      claimExpiresAtMs,
+    )
+    || claimExpiresAtMs
+      <= Date.now()
+  ) {
+    throw new Error(
+      "CLAIM_EXPIRED",
+    );
+  }
+
+  const currentText =
+    String(
+      verification.corrected_text
+      ?? verification
+        .verified_normalized_text
+      ?? verification
+        .source_normalized_text
+      ?? "",
+    );
+
+  const currentItems =
+    canonicalVerificationOrderItems(
+      verification
+        .verified_order_items,
+    );
+
+  return {
+    ...verification,
+
+    revision_no:
+      currentRevisionNo,
+
+    lease_version:
+      claimLeaseVersion,
+
+    claim_expires_at:
+      claim.claim_expires_at,
+
+    current_text:
+      currentText,
+
+    current_items:
+      currentItems,
+  };
+}
+
+
+export async function reviseStaffMessageVerificationOrder(
+  client,
+  {
+    messageRecordId,
+    staffId,
+    allowedLineGroupIds,
+    settlementSessionId,
+
+    expectedLeaseVersion,
+    expectedRevisionNo,
+
+    correctedText,
+    correctedParserVersion,
+    correctedNormalizedText,
+    correctedOrderItems,
+    correctedFirstOrderCode,
+  },
+) {
+  const {
+    data,
+    error,
+  } = await client.rpc(
+    "revise_staff_message_verification_order",
+    {
+      p_message_record_id:
+        normalizeMessageRecordId(
+          messageRecordId,
+        ),
+
+      p_staff_id:
+        staffId,
+
+      p_allowed_line_group_ids:
+        Array.isArray(
+          allowedLineGroupIds,
+        )
+          ? allowedLineGroupIds
+          : [],
+
+      p_settlement_session_id:
+        settlementSessionId,
+
+      p_expected_lease_version:
+        normalizeLeaseVersion(
+          expectedLeaseVersion,
+        ),
+
+      p_expected_revision_no:
+        normalizeVerificationRevisionNo(
+          expectedRevisionNo,
+        ),
+
+      p_corrected_text:
+        String(
+          correctedText
+          ?? "",
+        ),
+
+      p_corrected_parser_version:
+        normalizeVerificationParserVersion(
+          correctedParserVersion,
+        ),
+
+      p_corrected_normalized_text:
+        normalizeVerificationNormalizedText(
+          correctedNormalizedText,
+        ),
+
+      p_corrected_order_items:
+        canonicalVerificationOrderItems(
+          correctedOrderItems,
+        ),
+
+      p_corrected_first_order_code:
+        String(
+          correctedFirstOrderCode
+          ?? "",
+        ).trim(),
+    },
+  );
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}

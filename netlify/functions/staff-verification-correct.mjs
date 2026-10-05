@@ -30,6 +30,9 @@ import {
   canonicalVerificationOrderItems,
   correctStaffMessageVerificationOrder,
   loadStaffMessageVerificationCorrectionAccess,
+  loadStaffMessageVerificationRevisionAccess,
+  normalizeVerificationRevisionNo,
+  reviseStaffMessageVerificationOrder,
 } from "../../src/lib/staff-message-verification.mjs";
 
 import {
@@ -42,6 +45,11 @@ const CORRECTION_CONFLICTS =
   new Set([
     "MESSAGE_NOT_FOUND",
     "MESSAGE_ALREADY_VERIFIED",
+    "MESSAGE_NOT_VERIFIED",
+    "MESSAGE_NOT_READY_FOR_REVISION",
+    "VERIFICATION_MESSAGE_CONTEXT_MISMATCH",
+    "STALE_VERIFICATION_REVISION",
+    "REVISION_OPEN_ROUND_ONLY",
     "MESSAGE_ALREADY_UNSENT",
     "MESSAGE_NOT_READY_FOR_VERIFICATION",
     "MESSAGE_HAS_NO_ORDER_ITEMS",
@@ -105,6 +113,13 @@ function errorStatus(
 }
 
 
+/*
+ * Human Verification Revision Apply v1
+ *
+ * revision_mode is explicit.
+ * First-pass correction retains its existing RPC path.
+ */
+
 export default async function handler(
   req,
 ) {
@@ -166,6 +181,9 @@ export default async function handler(
       );
     }
 
+    const revisionMode =
+      body?.revision_mode === true;
+
     const messageRecordId =
       normalizeMessageRecordId(
         body?.message_record_id,
@@ -193,6 +211,27 @@ export default async function handler(
           ok: false,
           error:
             "LEASE_VERSION_REQUIRED",
+        },
+        400,
+      );
+    }
+
+    const revisionNo =
+      revisionMode
+        ? normalizeVerificationRevisionNo(
+            body?.revision_no,
+          )
+        : null;
+
+    if (
+      revisionMode
+      && !revisionNo
+    ) {
+      return json(
+        {
+          ok: false,
+          error:
+            "REVISION_NO_REQUIRED",
         },
         400,
       );
@@ -265,19 +304,44 @@ export default async function handler(
     }
 
     const access =
-      await loadStaffMessageVerificationCorrectionAccess(
-        supabase,
-        {
-          messageRecordId,
-          staffId:
-            auth.actor.staff_id,
-          allowedLineGroupIds,
-          settlementSessionId:
-            session.id,
-          expectedLeaseVersion:
-            leaseVersion,
-        },
-      );
+      revisionMode
+        ? await loadStaffMessageVerificationRevisionAccess(
+            supabase,
+            {
+              messageRecordId,
+
+              staffId:
+                auth.actor.staff_id,
+
+              allowedLineGroupIds,
+
+              settlementSessionId:
+                session.id,
+
+              expectedLeaseVersion:
+                leaseVersion,
+
+              expectedRevisionNo:
+                revisionNo,
+            },
+          )
+        : await loadStaffMessageVerificationCorrectionAccess(
+            supabase,
+            {
+              messageRecordId,
+
+              staffId:
+                auth.actor.staff_id,
+
+              allowedLineGroupIds,
+
+              settlementSessionId:
+                session.id,
+
+              expectedLeaseVersion:
+                leaseVersion,
+            },
+          );
 
     const parserConfig =
       await loadParserConfig();
@@ -367,6 +431,8 @@ export default async function handler(
 
         leaseVersion,
 
+        revisionNo,
+
         sourceParserVersion:
           access
             .source_parser_version,
@@ -427,53 +493,97 @@ export default async function handler(
     }
 
     const result =
-      await correctStaffMessageVerificationOrder(
-        supabase,
-        {
-          messageRecordId,
+      revisionMode
+        ? await reviseStaffMessageVerificationOrder(
+            supabase,
+            {
+              messageRecordId,
 
-          staffId:
-            auth.actor.staff_id,
+              staffId:
+                auth.actor.staff_id,
 
-          allowedLineGroupIds,
+              allowedLineGroupIds,
 
-          settlementSessionId:
-            session.id,
+              settlementSessionId:
+                session.id,
 
-          expectedLeaseVersion:
-            leaseVersion,
+              expectedLeaseVersion:
+                leaseVersion,
 
-          expectedParserVersion:
-            access
-              .source_parser_version,
+              expectedRevisionNo:
+                revisionNo,
 
-          expectedNormalizedText:
-            access
-              .source_normalized_text,
+              correctedText,
 
-          expectedOrderItems:
-            access
-              .source_order_items,
+              correctedParserVersion:
+                parsed.parser_version,
 
-          correctedText,
+              correctedNormalizedText:
+                parsed.normalized_text,
 
-          correctedParserVersion:
-            parsed.parser_version,
+              correctedOrderItems,
 
-          correctedNormalizedText:
-            parsed.normalized_text,
+              correctedFirstOrderCode,
+            },
+          )
+        : await correctStaffMessageVerificationOrder(
+            supabase,
+            {
+              messageRecordId,
 
-          correctedOrderItems,
+              staffId:
+                auth.actor.staff_id,
 
-          correctedFirstOrderCode,
-        },
-      );
+              allowedLineGroupIds,
+
+              settlementSessionId:
+                session.id,
+
+              expectedLeaseVersion:
+                leaseVersion,
+
+              expectedParserVersion:
+                access
+                  .source_parser_version,
+
+              expectedNormalizedText:
+                access
+                  .source_normalized_text,
+
+              expectedOrderItems:
+                access
+                  .source_order_items,
+
+              correctedText,
+
+              correctedParserVersion:
+                parsed.parser_version,
+
+              correctedNormalizedText:
+                parsed.normalized_text,
+
+              correctedOrderItems,
+
+              correctedFirstOrderCode,
+            },
+          );
 
     return json({
       ok: true,
 
       message_record_id:
         messageRecordId,
+
+      revision_mode:
+        revisionMode,
+
+      revision_no:
+        revisionMode
+          ? (
+            result?.revision_no
+            ?? revisionNo
+          )
+          : null,
 
       preview_fingerprint:
         verified.fingerprint,

@@ -191,6 +191,7 @@ export function verificationCorrectionPreviewFingerprint({
   staffId,
   settlementSessionId,
   leaseVersion,
+  revisionNo = null,
 
   sourceParserVersion,
   sourceNormalizedText,
@@ -235,6 +236,27 @@ export function verificationCorrectionPreviewFingerprint({
   if (!safeLeaseVersion) {
     throw new Error(
       "LEASE_VERSION_REQUIRED",
+    );
+  }
+
+  const safeRevisionNo =
+    revisionNo == null
+      ? null
+      : Number(
+          revisionNo,
+        );
+
+  if (
+    safeRevisionNo != null
+    && (
+      !Number.isSafeInteger(
+        safeRevisionNo,
+      )
+      || safeRevisionNo < 1
+    )
+  ) {
+    throw new Error(
+      "REVISION_NO_REQUIRED",
     );
   }
 
@@ -332,6 +354,14 @@ export function verificationCorrectionPreviewFingerprint({
 
       lease_version:
         safeLeaseVersion,
+
+      /*
+       * Undefined fields are omitted by JSON.stringify.
+       * Therefore first-pass fingerprints remain compatible.
+       */
+      revision_no:
+        safeRevisionNo
+        ?? undefined,
 
       source_parser_version:
         safeSourceParserVersion,

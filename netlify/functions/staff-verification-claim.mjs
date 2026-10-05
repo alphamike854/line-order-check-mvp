@@ -20,6 +20,7 @@ import {
 } from "../../src/lib/staff-work-claim.mjs";
 
 import {
+  claimStaffMessageVerificationRevisionWork,
   claimStaffMessageVerificationWork,
   releaseStaffMessageVerificationWork,
 } from "../../src/lib/staff-message-verification.mjs";
@@ -38,6 +39,10 @@ const KNOWN_CLIENT_ERRORS =
     "MESSAGE_NOT_FOUND",
     "MESSAGE_ALREADY_UNSENT",
     "MESSAGE_ALREADY_VERIFIED",
+    "MESSAGE_NOT_VERIFIED",
+    "MESSAGE_NOT_READY_FOR_REVISION",
+    "VERIFICATION_MESSAGE_CONTEXT_MISMATCH",
+    "REVISION_OPEN_ROUND_ONLY",
     "MESSAGE_OUTSIDE_STAFF_SCOPE",
     "MESSAGE_OUTSIDE_CURRENT_SETTLEMENT",
     "MESSAGE_ROUND_NOT_CURRENT",
@@ -49,6 +54,13 @@ const KNOWN_CLIENT_ERRORS =
     "STAFF_NOT_ACTIVE",
   ]);
 
+
+/*
+ * Human Verification Revision Claim v1
+ *
+ * revision_mode is explicit.
+ * RELEASE continues to use the existing shared release path.
+ */
 
 export default async function handler(req) {
   if (req.method !== "POST") {
@@ -108,6 +120,9 @@ export default async function handler(req) {
       );
     }
 
+
+    const revisionMode =
+      body?.revision_mode === true;
 
     const action =
       normalizeClaimAction(
@@ -196,9 +211,14 @@ export default async function handler(req) {
     }
 
 
+    const claimWork =
+      revisionMode
+        ? claimStaffMessageVerificationRevisionWork
+        : claimStaffMessageVerificationWork;
+
     const result =
       action === "CLAIM"
-        ? await claimStaffMessageVerificationWork(
+        ? await claimWork(
             supabase,
             {
               messageRecordId,
@@ -255,6 +275,10 @@ export default async function handler(req) {
 
     return json({
       ok: true,
+
+      revision_mode:
+        revisionMode,
+
       claim:
         result,
     });

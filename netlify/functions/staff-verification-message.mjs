@@ -449,6 +449,20 @@ export default async function handler(req) {
             "verified_normalized_text",
             "verified_parser_version",
             "verified_order_items",
+
+            "revision_no",
+            "corrected_text",
+            "verified_first_order_code",
+            "canonical_mutation_applied",
+
+            "source_parser_version",
+            "source_normalized_text",
+            "source_order_items",
+
+            "last_revised_at",
+            "last_revised_by_staff_id",
+            "last_revised_by_staff_code",
+            "last_revised_by_display_name",
           ].join(","),
         )
         .eq(
@@ -789,6 +803,91 @@ export default async function handler(req) {
 
       verification_status:
         verificationStatus,
+
+      /*
+       * Exact Human Truth revision context v1.
+       *
+       * Timeline rows intentionally stay compact. This exact-message
+       * endpoint exposes the authoritative current Human Truth needed
+       * when Staff enters the "แก้ไขอีกครั้ง" flow.
+       */
+      verification_mode:
+        verification
+          ?.verification_mode
+        ?? null,
+
+      revision_no:
+        verification
+          ?.revision_no
+        ?? null,
+
+      corrected_text:
+        verification
+          ?.corrected_text
+        ?? null,
+
+      verified_normalized_text:
+        verification
+          ?.verified_normalized_text
+        ?? null,
+
+      verified_order_items:
+        Array.isArray(
+          verification
+            ?.verified_order_items,
+        )
+          ? verification
+              .verified_order_items
+          : [],
+
+      verified_first_order_code:
+        verification
+          ?.verified_first_order_code
+        ?? null,
+
+      canonical_mutation_applied:
+        verification
+          ?.canonical_mutation_applied
+        === true,
+
+      source_parser_version:
+        verification
+          ?.source_parser_version
+        ?? null,
+
+      source_normalized_text:
+        verification
+          ?.source_normalized_text
+        ?? null,
+
+      source_order_items:
+        Array.isArray(
+          verification
+            ?.source_order_items,
+        )
+          ? verification
+              .source_order_items
+          : [],
+
+      last_revised_at:
+        verification
+          ?.last_revised_at
+        ?? null,
+
+      last_revised_by_staff_id:
+        verification
+          ?.last_revised_by_staff_id
+        ?? null,
+
+      last_revised_by_staff_code:
+        verification
+          ?.last_revised_by_staff_code
+        ?? null,
+
+      last_revised_by_display_name:
+        verification
+          ?.last_revised_by_display_name
+        ?? null,
 
       needs_interpretation:
         verificationStatus
