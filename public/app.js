@@ -649,7 +649,29 @@ async function enterStaffSession(
     "review",
   );
 
-  await loadReviews();
+  const freshness =
+    $("#freshness");
+
+  if (freshness) {
+    freshness.textContent =
+      "กำลังโหลดรายการตรวจ...";
+  }
+
+  try {
+    await loadReviews();
+
+    if (freshness) {
+      freshness.textContent =
+        "พร้อมใช้งาน";
+    }
+  } catch (error) {
+    if (freshness) {
+      freshness.textContent =
+        "โหลดรายการตรวจไม่สำเร็จ";
+    }
+
+    throw error;
+  }
 }
 
 
