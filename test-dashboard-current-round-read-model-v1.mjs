@@ -217,30 +217,32 @@ assert.match(
 
 assert.match(
   countBlock,
-  /if\s*\(\s*!normalizedRoundIds\.length\s*\)/,
+  /dashboard_open_review_count/,
 );
 
 assert.match(
   countBlock,
-  /EMERGENCY AVAILABILITY MODE/,
+  /p_round_ids:\s*[\s\S]*normalizedRoundIds/,
 );
 
-assert.ok(
-  (
-    countBlock.match(
-      /return 0;/g,
-    ) ?? []
-  ).length >= 2,
+assert.match(
+  countBlock,
+  /p_summary_group_id:\s*[\s\S]*summaryGroupId/,
+);
+
+assert.match(
+  countBlock,
+  /p_settlement_session_id:\s*[\s\S]*settlementSessionId/,
 );
 
 assert.doesNotMatch(
   countBlock,
-  /\.from\s*\(/,
+  /\.from\("messages"\)/,
 );
 
 assert.doesNotMatch(
   countBlock,
-  /\.rpc\s*\(/,
+  /REVIEW_COUNT_CONCURRENCY/,
 );
 
 assert.doesNotMatch(
@@ -267,35 +269,52 @@ assert.match(
 
 assert.match(
   unsendBlock,
-  /if\s*\(\s*!normalizedRoundIds\.length\s*\)/,
+  /dashboard_round_unsends/,
 );
 
 assert.match(
   unsendBlock,
-  /EMERGENCY AVAILABILITY MODE/,
+  /p_round_ids:\s*[\s\S]*normalizedRoundIds/,
 );
 
-assert.ok(
-  (
-    unsendBlock.match(
-      /return \[\];/g,
-    ) ?? []
-  ).length >= 2,
+assert.match(
+  unsendBlock,
+  /p_summary_group_id:\s*[\s\S]*summaryGroupId/,
+);
+
+assert.match(
+  unsendBlock,
+  /p_limit:\s*500/,
 );
 
 assert.doesNotMatch(
   unsendBlock,
-  /\.from\s*\(/,
+  /\.from\("messages"\)/,
 );
 
 assert.doesNotMatch(
   unsendBlock,
-  /\.rpc\s*\(/,
+  /\.from\("unsend_events"\)/,
 );
 
 assert.doesNotMatch(
   unsendBlock,
-  /business_date/,
+  /UNSEND_MESSAGE_CHUNK_SIZE/,
+);
+
+assert.doesNotMatch(
+  unsendBlock,
+  /loadGroupConfig\(\)/,
+);
+
+assert.doesNotMatch(
+  unsendBlock,
+  /bangkokDayRange/,
+);
+
+assert.doesNotMatch(
+  unsendBlock,
+  /\.gte\(\s*"unsent_at"/,
 );
 
 console.log(

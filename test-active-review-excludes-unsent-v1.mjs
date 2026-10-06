@@ -168,7 +168,7 @@ const reviewCount =
 
 assert.match(
   reviewCount,
-  /EMERGENCY AVAILABILITY MODE/,
+  /dashboard_open_review_count/,
 );
 
 assert.match(
@@ -177,7 +177,7 @@ assert.match(
 );
 
 console.log(
-  "PASS ARU-04: emergency Review count suppression unchanged",
+  "PASS ARU-04: optimized Review-count RPC restored without changing Active Review scope",
 );
 
 

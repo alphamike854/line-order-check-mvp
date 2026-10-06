@@ -124,7 +124,7 @@ const reportBlock =
 
 assert.match(
   reportBlock,
-  /\$\("#reportSessionSelect"\)\.value \|\| state\.settlement\?\.open_session\?\.id/
+  /\$\("#reportSessionSelect"\)\.value\s*\|\|\s*state\.settlement\?\.open_session\?\.id/
 );
 
 console.log(

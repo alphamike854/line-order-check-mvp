@@ -436,10 +436,30 @@ export async function fetchOpenReviewCount(
     return 0;
   }
 
-  // EMERGENCY AVAILABILITY MODE:
-  // Temporarily suppress the expensive Review count read while
-  // the production database is under connection pressure.
-  return 0;
+  const {
+    data,
+    error,
+  } = await supabase.rpc(
+    "dashboard_open_review_count",
+    {
+      p_round_ids:
+        normalizedRoundIds,
+
+      p_summary_group_id:
+        summaryGroupId || null,
+
+      p_settlement_session_id:
+        settlementSessionId || null,
+    },
+  );
+
+  if (error) {
+    throw error;
+  }
+
+  return Number(
+    data ?? 0,
+  );
 }
 
 
@@ -456,10 +476,35 @@ export async function fetchUnsends(
     return [];
   }
 
-  // EMERGENCY AVAILABILITY MODE:
-  // Temporarily suppress the expensive UNSEND read while
-  // the production database is under connection pressure.
-  return [];
+  const {
+    data,
+    error,
+  } = await supabase.rpc(
+    "dashboard_round_unsends",
+    {
+      p_round_ids:
+        normalizedRoundIds,
+
+      p_summary_group_id:
+        summaryGroupId || null,
+
+      p_limit: 500,
+    },
+  );
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []).map(
+    (row) => ({
+      ...row,
+
+      line_group_name:
+        row.line_group_name
+        ?? row.line_group_id,
+    }),
+  );
 }
 
 

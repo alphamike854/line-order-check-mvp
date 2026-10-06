@@ -150,9 +150,9 @@ mustMatch(
   "Review count read remains"
 );
 
-mustMatch(
-  /fetchUnsends\(\s*messageRoundIds,\s*summaryGroupId\s*\)/,
-  "Unsend read remains"
+mustNotMatch(
+  /fetchUnsends\(/,
+  "Dashboard UNSEND bootstrap remains removed",
 );
 
 for (const response of [

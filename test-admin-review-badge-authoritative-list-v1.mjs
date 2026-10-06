@@ -227,7 +227,7 @@ const countPath =
 
 assert.match(
   countPath,
-  /EMERGENCY AVAILABILITY MODE/,
+  /dashboard_open_review_count/,
 );
 
 assert.match(
@@ -241,7 +241,7 @@ assert.doesNotMatch(
 );
 
 console.log(
-  "PASS ARB-09: emergency Review-count DB suppression remains unchanged",
+  "PASS ARB-09: optimized Review-count RPC restored while badge authority remains list-based",
 );
 
 console.log(
