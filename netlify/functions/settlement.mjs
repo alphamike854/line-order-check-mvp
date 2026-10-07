@@ -388,27 +388,100 @@ async function changeSummaryGroupState(
     );
   }
 
-  const cleanupPaths =
+  const explicitJobs =
     acceptingOrders
+    && Array.isArray(data?.storage_cleanup_jobs)
+      ? data.storage_cleanup_jobs
+      : [];
+
+  const legacyPaths =
+    acceptingOrders
+    && explicitJobs.length === 0
     && Array.isArray(data?.image_storage_paths)
       ? data.image_storage_paths.filter(Boolean)
       : [];
 
+  const cleanupJobs = [
+    ...explicitJobs
+      .map((job) => ({
+        id:
+          job?.id
+          ?? null,
+        round_id:
+          job?.round_id
+          ?? null,
+        storage_bucket:
+          String(
+            job?.storage_bucket
+            || "review-images",
+          ),
+        storage_path:
+          String(
+            job?.storage_path
+            || "",
+          ),
+      }))
+      .filter(
+        (job) =>
+          Boolean(job.storage_path),
+      ),
+
+    ...legacyPaths.map(
+      (storagePath) => ({
+        id: null,
+        round_id:
+          data?.reset_from_round_id
+          ?? null,
+        storage_bucket:
+          String(
+            data?.image_storage_bucket
+            || "review-images",
+          ),
+        storage_path:
+          String(storagePath),
+      }),
+    ),
+  ];
+
+  const jobsByBucket =
+    new Map();
+
+  for (const job of cleanupJobs) {
+    const bucket =
+      job.storage_bucket;
+
+    const rows =
+      jobsByBucket.get(bucket)
+      ?? [];
+
+    rows.push(job);
+    jobsByBucket.set(bucket, rows);
+  }
+
   let imageCleanup = {
-    requested: cleanupPaths.length,
+    requested:
+      cleanupJobs.length,
     deleted: 0,
     pending: 0,
   };
 
-  if (
-    cleanupPaths.length
-    && data?.reset_from_round_id
-  ) {
-    const bucket =
-      String(
-        data.image_storage_bucket
-        || "review-images",
-      );
+  for (const [bucket, jobs] of jobsByBucket) {
+    const cleanupPaths = [
+      ...new Set(
+        jobs.map(
+          (job) =>
+            job.storage_path,
+        ),
+      ),
+    ];
+
+    const cleanupIds =
+      jobs
+        .map((job) => job.id)
+        .filter(
+          (id) => id !== null
+            && id !== undefined,
+        );
 
     const attemptedAt =
       new Date().toISOString();
@@ -420,15 +493,16 @@ async function changeSummaryGroupState(
 
     if (removeError) {
       console.error(
-        "round reset image cleanup failed",
+        "round reset storage cleanup failed",
+        bucket,
         removeError,
       );
 
-      imageCleanup.pending =
+      imageCleanup.pending +=
         cleanupPaths.length;
 
-      const { error: queueError } =
-        await supabase
+      let queueQuery =
+        supabase
           .from(
             "settlement_round_storage_cleanup_queue",
           )
@@ -440,45 +514,33 @@ async function changeSummaryGroupState(
                 removeError.message
                 ?? removeError,
               ).slice(0, 1000),
-          })
-          .eq(
-            "round_id",
-            data.reset_from_round_id,
-          )
-          .in(
-            "storage_path",
-            cleanupPaths,
-          );
+          });
 
-      if (queueError) {
-        console.error(
-          "round reset cleanup queue update failed",
-          queueError,
-        );
+      if (cleanupIds.length > 0) {
+        queueQuery =
+          queueQuery.in(
+            "id",
+            cleanupIds,
+          );
+      } else {
+        queueQuery =
+          queueQuery
+            .eq(
+              "round_id",
+              data?.reset_from_round_id,
+            )
+            .eq(
+              "storage_bucket",
+              bucket,
+            )
+            .in(
+              "storage_path",
+              cleanupPaths,
+            );
       }
-    } else {
-      imageCleanup.deleted =
-        cleanupPaths.length;
 
       const { error: queueError } =
-        await supabase
-          .from(
-            "settlement_round_storage_cleanup_queue",
-          )
-          .update({
-            status: "DELETED",
-            attempted_at: attemptedAt,
-            deleted_at: attemptedAt,
-            last_error: null,
-          })
-          .eq(
-            "round_id",
-            data.reset_from_round_id,
-          )
-          .in(
-            "storage_path",
-            cleanupPaths,
-          );
+        await queueQuery;
 
       if (queueError) {
         console.error(
@@ -486,6 +548,51 @@ async function changeSummaryGroupState(
           queueError,
         );
       }
+
+      continue;
+    }
+
+    imageCleanup.deleted +=
+      cleanupPaths.length;
+
+    let queueQuery =
+      supabase
+        .from(
+          "settlement_round_storage_cleanup_queue",
+        )
+        .delete();
+
+    if (cleanupIds.length > 0) {
+      queueQuery =
+        queueQuery.in(
+          "id",
+          cleanupIds,
+        );
+    } else {
+      queueQuery =
+        queueQuery
+          .eq(
+            "round_id",
+            data?.reset_from_round_id,
+          )
+          .eq(
+            "storage_bucket",
+            bucket,
+          )
+          .in(
+            "storage_path",
+            cleanupPaths,
+          );
+    }
+
+    const { error: queueError } =
+      await queueQuery;
+
+    if (queueError) {
+      console.error(
+        "round reset cleanup queue delete failed",
+        queueError,
+      );
     }
   }
 

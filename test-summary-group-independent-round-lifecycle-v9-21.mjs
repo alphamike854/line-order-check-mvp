@@ -307,11 +307,16 @@ assert.match(
 
 assert.match(
   settlementApi,
-  /status:\s*"DELETED"/,
+  /\.delete\(\)/,
+);
+
+assert.match(
+  settlementApi,
+  /storage_cleanup_jobs/,
 );
 
 console.log(
-  "PASS R2C-14: API performs best-effort Storage cleanup after DB reset",
+  "PASS R2C-14: API retries failed Storage cleanup and deletes durable queue jobs after success",
 );
 
 
