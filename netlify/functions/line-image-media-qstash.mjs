@@ -143,12 +143,16 @@ export default async (req) => {
   const messageId =
     payload?.message_id;
 
+  const summaryGroupRoundId =
+    payload?.summary_group_round_id;
+
   if (
     !destination
     || !event?.webhookEventId
     || event?.message?.type
       !== "image"
     || !messageId
+    || !summaryGroupRoundId
   ) {
     return json(
       {
@@ -180,6 +184,7 @@ export default async (req) => {
         destination,
         event,
         messageId,
+        summaryGroupRoundId,
         processingAttempt,
       });
 

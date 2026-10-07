@@ -388,7 +388,13 @@ const unsend =
 
 assert.match(
   unsend,
-  /\.select\("id,line_group_id,image_storage_path,image_deleted_at"\)/,
+  /\.from\("messages"\)[\s\S]*?\.select\([\s\S]*?id,line_group_id,summary_group_round_id,image_storage_path,image_deleted_at[\s\S]*?\)/,
+);
+
+assert.match(
+  unsend,
+  /isCurrentSummaryGroupRound\([\s\S]*?message\.summary_group_round_id[\s\S]*?\)[\s\S]*?if \(message\.image_storage_path\)/,
+  "UNSEND must confirm current Round before deleting image evidence",
 );
 
 assert.match(
@@ -403,7 +409,7 @@ assert.match(
 
 assert.match(
   unsend,
-  /image_deleted_at:[\s\S]*?message\.image_storage_path[\s\S]*?\? unsentAt[\s\S]*?: message\.image_deleted_at \?\? null/,
+  /image_deleted_at:[\s\S]*?message\.image_storage_path[\s\S]*?\?\s*unsentAt[\s\S]*?:\s*message\.image_deleted_at[\s\S]*?\?\?\s*null/,
 );
 
 console.log(

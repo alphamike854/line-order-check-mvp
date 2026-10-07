@@ -507,17 +507,36 @@ async function selectQStashIngressEvents(
   return selected;
 }
 
-async function claimWebhookEvent(destination, event) {
+async function claimWebhookEvent(
+  destination,
+  event,
+  summaryGroupRoundId = null,
+) {
   const { data, error } = await supabase.rpc(
-    "claim_webhook_event",
+    "claim_current_round_webhook_event",
     {
-      p_webhook_event_id: event.webhookEventId,
-      p_destination: destination,
-      p_event_type: event.type,
-      p_line_group_id: event.source?.groupId ?? null,
-      p_user_id: event.source?.userId ?? null,
-      p_is_redelivery: Boolean(event.deliveryContext?.isRedelivery),
-      p_payload: event,
+      p_webhook_event_id:
+        event.webhookEventId,
+      p_destination:
+        destination,
+      p_event_type:
+        event.type,
+      p_line_group_id:
+        event.source?.groupId ?? null,
+      p_user_id:
+        event.source?.userId ?? null,
+      p_is_redelivery:
+        Boolean(
+          event.deliveryContext?.isRedelivery,
+        ),
+      p_payload:
+        event,
+      p_summary_group_round_id:
+        summaryGroupRoundId,
+      p_unsend_message_id:
+        event.type === "unsend"
+          ? event.unsend?.messageId ?? null
+          : null,
     },
   );
 
@@ -779,6 +798,7 @@ function lineMessageAdmissionFailureReason(error) {
     "SETTLEMENT_NOT_OPEN",
     "GROUP_NOT_CONFIGURED",
     "SUMMARY_GROUP_NOT_OPEN",
+    "SUMMARY_GROUP_ROUND_RETIRED",
     "MESSAGE_EVENT_OUTSIDE_ROUND",
     "MESSAGE_LINE_GROUP_CONFIG_MISMATCH",
   ]) {
@@ -1265,10 +1285,54 @@ async function enqueueLineImageMediaQStash({
   };
 }
 
+async function isCurrentSummaryGroupRound(
+  roundId,
+) {
+  const normalizedRoundId =
+    String(
+      roundId
+      ?? "",
+    ).trim();
+
+  if (!normalizedRoundId) {
+    return false;
+  }
+
+  const {
+    data,
+    error,
+  } = await supabase
+    .from(
+      "summary_group_round_runtime_state",
+    )
+    .select(
+      "latest_round_id",
+    )
+    .eq(
+      "latest_round_id",
+      normalizedRoundId,
+    )
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return (
+    String(
+      data?.latest_round_id
+      ?? "",
+    )
+    === normalizedRoundId
+  );
+}
+
+
 export async function processImageMediaJob({
   destination,
   event,
   messageId,
+  summaryGroupRoundId,
   processingAttempt = 1,
 }) {
   if (
@@ -1277,10 +1341,24 @@ export async function processImageMediaJob({
     || event?.type !== "message"
     || event?.message?.type !== "image"
     || !messageId
+    || !summaryGroupRoundId
   ) {
     throw new Error(
       "INVALID_IMAGE_MEDIA_JOB",
     );
+  }
+
+  if (
+    !await isCurrentSummaryGroupRound(
+      summaryGroupRoundId,
+    )
+  ) {
+    return {
+      skipped:
+        "RETIRED_ROUND",
+      reason:
+        "ROUND_RETIRED",
+    };
   }
 
   const message =
@@ -1289,6 +1367,19 @@ export async function processImageMediaJob({
     );
 
   if (!message) {
+    if (
+      !await isCurrentSummaryGroupRound(
+        summaryGroupRoundId,
+      )
+    ) {
+      return {
+        skipped:
+          "RETIRED_ROUND",
+        reason:
+          "ROUND_RETIRED",
+      };
+    }
+
     throw new Error(
       "IMAGE_MEDIA_MESSAGE_NOT_FOUND",
     );
@@ -1307,6 +1398,32 @@ export async function processImageMediaJob({
     throw new Error(
       "IMAGE_MEDIA_MESSAGE_NOT_ADMITTED",
     );
+  }
+
+  if (
+    String(
+      message.summary_group_round_id,
+    )
+    !== String(
+      summaryGroupRoundId,
+    )
+  ) {
+    throw new Error(
+      "IMAGE_MEDIA_ROUND_ID_MISMATCH",
+    );
+  }
+
+  if (
+    !await isCurrentSummaryGroupRound(
+      message.summary_group_round_id,
+    )
+  ) {
+    return {
+      skipped:
+        "RETIRED_ROUND",
+      reason:
+        "ROUND_RETIRED",
+    };
   }
 
   if (
@@ -1831,86 +1948,197 @@ async function handleImageMessage(
 
 }
 
-async function handleUnsend(destination, event) {
-  const originalMessageId = event.unsend?.messageId;
-  const unsentAt = new Date(event.timestamp).toISOString();
+async function handleUnsend(
+  destination,
+  event,
+  expectedMessageRecordId = null,
+) {
+  const originalMessageId =
+    event.unsend?.messageId;
 
-  const { data: message, error: findError } = await supabase
-    .from("messages")
-    .select("id,line_group_id,image_storage_path,image_deleted_at")
-    .eq("destination", destination)
-    .eq("message_id", originalMessageId)
-    .maybeSingle();
-  if (findError) throw findError;
+  const unsentAt =
+    new Date(
+      event.timestamp,
+    ).toISOString();
 
-  let derivedQtyTotal = 0;
-
-  if (message) {
-    const { data: items, error: itemFindError } = await supabase
-      .from("order_items")
-      .select("quantity")
-      .eq("message_record_id", message.id);
-    if (itemFindError) throw itemFindError;
-    derivedQtyTotal = (items ?? []).reduce((sum, x) => sum + Number(x.quantity || 0), 0);
-
-    if (message.image_storage_path) {
-      const { error: imageDeleteError } =
-        await supabase.storage
-          .from(REVIEW_IMAGE_BUCKET)
-          .remove([
-            message.image_storage_path,
-          ]);
-
-      if (imageDeleteError) {
-        throw imageDeleteError;
-      }
-    }
-
-    const { error: messageUpdateError } = await supabase
-      .from("messages")
-      .update({
-        unsent: true,
-        unsent_at: unsentAt,
-        raw_text: null,
-        normalized_text: null,
-        ocr_text: null,
-        ocr_error: null,
-        image_storage_path: null,
-        image_deleted_at:
-          message.image_storage_path
-            ? unsentAt
-            : message.image_deleted_at ?? null,
-      })
-      .eq("id", message.id);
-    if (messageUpdateError) throw messageUpdateError;
-
-    const { error: itemUpdateError } = await supabase
-      .from("order_items")
-      .update({ unsent_flag: true })
-      .eq("message_record_id", message.id);
-    if (itemUpdateError) throw itemUpdateError;
+  if (!expectedMessageRecordId) {
+    return {
+      skipped:
+        "RETIRED_ROUND",
+      reason:
+        "UNSEND_ORIGINAL_NOT_CURRENT",
+    };
   }
 
-  const { error: unsendError } = await supabase.from("unsend_events").insert({
-    webhook_event_id: event.webhookEventId,
-    destination,
-    message_id: originalMessageId,
-    line_group_id: event.source?.groupId ?? message?.line_group_id ?? null,
-    user_id: event.source?.userId ?? null,
-    matched_message_record_id: message?.id ?? null,
-    derived_qty_total: derivedQtyTotal,
-    unsent_at: unsentAt,
-  });
-  // Redelivery after a successful UNSEND write but before processed_at
-  // must remain idempotent.
-  if (unsendError && unsendError.code !== "23505") {
+  const {
+    data: message,
+    error: findError,
+  } = await supabase
+    .from("messages")
+    .select(
+      "id,line_group_id,summary_group_round_id,image_storage_path,image_deleted_at",
+    )
+    .eq(
+      "id",
+      expectedMessageRecordId,
+    )
+    .eq(
+      "destination",
+      destination,
+    )
+    .eq(
+      "message_id",
+      originalMessageId,
+    )
+    .maybeSingle();
+
+  if (findError) {
+    throw findError;
+  }
+
+  if (!message) {
+    return {
+      skipped:
+        "RETIRED_ROUND",
+      reason:
+        "UNSEND_ORIGINAL_NOT_CURRENT",
+    };
+  }
+
+  if (
+    !await isCurrentSummaryGroupRound(
+      message.summary_group_round_id,
+    )
+  ) {
+    return {
+      skipped:
+        "RETIRED_ROUND",
+      reason:
+        "ROUND_RETIRED",
+    };
+  }
+
+  const {
+    data: items,
+    error: itemFindError,
+  } = await supabase
+    .from("order_items")
+    .select("quantity")
+    .eq(
+      "message_record_id",
+      message.id,
+    );
+
+  if (itemFindError) {
+    throw itemFindError;
+  }
+
+  const derivedQtyTotal =
+    (items ?? []).reduce(
+      (sum, x) =>
+        sum
+        + Number(
+          x.quantity
+          || 0,
+        ),
+      0,
+    );
+
+  if (message.image_storage_path) {
+    const {
+      error: imageDeleteError,
+    } = await supabase.storage
+      .from(REVIEW_IMAGE_BUCKET)
+      .remove([
+        message.image_storage_path,
+      ]);
+
+    if (imageDeleteError) {
+      throw imageDeleteError;
+    }
+  }
+
+  const {
+    error: messageUpdateError,
+  } = await supabase
+    .from("messages")
+    .update({
+      unsent: true,
+      unsent_at: unsentAt,
+      raw_text: null,
+      normalized_text: null,
+      ocr_text: null,
+      ocr_error: null,
+      image_storage_path: null,
+      image_deleted_at:
+        message.image_storage_path
+          ? unsentAt
+          : message.image_deleted_at
+            ?? null,
+    })
+    .eq(
+      "id",
+      message.id,
+    );
+
+  if (messageUpdateError) {
+    throw messageUpdateError;
+  }
+
+  const {
+    error: itemUpdateError,
+  } = await supabase
+    .from("order_items")
+    .update({
+      unsent_flag: true,
+    })
+    .eq(
+      "message_record_id",
+      message.id,
+    );
+
+  if (itemUpdateError) {
+    throw itemUpdateError;
+  }
+
+  const {
+    error: unsendError,
+  } = await supabase
+    .from("unsend_events")
+    .insert({
+      webhook_event_id:
+        event.webhookEventId,
+      destination,
+      message_id:
+        originalMessageId,
+      line_group_id:
+        event.source?.groupId
+        ?? message.line_group_id,
+      user_id:
+        event.source?.userId
+        ?? null,
+      matched_message_record_id:
+        message.id,
+      derived_qty_total:
+        derivedQtyTotal,
+      unsent_at:
+        unsentAt,
+    });
+
+  if (
+    unsendError
+    && unsendError.code !== "23505"
+  ) {
     throw unsendError;
   }
 
   return {
-    status: "UNSEND",
-    matched: Boolean(message),
-    derived_qty_total: derivedQtyTotal,
+    status:
+      "UNSEND",
+    matched:
+      true,
+    derived_qty_total:
+      derivedQtyTotal,
   };
 }
 
@@ -1993,7 +2221,22 @@ export async function processEvent(destination, event, admissionHint = null, opt
     temporalAdmission?.round_id
     ?? null;
 
-  const claim = await claimWebhookEvent(destination, event);
+  const claim =
+    await claimWebhookEvent(
+      destination,
+      event,
+      admissionRoundId,
+    );
+
+  if (claim?.state === "RETIRED") {
+    return {
+      skipped:
+        "RETIRED_ROUND",
+      reason:
+        claim?.reason
+        ?? "ROUND_RETIRED",
+    };
+  }
 
   if (claim?.state === "DENIED") {
     return {
@@ -2074,7 +2317,12 @@ export async function processEvent(destination, event, admissionHint = null, opt
         false,
       );
     } else if (event.type === "unsend") {
-      result = await handleUnsend(destination, event);
+      result = await handleUnsend(
+        destination,
+        event,
+        claim?.matched_message_record_id
+          ?? null,
+      );
     } else {
       result = { skipped: "UNSUPPORTED_EVENT" };
     }

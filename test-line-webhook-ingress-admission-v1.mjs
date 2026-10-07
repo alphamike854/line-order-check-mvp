@@ -177,7 +177,7 @@ const lookup =
 
 const claim =
   webhook.indexOf(
-    "claimWebhookEvent(destination, event)",
+    "claimWebhookEvent(",
     processStart,
   );
 
