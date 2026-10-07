@@ -54,6 +54,159 @@ export function verifyLineSignature(rawBody, signature) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+
+function lineIngressSeenAt(timestamp) {
+  const numeric =
+    Number(timestamp);
+
+  if (Number.isFinite(numeric)) {
+    const date =
+      new Date(numeric);
+
+    if (
+      Number.isFinite(
+        date.getTime(),
+      )
+    ) {
+      return date.toISOString();
+    }
+  }
+
+  return new Date().toISOString();
+}
+
+
+/*
+ * Discovery metadata only.
+ *
+ * Runs after LINE signature + JSON validation and before
+ * temporal/Round admission. A new room therefore becomes
+ * visible in Settings even when no Round currently accepts it.
+ *
+ * Observation failure is deliberately fail-open: discovery
+ * metadata must never block LINE ingress.
+ */
+async function observeLineGroupsBestEffort(
+  events,
+) {
+  const latestByGroup =
+    new Map();
+
+  for (const event of events ?? []) {
+    if (
+      event?.source?.type
+        !== "group"
+    ) {
+      continue;
+    }
+
+    const lineGroupId =
+      String(
+        event.source?.groupId
+        ?? "",
+      ).trim();
+
+    if (!lineGroupId) {
+      continue;
+    }
+
+    const seenAt =
+      lineIngressSeenAt(
+        event.timestamp,
+      );
+
+    const seenAtMs =
+      Date.parse(seenAt);
+
+    const existing =
+      latestByGroup.get(
+        lineGroupId,
+      );
+
+    if (
+      existing
+      && existing.seen_at_ms
+        > seenAtMs
+    ) {
+      continue;
+    }
+
+    latestByGroup.set(
+      lineGroupId,
+      {
+        line_group_id:
+          lineGroupId,
+
+        seen_at:
+          seenAt,
+
+        seen_at_ms:
+          seenAtMs,
+
+        event_type:
+          String(
+            event.type
+            ?? "",
+          ).trim()
+          || null,
+
+        webhook_event_id:
+          String(
+            event.webhookEventId
+            ?? "",
+          ).trim()
+          || null,
+      },
+    );
+  }
+
+  await Promise.all(
+    [...latestByGroup.values()]
+      .map(
+        async (observed) => {
+          try {
+            const {
+              error,
+            } =
+              await supabase.rpc(
+                "observe_line_group_ingress",
+                {
+                  p_line_group_id:
+                    observed.line_group_id,
+
+                  p_seen_at:
+                    observed.seen_at,
+
+                  p_event_type:
+                    observed.event_type,
+
+                  p_webhook_event_id:
+                    observed.webhook_event_id,
+                },
+              );
+
+            if (error) {
+              throw error;
+            }
+          } catch (error) {
+            console.warn(
+              "LINE group observation failed; continuing ingress",
+              {
+                lineGroupId:
+                  observed.line_group_id,
+
+                error:
+                  error?.message
+                  ?? String(error),
+              },
+            );
+          }
+        },
+      ),
+  );
+}
+
+
 function bangkokBusinessDate(timestampMs) {
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: "Asia/Bangkok",
@@ -2392,6 +2545,10 @@ export default async (req) => {
     Array.isArray(payload.events)
       ? payload.events
       : [];
+
+  await observeLineGroupsBestEffort(
+    events,
+  );
 
   const qstashAdmissionHints =
     new Map();

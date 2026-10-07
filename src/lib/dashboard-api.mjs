@@ -557,7 +557,7 @@ export async function fetchOpenReviewById(reviewId) {
 }
 
 export async function fetchSettings() {
-  const [summaryResult, lineResult, allocationResult, aliasResult, profileResult, riskBudgetResult, categoryDefinitionResult, warehouseLimitResult, mirrorRouteResult, eventResult] = await Promise.all([
+  const [summaryResult, lineResult, allocationResult, aliasResult, profileResult, riskBudgetResult, categoryDefinitionResult, warehouseLimitResult, mirrorRouteResult, observedGroupResult] = await Promise.all([
     supabase.from("summary_groups").select("id,name,enabled,created_at").order("name"),
     supabase.from("line_groups").select("line_group_id,line_group_name,summary_group_id,reduction_pct,enabled,created_at,updated_at").order("line_group_name"),
     supabase.from("allocation_rules").select("summary_group_id,category,threshold,destination,enabled,created_at,updated_at").order("summary_group_id").order("category"),
@@ -570,20 +570,57 @@ export async function fetchSettings() {
       .from("line_message_mirror_routes")
       .select("id,source_line_group_id,destination_line_group_id,enabled,max_batch_size,flush_after_seconds,created_at,updated_at")
       .order("created_at"),
-    supabase.from("webhook_events").select("line_group_id,received_at").not("line_group_id", "is", null).order("received_at", { ascending: false }).limit(5000),
+    supabase
+      .from("observed_line_groups")
+      .select(
+        "line_group_id,first_seen_at,last_seen_at,last_event_type"
+      )
+      .order(
+        "last_seen_at",
+        {
+          ascending: false,
+        },
+      )
+      .limit(5000),
   ]);
 
-  for (const result of [summaryResult, lineResult, allocationResult, aliasResult, profileResult, riskBudgetResult, categoryDefinitionResult, warehouseLimitResult, mirrorRouteResult, eventResult]) {
+  for (const result of [summaryResult, lineResult, allocationResult, aliasResult, profileResult, riskBudgetResult, categoryDefinitionResult, warehouseLimitResult, mirrorRouteResult, observedGroupResult]) {
     if (result.error) throw result.error;
   }
 
-  const configured = new Set((lineResult.data ?? []).map((row) => row.line_group_id));
-  const latestByGroup = new Map();
-  for (const row of eventResult.data ?? []) {
-    if (!configured.has(row.line_group_id) && !latestByGroup.has(row.line_group_id)) {
-      latestByGroup.set(row.line_group_id, row.received_at);
-    }
-  }
+  const configured =
+    new Set(
+      (lineResult.data ?? [])
+        .map(
+          (row) =>
+            row.line_group_id,
+        ),
+    );
+
+  const unconfiguredLineGroups =
+    (observedGroupResult.data ?? [])
+      .filter(
+        (row) =>
+          !configured.has(
+            row.line_group_id,
+          ),
+      )
+      .map(
+        (row) => ({
+          line_group_id:
+            row.line_group_id,
+
+          first_seen_at:
+            row.first_seen_at,
+
+          last_seen_at:
+            row.last_seen_at,
+
+          last_event_type:
+            row.last_event_type
+            ?? null,
+        }),
+      );
 
   return {
     summary_groups: summaryResult.data ?? [],
@@ -605,7 +642,8 @@ export async function fetchSettings() {
         .trim()
         .toLowerCase()
         === "true",
-    unconfigured_line_groups: [...latestByGroup.entries()].map(([line_group_id, last_seen_at]) => ({ line_group_id, last_seen_at })),
+    unconfigured_line_groups:
+      unconfiguredLineGroups,
   };
 }
 
