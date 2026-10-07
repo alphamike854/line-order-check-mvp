@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 
 import {
+  resolveAbSharedMaxLoss,
+} from "./src/lib/ab-advisory-loss-setting.mjs";
+
+import {
   buildSharedAbRiskPlan,
   buildAbBatchAdvisory,
   formatAbAdvisoryBubbles,
@@ -391,6 +395,100 @@ assert.throws(
       sharedMaxLoss: 200000,
     }),
   /AB_FAST_PLANNER_REQUIRES_MAX_SPECIAL_CODES_1/
+);
+
+/*
+ * Explicit per-Summary-Group loss setting:
+ *
+ * CENTRAL MAIN=0 means zero accepted loss.
+ * It must never be interpreted as
+ * "unconfigured" and expanded to 200,000.
+ */
+const centralZeroLoss =
+  resolveAbSharedMaxLoss({
+    rows: [
+      {
+        summary_group_id: "CENTRAL",
+        risk_pool: "MAIN",
+        point_loss_tolerance: 0,
+      },
+    ],
+    summaryGroupId: "CENTRAL",
+  });
+
+assert.deepEqual(
+  centralZeroLoss,
+  {
+    shared_max_loss: 0,
+    source: "MAIN_POINT_LOSS_TOLERANCE",
+  },
+);
+
+const configuredLoss =
+  resolveAbSharedMaxLoss({
+    rows: [
+      {
+        summary_group_id: "NORTH",
+        risk_pool: "MAIN",
+        point_loss_tolerance: 200000,
+      },
+    ],
+    summaryGroupId: "NORTH",
+  });
+
+assert.deepEqual(
+  configuredLoss,
+  {
+    shared_max_loss: 200000,
+    source: "MAIN_POINT_LOSS_TOLERANCE",
+  },
+);
+
+const missingMainLoss =
+  resolveAbSharedMaxLoss({
+    rows: [
+      {
+        summary_group_id: "CENTRAL",
+        risk_pool: "H",
+        point_loss_tolerance: 0,
+      },
+    ],
+    summaryGroupId: "CENTRAL",
+  });
+
+assert.deepEqual(
+  missingMainLoss,
+  {
+    shared_max_loss: 200000,
+    source: "FALLBACK_200000",
+  },
+);
+
+assert.throws(
+  () =>
+    resolveAbSharedMaxLoss({
+      rows: [
+        {
+          summary_group_id: "CENTRAL",
+          risk_pool: "MAIN",
+          point_loss_tolerance: "INVALID",
+        },
+      ],
+      summaryGroupId: "CENTRAL",
+    }),
+  /AB_SHARED_MAX_LOSS_CONFIG_INVALID/,
+);
+
+console.log(
+  "PASS: explicit MAIN=0 remains zero for A/B advisory"
+);
+
+console.log(
+  "PASS: missing MAIN setting alone uses historical 200000 fallback"
+);
+
+console.log(
+  "PASS: invalid MAIN setting fails closed"
 );
 
 console.log(

@@ -37,30 +37,39 @@ export function resolveAbSharedMaxLoss({
       )
     : null;
 
-  const configured =
-    Number(row?.point_loss_tolerance);
-
   /*
-   * Current persisted data contains 0 / missing rows.
+   * An existing MAIN setting is authoritative,
+   * including an explicit zero.
    *
-   * Until configuration has an explicit
-   * "configured/enabled" state, zero is treated
-   * as UNCONFIGURED for A/B advisory so that
-   * existing production behaviour remains safe.
+   * Missing MAIN configuration retains the
+   * historical 200,000 fallback.
+   *
+   * Invalid persisted configuration must fail
+   * closed instead of silently expanding the
+   * accepted loss budget.
    */
-  if (
-    Number.isFinite(configured)
-    && configured > 0
-  ) {
+  if (!row) {
     return {
-      shared_max_loss: round2(configured),
-      source: "MAIN_POINT_LOSS_TOLERANCE",
+      shared_max_loss: round2(fallbackValue),
+      source: "FALLBACK_200000",
     };
   }
 
+  const configured =
+    Number(row.point_loss_tolerance);
+
+  if (
+    !Number.isFinite(configured)
+    || configured < 0
+  ) {
+    throw new Error(
+      "AB_SHARED_MAX_LOSS_CONFIG_INVALID"
+    );
+  }
+
   return {
-    shared_max_loss: round2(fallbackValue),
-    source: "FALLBACK_200000",
+    shared_max_loss: round2(configured),
+    source: "MAIN_POINT_LOSS_TOLERANCE",
   };
 }
 
