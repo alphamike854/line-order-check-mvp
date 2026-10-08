@@ -168,10 +168,39 @@ assert.ok(
 );
 
 
+
+const sweepPlan = {
+  A: {
+    recommendations: [
+      {
+        category: "A",
+        code: "01",
+        recommended_transfer: 12632,
+      },
+      {
+        category: "A",
+        code: "02",
+        recommended_transfer: 17000,
+      },
+    ],
+  },
+
+  B: {
+    recommendations: [
+      {
+        category: "B",
+        code: "03",
+        recommended_transfer: 21000,
+      },
+    ],
+  },
+};
+
+
 const sweep =
   buildAbBatchAdvisory({
     plan:
-      autoPlan,
+      sweepPlan,
 
     batchLimit:
       "SWEEP",
@@ -188,51 +217,118 @@ assert.equal(
 );
 
 assert.equal(
+  sweep.batch_count,
+  5,
+);
+
+assert.equal(
   sweep.total_quantity,
-  16063,
+  50500,
+);
+
+assert.equal(
+  sweep.remaining_quantity,
+  132,
 );
 
 assert.deepEqual(
-  sweep.rows,
+  sweep.batches,
   [
-    {
-      category: "A",
-      code: "79",
-      quantity: 6455,
-      required_total: 6455,
-    },
-    {
-      category: "A",
-      code: "89",
-      quantity: 4741,
-      required_total: 4741,
-    },
-    {
-      category: "A",
-      code: "35",
-      quantity: 952,
-      required_total: 952,
-    },
-    {
-      category: "A",
-      code: "01",
-      quantity: 499,
-      required_total: 499,
-    },
-    {
-      category: "B",
-      code: "89",
-      quantity: 3416,
-      required_total: 3416,
-    },
+    [
+      {
+        category: "A",
+        code: "01",
+        quantity: 5000,
+        required_total: 12632,
+      },
+      {
+        category: "A",
+        code: "02",
+        quantity: 5000,
+        required_total: 17000,
+      },
+      {
+        category: "B",
+        code: "03",
+        quantity: 5000,
+        required_total: 21000,
+      },
+    ],
+
+    [
+      {
+        category: "A",
+        code: "01",
+        quantity: 5000,
+        required_total: 12632,
+      },
+      {
+        category: "A",
+        code: "02",
+        quantity: 5000,
+        required_total: 17000,
+      },
+      {
+        category: "B",
+        code: "03",
+        quantity: 5000,
+        required_total: 21000,
+      },
+    ],
+
+    [
+      {
+        category: "A",
+        code: "01",
+        quantity: 2500,
+        required_total: 12632,
+      },
+      {
+        category: "A",
+        code: "02",
+        quantity: 5000,
+        required_total: 17000,
+      },
+      {
+        category: "B",
+        code: "03",
+        quantity: 5000,
+        required_total: 21000,
+      },
+    ],
+
+    [
+      {
+        category: "A",
+        code: "02",
+        quantity: 2000,
+        required_total: 17000,
+      },
+      {
+        category: "B",
+        code: "03",
+        quantity: 5000,
+        required_total: 21000,
+      },
+    ],
+
+    [
+      {
+        category: "B",
+        code: "03",
+        quantity: 1000,
+        required_total: 21000,
+      },
+    ],
   ],
 );
 
 assert.ok(
   sweep.rows.every(
     row =>
-      row.quantity
-      === row.required_total,
+      row.quantity >= 500
+      && row.quantity <= 5000
+      && row.quantity % 500 === 0,
   ),
 );
 
@@ -394,35 +490,124 @@ assert.deepEqual(
 );
 
 
-const previewSweepRows =
+
+const previewSweepPlan = {
+  A: {
+    recommendations: [
+      {
+        code: "79",
+        retained_before: 12019,
+        retention_limit: 5564,
+        recommended_transfer: 6455,
+      },
+      {
+        code: "98",
+        retained_before: 14264,
+        retention_limit: 5564,
+        recommended_transfer: 8700,
+      },
+    ],
+  },
+
+  B: {
+    recommendations: [
+      {
+        code: "98",
+        retained_before: 16391,
+        retention_limit: 5191,
+        recommended_transfer: 11200,
+      },
+    ],
+  },
+};
+
+
+const previewSweepBatches =
   runtime
-    .abPreviewBatchRows(
-      previewAutoPlan,
-      "SWEEP",
+    .abPreviewSweepBatches(
+      previewSweepPlan,
     );
 
 assert.equal(
-  previewSweepRows.length,
-  5,
+  previewSweepBatches.length,
+  3,
 );
 
-assert.equal(
-  previewSweepRows.reduce(
-    (sum, row) =>
-      sum + row.quantity,
-    0,
+assert.deepEqual(
+  Array.from(
+    previewSweepBatches,
+    batch =>
+      Array.from(
+        batch,
+        row => ({
+          category:
+            row.category,
+
+          code:
+            row.code,
+
+          quantity:
+            row.quantity,
+        }),
+      ),
   ),
-  16063,
+  [
+    [
+      {
+        category: "A",
+        code: "79",
+        quantity: 5000,
+      },
+      {
+        category: "A",
+        code: "98",
+        quantity: 5000,
+      },
+      {
+        category: "B",
+        code: "98",
+        quantity: 5000,
+      },
+    ],
+
+    [
+      {
+        category: "A",
+        code: "79",
+        quantity: 1000,
+      },
+      {
+        category: "A",
+        code: "98",
+        quantity: 3500,
+      },
+      {
+        category: "B",
+        code: "98",
+        quantity: 5000,
+      },
+    ],
+
+    [
+      {
+        category: "B",
+        code: "98",
+        quantity: 1000,
+      },
+    ],
+  ],
 );
 
 assert.ok(
-  previewSweepRows.every(
-    row =>
-      row.quantity
-      === row.recommended_transfer,
-  ),
+  previewSweepBatches
+    .flat()
+    .every(
+      row =>
+        row.quantity >= 500
+        && row.quantity <= 5000
+        && row.quantity % 500 === 0,
+    ),
 );
-
 
 const highToLowRows = [
   {
@@ -513,7 +698,7 @@ const sweepMessages =
           "NORTH",
 
         plan: {
-          ...previewAutoPlan,
+          ...previewSweepPlan,
 
           gross_received:
             200000,
@@ -522,7 +707,7 @@ const sweepMessages =
             150000,
 
           transfer_required_total:
-            16063,
+            26355,
         },
       },
 
@@ -544,6 +729,16 @@ const sweepMessages =
     );
 
 assert.equal(
+  sweepMessages.sweep,
+  true,
+);
+
+assert.equal(
+  sweepMessages.copyBatches.length,
+  3,
+);
+
+assert.equal(
   sweepMessages
     .batchRows
     .reduce(
@@ -551,32 +746,156 @@ assert.equal(
         sum + row.quantity,
       0,
     ),
-  16063,
+  25500,
 );
 
 assert.match(
   sweepMessages.bubble1,
-  /ต้องส่งออกทั้งหมด 16,063/,
+  /ต้องส่งออกทั้งหมด 26,355/,
 );
 
 assert.match(
   sweepMessages.bubble1,
-  /ส่งออกรอบนี้ 16,063/,
+  /ส่งออกรอบนี้ 25,500/,
 );
 
 assert.match(
   sweepMessages.bubble1,
-  /เหลือรอส่งออก 0/,
+  /เหลือรอส่งออก 855/,
 );
 
-assert.match(
+assert.equal(
+  sweepMessages.copyBatches[0].text,
+  [
+    "บ",
+    "79=5000",
+    "",
+    "บล",
+    "98=5000x5000",
+  ].join("\n"),
+);
+
+assert.equal(
+  sweepMessages.copyBatches[1].text,
+  [
+    "บ",
+    "79=1000",
+    "",
+    "บล",
+    "98=3500x5000",
+  ].join("\n"),
+);
+
+assert.equal(
+  sweepMessages.copyBatches[2].text,
+  [
+    "ล",
+    "98=1000",
+  ].join("\n"),
+);
+
+assert.doesNotMatch(
   sweepMessages.bubble2,
-  /89=4741x3416/,
+  /\bA\d{2}\b|\bB\d{2}\b/,
 );
 
 assert.match(
-  sweepMessages.bubble2,
-  /35=952/,
+  preview,
+  /data-batch-index=/,
+);
+
+assert.match(
+  preview,
+  /Copy ชุด/,
+);
+
+
+const requestedFormatRows = [
+  {
+    category: "A",
+    code: "79",
+    quantity: 5000,
+    retained_before: 20000,
+    recommended_transfer: 5000,
+  },
+  {
+    category: "A",
+    code: "52",
+    quantity: 5000,
+    retained_before: 19000,
+    recommended_transfer: 5000,
+  },
+  {
+    category: "B",
+    code: "57",
+    quantity: 2500,
+    retained_before: 18000,
+    recommended_transfer: 2500,
+  },
+  {
+    category: "B",
+    code: "75",
+    quantity: 2500,
+    retained_before: 17000,
+    recommended_transfer: 2500,
+  },
+  {
+    category: "A",
+    code: "98",
+    quantity: 5000,
+    retained_before: 16000,
+    recommended_transfer: 5000,
+  },
+  {
+    category: "B",
+    code: "98",
+    quantity: 5000,
+    retained_before: 15000,
+    recommended_transfer: 5000,
+  },
+  {
+    category: "A",
+    code: "82",
+    quantity: 5000,
+    retained_before: 14000,
+    recommended_transfer: 5000,
+  },
+  {
+    category: "B",
+    code: "82",
+    quantity: 2000,
+    retained_before: 13000,
+    recommended_transfer: 2000,
+  },
+];
+
+
+const requestedFormat =
+  runtime
+    .abPreviewSweepOperationalText(
+      requestedFormatRows,
+    );
+
+assert.equal(
+  requestedFormat,
+  [
+    "บ",
+    "79=5000",
+    "52=5000",
+    "",
+    "ล",
+    "57=2500",
+    "75=2500",
+    "",
+    "บล",
+    "98=5000x5000",
+    "82=5000x2000",
+  ].join("\n"),
+);
+
+assert.doesNotMatch(
+  requestedFormat,
+  /A79|A52|B57|B75|A98|B98/,
 );
 
 
@@ -589,7 +908,7 @@ console.log(
 );
 
 console.log(
-  "PASS: SWEEP selects exact recommended transfer and leaves zero remaining",
+  "PASS: SWEEP floors to 500, caps each code at 5000 per batch and carries overflow",
 );
 
 console.log(

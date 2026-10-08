@@ -77,7 +77,7 @@ function abPreviewCap(plan) {
 }
 
 /*
- * Phase-1 calculation-only contract.
+ * Calculation-only contract.
  *
  * FIXED:
  *   500..5000 in 500-unit steps.
@@ -87,12 +87,114 @@ function abPreviewCap(plan) {
  *   capped at 5000 per A/B category + code.
  *
  * SWEEP:
- *   use the exact remaining recommendation
- *   for every A/B category + code.
+ *   floor every recommendation to 500-unit
+ *   steps, then split it across batches with
+ *   max 5000 per category + code + batch.
+ *
+ * Residual <500 remains waiting.
  *
  * Preview only:
  * no DB write, confirmed cut or LINE send.
  */
+function abPreviewBatchRow(
+  category,
+  row,
+  quantity,
+  required
+) {
+  return {
+    category,
+
+    code:
+      String(row.code ?? "")
+        .padStart(2, "0"),
+
+    quantity,
+
+    retained_before:
+      Math.max(
+        0,
+        Math.trunc(
+          abPreviewNumber(
+            row.retained_before
+          )
+        )
+      ),
+
+    retention_limit:
+      Math.max(
+        0,
+        Math.trunc(
+          abPreviewNumber(
+            row.retention_limit
+          )
+        )
+      ),
+
+    recommended_transfer:
+      required,
+  };
+}
+
+
+function abPreviewSweepBatches(
+  plan
+) {
+  const batches = [];
+
+  for (const category of ["A", "B"]) {
+    for (
+      const row
+      of plan?.[category]
+        ?.recommendations || []
+    ) {
+      const required =
+        Math.max(
+          0,
+          Math.trunc(
+            abPreviewNumber(
+              row.recommended_transfer
+            )
+          )
+        );
+
+      let remaining =
+        Math.floor(
+          required / 500
+        ) * 500;
+
+      let batchIndex = 0;
+
+      while (remaining > 0) {
+        const quantity =
+          Math.min(
+            5000,
+            remaining
+          );
+
+        if (!batches[batchIndex]) {
+          batches[batchIndex] = [];
+        }
+
+        batches[batchIndex].push(
+          abPreviewBatchRow(
+            category,
+            row,
+            quantity,
+            required
+          )
+        );
+
+        remaining -= quantity;
+        batchIndex += 1;
+      }
+    }
+  }
+
+  return batches;
+}
+
+
 function abPreviewBatchRows(
   plan,
   batchMode
@@ -110,11 +212,17 @@ function abPreviewBatchRows(
   const sweep =
     rawMode === "SWEEP";
 
+  if (sweep) {
+    return (
+      abPreviewSweepBatches(
+        plan
+      )[0]
+      || []
+    );
+  }
+
   const limit =
-    (
-      automatic
-      || sweep
-    )
+    automatic
       ? null
       : Math.trunc(
           abPreviewNumber(
@@ -124,7 +232,6 @@ function abPreviewBatchRows(
 
   if (
     !automatic
-    && !sweep
     && (
       limit < 500
       || limit > 5000
@@ -153,57 +260,31 @@ function abPreviewBatchRows(
         );
 
       const quantity =
-        sweep
-          ? required
-          : automatic
-            ? Math.min(
-                5000,
-                Math.floor(
-                  required / 500
-                ) * 500
-              )
-            : (
-                required >= limit
-                  ? limit
-                  : 0
-              );
+        automatic
+          ? Math.min(
+              5000,
+              Math.floor(
+                required / 500
+              ) * 500
+            )
+          : (
+              required >= limit
+                ? limit
+                : 0
+            );
 
       if (quantity <= 0) {
         continue;
       }
 
-      rows.push({
-        category,
-
-        code:
-          String(row.code ?? "")
-            .padStart(2, "0"),
-
-        quantity,
-
-        retained_before:
-          Math.max(
-            0,
-            Math.trunc(
-              abPreviewNumber(
-                row.retained_before
-              )
-            )
-          ),
-
-        retention_limit:
-          Math.max(
-            0,
-            Math.trunc(
-              abPreviewNumber(
-                row.retention_limit
-              )
-            )
-          ),
-
-        recommended_transfer:
-          required,
-      });
+      rows.push(
+        abPreviewBatchRow(
+          category,
+          row,
+          quantity,
+          required
+        )
+      );
     }
   }
 
@@ -733,6 +814,97 @@ function abPreviewOperationalText(
 
 
 /*
+ * SWEEP operational format.
+ *
+ * No A/B prefix is ever shown beside a code.
+ *
+ * A only -> บ
+ * B only -> ล
+ * A+B    -> บล
+ *
+ * SWEEP intentionally uses one code per line
+ * even when quantities are equal.
+ */
+function abPreviewSweepOperationalText(
+  rows = []
+) {
+  const {
+    onlyA,
+    onlyB,
+    both,
+  } =
+    abPreviewSplitRows(rows);
+
+  const a =
+    abPreviewOrderEntries(
+      onlyA,
+      "A"
+    );
+
+  const b =
+    abPreviewOrderEntries(
+      onlyB,
+      "B"
+    );
+
+  const ab =
+    abPreviewOrderEntries(
+      both
+    );
+
+  const sections = [];
+
+  if (a.length) {
+    sections.push(
+      [
+        "บ",
+
+        ...a.map(
+          entry =>
+            `${entry.code}=`
+            + `${entry.A.quantity}`
+        ),
+      ].join("\n")
+    );
+  }
+
+  if (b.length) {
+    sections.push(
+      [
+        "ล",
+
+        ...b.map(
+          entry =>
+            `${entry.code}=`
+            + `${entry.B.quantity}`
+        ),
+      ].join("\n")
+    );
+  }
+
+  if (ab.length) {
+    sections.push(
+      [
+        "บล",
+
+        ...ab.map(
+          entry =>
+            `${entry.code}=`
+            + `${entry.A.quantity}`
+            + "x"
+            + `${entry.B.quantity}`
+        ),
+      ].join("\n")
+    );
+  }
+
+  return sections
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+
+/*
  * Bubble 1 = stable audit view.
  *
  * บ / ล:
@@ -1032,11 +1204,35 @@ function abPreviewBuildMessages(
     return null;
   }
 
-  const rows =
-    abPreviewBatchRows(
-      plan,
-      batchLimit
-    );
+  const rawMode =
+    String(
+      batchLimit ?? "500"
+    )
+      .trim()
+      .toUpperCase();
+
+  const sweep =
+    rawMode === "SWEEP";
+
+  const batches =
+    sweep
+      ? abPreviewSweepBatches(
+          plan
+        )
+      : (() => {
+          const rows =
+            abPreviewBatchRows(
+              plan,
+              batchLimit
+            );
+
+          return rows.length
+            ? [rows]
+            : [];
+        })();
+
+  const allRows =
+    batches.flat();
 
   const totalRequired =
     abPreviewTotalRequired(
@@ -1045,7 +1241,7 @@ function abPreviewBuildMessages(
 
   const batchTotal =
     abPreviewBatchTotal(
-      rows
+      allRows
     );
 
   const remainingRequired =
@@ -1054,9 +1250,22 @@ function abPreviewBuildMessages(
       totalRequired - batchTotal
     );
 
+  /*
+   * Every sweepable code appears in batch 1.
+   * Use it for the audit list so a code is
+   * never duplicated in Bubble 1.
+   */
+  const auditRows =
+    sweep
+      ? (
+          batches[0]
+          || []
+        )
+      : allRows;
+
   const auditText =
     abPreviewAuditText(
-      rows,
+      auditRows,
       {
         plan,
         v3: true,
@@ -1110,18 +1319,52 @@ function abPreviewBuildMessages(
     auditText,
   ].join("\n");
 
+  const copyBatches =
+    batches.map(
+      (rows, index) => ({
+        batch_no:
+          index + 1,
+
+        rows,
+
+        text:
+          sweep
+            ? abPreviewSweepOperationalText(
+                rows
+              )
+            : abPreviewOperationalText(
+                rows,
+                templateValue
+              ),
+      })
+    )
+      .filter(
+        batch =>
+          Boolean(
+            batch.text.trim()
+          )
+      );
+
   const bubble2 =
-    abPreviewOperationalText(
-      rows,
-      templateValue
-    );
+    copyBatches
+      .map(
+        batch => batch.text
+      )
+      .join("\n\n");
 
   return {
     bubble1,
     bubble2,
-    batchRows: rows,
+
+    batchRows:
+      allRows,
+
+    copyBatches,
+
+    sweep,
   };
 }
+
 
 function renderAbAdvisoryPreview({
   dashboard = null,
@@ -1246,7 +1489,78 @@ function renderAbAdvisoryPreview({
           );
 
         const hasItems =
-          messages.batchRows.length > 0;
+          messages.copyBatches
+            .length > 0;
+
+        const copyBlocks =
+          hasItems
+            ? messages.copyBatches
+                .map(
+                  (batch, index) => `
+                    <div
+                      class="ab-advisory-copy-block"
+                    >
+                      ${
+                        messages.sweep
+                          ? `
+                            <div
+                              class="muted small-text"
+                            >
+                              ชุด ${abPreviewEscape(
+                                batch.batch_no
+                              )}
+                            </div>
+                          `
+                          : ""
+                      }
+
+                      <pre
+                        class="ab-advisory-bubble ab-advisory-bubble-copy"
+                      >${abPreviewEscape(
+                        batch.text
+                      )}</pre>
+
+                      <button
+                        type="button"
+                        class="button ghost small ab-advisory-copy-button"
+                        data-summary-group-id="${
+                          abPreviewEscape(
+                            summary.summary_group_id
+                          )
+                        }"
+                        data-batch-index="${
+                          index
+                        }"
+                      >
+                        ${
+                          messages.sweep
+                            ? `Copy ชุด ${abPreviewEscape(
+                                batch.batch_no
+                              )}`
+                            : "Copy"
+                        }
+                      </button>
+                    </div>
+                  `
+                )
+                .join("")
+            : `
+                <div
+                  class="ab-advisory-copy-block"
+                >
+                  <pre
+                    class="ab-advisory-bubble ab-advisory-bubble-copy"
+                  >ไม่มีรายการรอบนี้</pre>
+
+                  <button
+                    type="button"
+                    class="button ghost small ab-advisory-copy-button"
+                    disabled
+                  >
+                    Copy
+                  </button>
+                </div>
+              `;
 
         return `
           <article
@@ -1275,9 +1589,13 @@ function renderAbAdvisoryPreview({
                     batchMode
                   )
                 )}
-                · แบบ ${abPreviewEscape(
-                  template
-                )}
+                ${
+                  messages.sweep
+                    ? ""
+                    : `· แบบ ${abPreviewEscape(
+                        template
+                      )}`
+                }
               </span>
             </div>
 
@@ -1290,34 +1608,7 @@ function renderAbAdvisoryPreview({
                 messages.bubble1
               )}</pre>
 
-              <div
-                class="ab-advisory-copy-block"
-              >
-                <pre
-                  class="ab-advisory-bubble ab-advisory-bubble-copy"
-                >${abPreviewEscape(
-                  hasItems
-                    ? messages.bubble2
-                    : "ไม่มีรายการรอบนี้"
-                )}</pre>
-
-                <button
-                  type="button"
-                  class="button ghost small ab-advisory-copy-button"
-                  data-summary-group-id="${
-                    abPreviewEscape(
-                      summary.summary_group_id
-                    )
-                  }"
-                  ${
-                    hasItems
-                      ? ""
-                      : "disabled"
-                  }
-                >
-                  Copy
-                </button>
-              </div>
+              ${copyBlocks}
             </div>
           </article>
         `;
@@ -1486,14 +1777,31 @@ function bindAbAdvisoryPreviewControls({
           )
         );
 
-      if (!messages?.bubble2) {
+      const batchIndex =
+        Math.max(
+          0,
+          Math.trunc(
+            abPreviewNumber(
+              button.dataset
+                .batchIndex
+              ?? 0
+            )
+          )
+        );
+
+      const copyBatch =
+        messages
+          ?.copyBatches
+          ?.[batchIndex];
+
+      if (!copyBatch?.text) {
         return;
       }
 
       try {
         const ok =
           await abPreviewCopy(
-            messages.bubble2
+            copyBatch.text
           );
 
         if (!ok) {
@@ -1503,7 +1811,9 @@ function bindAbAdvisoryPreviewControls({
         }
 
         abAdvisoryPreviewContext.notify(
-          "คัดลอกรายการแล้ว",
+          messages.sweep
+            ? `คัดลอกชุด ${copyBatch.batch_no} แล้ว`
+            : "คัดลอกรายการแล้ว",
           false
         );
       } catch {

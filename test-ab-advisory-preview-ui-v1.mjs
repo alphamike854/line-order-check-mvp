@@ -849,7 +849,7 @@ console.log(
 
   assertBubbleV3.match(
     bubbleV3Source,
-    /abPreviewAuditText\(\s*rows,\s*\{\s*plan,\s*v3:\s*true,/s,
+    /abPreviewAuditText\(\s*auditRows,\s*\{\s*plan,\s*v3:\s*true,/s,
     "Bubble 1 must render stable V3 audit presentation"
   );
 

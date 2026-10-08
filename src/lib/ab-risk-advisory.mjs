@@ -445,7 +445,7 @@ export function buildAbBatchAdvisory({
         );
 
   /*
-   * Phase-1 calculation-only contract.
+   * Calculation-only contract.
    *
    * FIXED:
    *   500..5000, exact 500-unit steps.
@@ -455,9 +455,12 @@ export function buildAbBatchAdvisory({
    *   capped at 5000 per category/code.
    *
    * SWEEP:
-   *   select the exact recommended transfer
-   *   for every category/code so the current
-   *   recommendation can be cleared in one batch.
+   *   floor each recommendation to 500-unit
+   *   steps and split into multiple batches.
+   *   Each category/code may contribute at
+   *   most 5000 to one batch.
+   *
+   * Residual below 500 remains waiting.
    *
    * No confirmed cut or LINE send occurs here.
    */
@@ -476,6 +479,9 @@ export function buildAbBatchAdvisory({
   }
 
   const rows = [];
+  const sweepBatches = [];
+
+  let requiredTotal = 0;
 
   for (const category of ["A", "B"]) {
     for (
@@ -493,16 +499,53 @@ export function buildAbBatchAdvisory({
           ),
         );
 
+      requiredTotal += required;
+
       if (required <= 0) {
+        continue;
+      }
+
+      if (sweep) {
+        let remaining =
+          Math.floor(
+            required / 500,
+          ) * 500;
+
+        let batchIndex = 0;
+
+        while (remaining > 0) {
+          const quantity =
+            Math.min(
+              5000,
+              remaining,
+            );
+
+          if (!sweepBatches[batchIndex]) {
+            sweepBatches[batchIndex] = [];
+          }
+
+          sweepBatches[batchIndex].push({
+            category,
+
+            code:
+              rec.code,
+
+            quantity,
+
+            required_total:
+              required,
+          });
+
+          remaining -= quantity;
+          batchIndex += 1;
+        }
+
         continue;
       }
 
       let quantity = 0;
 
-      if (sweep) {
-        quantity =
-          required;
-      } else if (automatic) {
+      if (automatic) {
         quantity =
           Math.min(
             5000,
@@ -529,14 +572,29 @@ export function buildAbBatchAdvisory({
 
       rows.push({
         category,
+
         code:
           rec.code,
+
         quantity,
+
         required_total:
           required,
       });
     }
   }
+
+  const outputRows =
+    sweep
+      ? sweepBatches.flat()
+      : rows;
+
+  const totalQuantity =
+    outputRows.reduce(
+      (sum, row) =>
+        sum + row.quantity,
+      0,
+    );
 
   return {
     mode:
@@ -559,14 +617,28 @@ export function buildAbBatchAdvisory({
         finalRound,
       ),
 
-    rows,
+    rows:
+      outputRows,
 
     total_quantity:
-      rows.reduce(
-        (sum, row) =>
-          sum + row.quantity,
-        0,
-      ),
+      totalQuantity,
+
+    ...(sweep
+      ? {
+          batches:
+            sweepBatches,
+
+          batch_count:
+            sweepBatches.length,
+
+          remaining_quantity:
+            Math.max(
+              0,
+              requiredTotal
+              - totalQuantity,
+            ),
+        }
+      : {}),
   };
 }
 
