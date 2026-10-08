@@ -56,6 +56,26 @@ assert.match(
 
 assert.match(
   html,
+  /value="SWEEP"/
+);
+
+assert.match(
+  html,
+  /value="SWEEP_EXACT"/
+);
+
+assert.match(
+  html,
+  /กวาดทั้งหมด \(ขั้น 500\)/
+);
+
+assert.match(
+  html,
+  /กวาดทั้งหมด \(ยอดจริง\)/
+);
+
+assert.match(
+  html,
   /ข้อเสนอเท่านั้น/
 );
 
@@ -423,6 +443,16 @@ assert.match(
 assert.match(
   styles,
   /\.ab-advisory-preview-controls/
+);
+
+assert.match(
+  preview,
+  /function abPreviewSweepExactBatches\(/
+);
+
+assert.match(
+  preview,
+  /SWEEP_EXACT/
 );
 
 assert.match(

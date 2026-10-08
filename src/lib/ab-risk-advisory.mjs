@@ -434,10 +434,17 @@ export function buildAbBatchAdvisory({
   const sweep =
     rawMode === "SWEEP";
 
+  const sweepExact =
+    rawMode === "SWEEP_EXACT";
+
+  const multiBatch =
+    sweep
+    || sweepExact;
+
   const limit =
     (
       automatic
-      || sweep
+      || multiBatch
     )
       ? null
       : Math.trunc(
@@ -459,14 +466,20 @@ export function buildAbBatchAdvisory({
    *   steps and split into multiple batches.
    *   Each category/code may contribute at
    *   most 5000 to one batch.
+   *   Residual below 500 remains waiting.
    *
-   * Residual below 500 remains waiting.
+   * SWEEP_EXACT:
+   *   use each exact recommendation without
+   *   500-unit rounding and split into multiple
+   *   batches. Each category/code may contribute
+   *   at most 5000 to one batch.
+   *   Residual is always zero.
    *
    * No confirmed cut or LINE send occurs here.
    */
   if (
     !automatic
-    && !sweep
+    && !multiBatch
     && (
       limit < 500
       || limit > 5000
@@ -505,11 +518,15 @@ export function buildAbBatchAdvisory({
         continue;
       }
 
-      if (sweep) {
+      if (multiBatch) {
         let remaining =
-          Math.floor(
-            required / 500,
-          ) * 500;
+          sweepExact
+            ? required
+            : (
+                Math.floor(
+                  required / 500,
+                ) * 500
+              );
 
         let batchIndex = 0;
 
@@ -585,7 +602,7 @@ export function buildAbBatchAdvisory({
   }
 
   const outputRows =
-    sweep
+    multiBatch
       ? sweepBatches.flat()
       : rows;
 
@@ -598,16 +615,18 @@ export function buildAbBatchAdvisory({
 
   return {
     mode:
-      sweep
-        ? "SWEEP"
-        : automatic
-          ? "AUTO"
-          : "FIXED",
+      sweepExact
+        ? "SWEEP_EXACT"
+        : sweep
+          ? "SWEEP"
+          : automatic
+            ? "AUTO"
+            : "FIXED",
 
     batch_limit:
       (
         automatic
-        || sweep
+        || multiBatch
       )
         ? null
         : limit,
@@ -623,7 +642,7 @@ export function buildAbBatchAdvisory({
     total_quantity:
       totalQuantity,
 
-    ...(sweep
+    ...(multiBatch
       ? {
           batches:
             sweepBatches,

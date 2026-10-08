@@ -332,6 +332,241 @@ assert.ok(
   ),
 );
 
+
+
+const sweepExact =
+  buildAbBatchAdvisory({
+    plan:
+      sweepPlan,
+
+    batchLimit:
+      "SWEEP_EXACT",
+  });
+
+assert.equal(
+  sweepExact.mode,
+  "SWEEP_EXACT",
+);
+
+assert.equal(
+  sweepExact.batch_limit,
+  null,
+);
+
+assert.equal(
+  sweepExact.batch_count,
+  5,
+);
+
+assert.equal(
+  sweepExact.total_quantity,
+  50632,
+);
+
+assert.equal(
+  sweepExact.remaining_quantity,
+  0,
+);
+
+assert.deepEqual(
+  sweepExact.batches,
+  [
+    [
+      {
+        category: "A",
+        code: "01",
+        quantity: 5000,
+        required_total: 12632,
+      },
+      {
+        category: "A",
+        code: "02",
+        quantity: 5000,
+        required_total: 17000,
+      },
+      {
+        category: "B",
+        code: "03",
+        quantity: 5000,
+        required_total: 21000,
+      },
+    ],
+
+    [
+      {
+        category: "A",
+        code: "01",
+        quantity: 5000,
+        required_total: 12632,
+      },
+      {
+        category: "A",
+        code: "02",
+        quantity: 5000,
+        required_total: 17000,
+      },
+      {
+        category: "B",
+        code: "03",
+        quantity: 5000,
+        required_total: 21000,
+      },
+    ],
+
+    [
+      {
+        category: "A",
+        code: "01",
+        quantity: 2632,
+        required_total: 12632,
+      },
+      {
+        category: "A",
+        code: "02",
+        quantity: 5000,
+        required_total: 17000,
+      },
+      {
+        category: "B",
+        code: "03",
+        quantity: 5000,
+        required_total: 21000,
+      },
+    ],
+
+    [
+      {
+        category: "A",
+        code: "02",
+        quantity: 2000,
+        required_total: 17000,
+      },
+      {
+        category: "B",
+        code: "03",
+        quantity: 5000,
+        required_total: 21000,
+      },
+    ],
+
+    [
+      {
+        category: "B",
+        code: "03",
+        quantity: 1000,
+        required_total: 21000,
+      },
+    ],
+  ],
+);
+
+assert.ok(
+  sweepExact.rows.every(
+    row =>
+      row.quantity > 0
+      && row.quantity <= 5000,
+  ),
+);
+
+assert.equal(
+  sweepExact
+    .batches[2][0]
+    .quantity,
+  2632,
+);
+
+
+const sweepExactSmall =
+  buildAbBatchAdvisory({
+    plan: {
+      A: {
+        recommendations: [
+          {
+            category: "A",
+            code: "50",
+            recommended_transfer: 405,
+          },
+        ],
+      },
+
+      B: {
+        recommendations: [],
+      },
+    },
+
+    batchLimit:
+      "SWEEP_EXACT",
+  });
+
+assert.equal(
+  sweepExactSmall.total_quantity,
+  405,
+);
+
+assert.equal(
+  sweepExactSmall.remaining_quantity,
+  0,
+);
+
+assert.equal(
+  sweepExactSmall.batches[0][0].quantity,
+  405,
+);
+
+
+/*
+ * User-facing acceptance example:
+ *
+ * exact sweep must clear 88,670 without
+ * rounding away the final 3,670.
+ */
+const sweepExact88670 =
+  buildAbBatchAdvisory({
+    plan: {
+      A: {
+        recommendations: [
+          {
+            category: "A",
+            code: "77",
+            recommended_transfer: 88670,
+          },
+        ],
+      },
+
+      B: {
+        recommendations: [],
+      },
+    },
+
+    batchLimit:
+      "SWEEP_EXACT",
+  });
+
+assert.equal(
+  sweepExact88670.total_quantity,
+  88670,
+);
+
+assert.equal(
+  sweepExact88670.remaining_quantity,
+  0,
+);
+
+assert.equal(
+  sweepExact88670.batch_count,
+  18,
+);
+
+assert.equal(
+  sweepExact88670.batches[0][0].quantity,
+  5000,
+);
+
+assert.equal(
+  sweepExact88670.batches[17][0].quantity,
+  3670,
+);
+
 assert.throws(
   () =>
     buildAbBatchAdvisory({
@@ -366,6 +601,7 @@ for (
     "5000",
     "AUTO",
     "SWEEP",
+    "SWEEP_EXACT",
   ]
 ) {
   assert.match(
@@ -609,6 +845,119 @@ assert.ok(
     ),
 );
 
+
+
+const previewSweepExactBatches =
+  runtime
+    .abPreviewSweepExactBatches(
+      previewSweepPlan,
+    );
+
+assert.equal(
+  previewSweepExactBatches.length,
+  3,
+);
+
+assert.deepEqual(
+  Array.from(
+    previewSweepExactBatches,
+    batch =>
+      Array.from(
+        batch,
+        row => ({
+          category:
+            row.category,
+
+          code:
+            row.code,
+
+          quantity:
+            row.quantity,
+        }),
+      ),
+  ),
+  [
+    [
+      {
+        category: "A",
+        code: "79",
+        quantity: 5000,
+      },
+      {
+        category: "A",
+        code: "98",
+        quantity: 5000,
+      },
+      {
+        category: "B",
+        code: "98",
+        quantity: 5000,
+      },
+    ],
+
+    [
+      {
+        category: "A",
+        code: "79",
+        quantity: 1455,
+      },
+      {
+        category: "A",
+        code: "98",
+        quantity: 3700,
+      },
+      {
+        category: "B",
+        code: "98",
+        quantity: 5000,
+      },
+    ],
+
+    [
+      {
+        category: "B",
+        code: "98",
+        quantity: 1200,
+      },
+    ],
+  ],
+);
+
+assert.ok(
+  previewSweepExactBatches
+    .flat()
+    .every(
+      row =>
+        row.quantity > 0
+        && row.quantity <= 5000,
+    ),
+);
+
+const previewSweepExactSmall =
+  runtime
+    .abPreviewSweepExactBatches({
+      A: {
+        recommendations: [
+          {
+            code: "50",
+            retained_before: 6000,
+            retention_limit: 5595,
+            recommended_transfer: 405,
+          },
+        ],
+      },
+
+      B: {
+        recommendations: [],
+      },
+    });
+
+assert.equal(
+  previewSweepExactSmall[0][0].quantity,
+  405,
+);
+
+
 const highToLowRows = [
   {
     category: "A",
@@ -686,7 +1035,15 @@ assert.equal(
     .abPreviewBatchLabel(
       "SWEEP",
     ),
-  "กวาดทั้งหมด",
+  "กวาดทั้งหมด (ขั้น 500)",
+);
+
+assert.equal(
+  runtime
+    .abPreviewBatchLabel(
+      "SWEEP_EXACT",
+    ),
+  "กวาดทั้งหมด (ยอดจริง)",
 );
 
 
@@ -807,6 +1164,123 @@ assert.match(
 assert.match(
   preview,
   /Copy ชุด/,
+);
+
+
+
+
+const sweepExactMessages =
+  runtime
+    .abPreviewBuildMessages(
+      {
+        summary_group_id:
+          "NORTH",
+
+        plan: {
+          ...previewSweepPlan,
+
+          gross_received:
+            200000,
+
+          adjusted_received:
+            150000,
+
+          transfer_required_total:
+            26355,
+        },
+      },
+
+      "SWEEP_EXACT",
+
+      {
+        generated_at:
+          "2026-10-08T08:00:00.000Z",
+
+        summary_groups: [
+          {
+            id: "NORTH",
+            name: "ภาคเหนือ",
+          },
+        ],
+      },
+
+      "A",
+    );
+
+assert.equal(
+  sweepExactMessages.sweep,
+  true,
+);
+
+assert.equal(
+  sweepExactMessages.sweepExact,
+  true,
+);
+
+assert.equal(
+  sweepExactMessages.copyBatches.length,
+  3,
+);
+
+assert.equal(
+  sweepExactMessages
+    .batchRows
+    .reduce(
+      (sum, row) =>
+        sum + row.quantity,
+      0,
+    ),
+  26355,
+);
+
+assert.match(
+  sweepExactMessages.bubble1,
+  /ต้องส่งออกทั้งหมด 26,355/,
+);
+
+assert.match(
+  sweepExactMessages.bubble1,
+  /ส่งออกรอบนี้ 26,355/,
+);
+
+assert.match(
+  sweepExactMessages.bubble1,
+  /เหลือรอส่งออก 0/,
+);
+
+assert.equal(
+  sweepExactMessages.copyBatches[0].text,
+  [
+    "บ",
+    "79=5000",
+    "",
+    "บล",
+    "98=5000x5000",
+  ].join("\n"),
+);
+
+assert.equal(
+  sweepExactMessages.copyBatches[1].text,
+  [
+    "บ",
+    "79=1455",
+    "",
+    "บล",
+    "98=3700x5000",
+  ].join("\n"),
+);
+
+assert.equal(
+  sweepExactMessages.copyBatches[2].text,
+  [
+    "ล",
+    "98=1200",
+  ].join("\n"),
+);
+
+assert.doesNotMatch(
+  sweepExactMessages.bubble2,
+  /\bA\d{2}\b|\bB\d{2}\b/,
 );
 
 

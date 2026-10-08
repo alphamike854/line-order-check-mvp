@@ -90,8 +90,13 @@ function abPreviewCap(plan) {
  *   floor every recommendation to 500-unit
  *   steps, then split it across batches with
  *   max 5000 per category + code + batch.
+ *   Residual <500 remains waiting.
  *
- * Residual <500 remains waiting.
+ * SWEEP_EXACT:
+ *   use the exact recommendation without
+ *   500-unit rounding, split across batches
+ *   with max 5000 per category + code + batch.
+ *   Residual is always zero.
  *
  * Preview only:
  * no DB write, confirmed cut or LINE send.
@@ -195,6 +200,62 @@ function abPreviewSweepBatches(
 }
 
 
+function abPreviewSweepExactBatches(
+  plan
+) {
+  const batches = [];
+
+  for (const category of ["A", "B"]) {
+    for (
+      const row
+      of plan?.[category]
+        ?.recommendations || []
+    ) {
+      const required =
+        Math.max(
+          0,
+          Math.trunc(
+            abPreviewNumber(
+              row.recommended_transfer
+            )
+          )
+        );
+
+      let remaining =
+        required;
+
+      let batchIndex = 0;
+
+      while (remaining > 0) {
+        const quantity =
+          Math.min(
+            5000,
+            remaining
+          );
+
+        if (!batches[batchIndex]) {
+          batches[batchIndex] = [];
+        }
+
+        batches[batchIndex].push(
+          abPreviewBatchRow(
+            category,
+            row,
+            quantity,
+            required
+          )
+        );
+
+        remaining -= quantity;
+        batchIndex += 1;
+      }
+    }
+  }
+
+  return batches;
+}
+
+
 function abPreviewBatchRows(
   plan,
   batchMode
@@ -212,11 +273,24 @@ function abPreviewBatchRows(
   const sweep =
     rawMode === "SWEEP";
 
-  if (sweep) {
+  const sweepExact =
+    rawMode === "SWEEP_EXACT";
+
+  if (
+    sweep
+    || sweepExact
+  ) {
+    const batches =
+      sweepExact
+        ? abPreviewSweepExactBatches(
+            plan
+          )
+        : abPreviewSweepBatches(
+            plan
+          );
+
     return (
-      abPreviewSweepBatches(
-        plan
-      )[0]
+      batches[0]
       || []
     );
   }
@@ -558,7 +632,11 @@ function abPreviewBatchLabel(
   }
 
   if (mode === "SWEEP") {
-    return "กวาดทั้งหมด";
+    return "กวาดทั้งหมด (ขั้น 500)";
+  }
+
+  if (mode === "SWEEP_EXACT") {
+    return "กวาดทั้งหมด (ยอดจริง)";
   }
 
   return abPreviewFormat(
@@ -1214,10 +1292,23 @@ function abPreviewBuildMessages(
   const sweep =
     rawMode === "SWEEP";
 
-  const batches =
+  const sweepExact =
+    rawMode === "SWEEP_EXACT";
+
+  const multiBatch =
     sweep
-      ? abPreviewSweepBatches(
-          plan
+    || sweepExact;
+
+  const batches =
+    multiBatch
+      ? (
+          sweepExact
+            ? abPreviewSweepExactBatches(
+                plan
+              )
+            : abPreviewSweepBatches(
+                plan
+              )
         )
       : (() => {
           const rows =
@@ -1256,7 +1347,7 @@ function abPreviewBuildMessages(
    * never duplicated in Bubble 1.
    */
   const auditRows =
-    sweep
+    multiBatch
       ? (
           batches[0]
           || []
@@ -1328,7 +1419,7 @@ function abPreviewBuildMessages(
         rows,
 
         text:
-          sweep
+          multiBatch
             ? abPreviewSweepOperationalText(
                 rows
               )
@@ -1361,7 +1452,10 @@ function abPreviewBuildMessages(
 
     copyBatches,
 
-    sweep,
+    sweep:
+      multiBatch,
+
+    sweepExact,
   };
 }
 
