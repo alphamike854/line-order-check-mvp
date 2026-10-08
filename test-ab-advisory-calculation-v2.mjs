@@ -167,6 +167,75 @@ assert.ok(
   ),
 );
 
+
+const sweep =
+  buildAbBatchAdvisory({
+    plan:
+      autoPlan,
+
+    batchLimit:
+      "SWEEP",
+  });
+
+assert.equal(
+  sweep.mode,
+  "SWEEP",
+);
+
+assert.equal(
+  sweep.batch_limit,
+  null,
+);
+
+assert.equal(
+  sweep.total_quantity,
+  16063,
+);
+
+assert.deepEqual(
+  sweep.rows,
+  [
+    {
+      category: "A",
+      code: "79",
+      quantity: 6455,
+      required_total: 6455,
+    },
+    {
+      category: "A",
+      code: "89",
+      quantity: 4741,
+      required_total: 4741,
+    },
+    {
+      category: "A",
+      code: "35",
+      quantity: 952,
+      required_total: 952,
+    },
+    {
+      category: "A",
+      code: "01",
+      quantity: 499,
+      required_total: 499,
+    },
+    {
+      category: "B",
+      code: "89",
+      quantity: 3416,
+      required_total: 3416,
+    },
+  ],
+);
+
+assert.ok(
+  sweep.rows.every(
+    row =>
+      row.quantity
+      === row.required_total,
+  ),
+);
+
 assert.throws(
   () =>
     buildAbBatchAdvisory({
@@ -200,6 +269,7 @@ for (
     "4500",
     "5000",
     "AUTO",
+    "SWEEP",
   ]
 ) {
   assert.match(
@@ -324,6 +394,36 @@ assert.deepEqual(
 );
 
 
+const previewSweepRows =
+  runtime
+    .abPreviewBatchRows(
+      previewAutoPlan,
+      "SWEEP",
+    );
+
+assert.equal(
+  previewSweepRows.length,
+  5,
+);
+
+assert.equal(
+  previewSweepRows.reduce(
+    (sum, row) =>
+      sum + row.quantity,
+    0,
+  ),
+  16063,
+);
+
+assert.ok(
+  previewSweepRows.every(
+    row =>
+      row.quantity
+      === row.recommended_transfer,
+  ),
+);
+
+
 const highToLowRows = [
   {
     category: "A",
@@ -396,12 +496,100 @@ assert.equal(
 );
 
 
+assert.equal(
+  runtime
+    .abPreviewBatchLabel(
+      "SWEEP",
+    ),
+  "กวาดทั้งหมด",
+);
+
+
+const sweepMessages =
+  runtime
+    .abPreviewBuildMessages(
+      {
+        summary_group_id:
+          "NORTH",
+
+        plan: {
+          ...previewAutoPlan,
+
+          gross_received:
+            200000,
+
+          adjusted_received:
+            150000,
+
+          transfer_required_total:
+            16063,
+        },
+      },
+
+      "SWEEP",
+
+      {
+        generated_at:
+          "2026-10-08T08:00:00.000Z",
+
+        summary_groups: [
+          {
+            id: "NORTH",
+            name: "ภาคเหนือ",
+          },
+        ],
+      },
+
+      "A",
+    );
+
+assert.equal(
+  sweepMessages
+    .batchRows
+    .reduce(
+      (sum, row) =>
+        sum + row.quantity,
+      0,
+    ),
+  16063,
+);
+
+assert.match(
+  sweepMessages.bubble1,
+  /ต้องส่งออกทั้งหมด 16,063/,
+);
+
+assert.match(
+  sweepMessages.bubble1,
+  /ส่งออกรอบนี้ 16,063/,
+);
+
+assert.match(
+  sweepMessages.bubble1,
+  /เหลือรอส่งออก 0/,
+);
+
+assert.match(
+  sweepMessages.bubble2,
+  /89=4741x3416/,
+);
+
+assert.match(
+  sweepMessages.bubble2,
+  /35=952/,
+);
+
+
 console.log(
   "PASS: fixed 500-step calculation 500..5000",
 );
 
 console.log(
   "PASS: AUTO floors to 500 and caps A/B code at 5000",
+);
+
+console.log(
+  "PASS: SWEEP selects exact recommended transfer and leaves zero remaining",
 );
 
 console.log(

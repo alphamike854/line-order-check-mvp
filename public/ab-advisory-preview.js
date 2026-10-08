@@ -86,6 +86,10 @@ function abPreviewCap(plan) {
  *   floor recommendation to nearest 500,
  *   capped at 5000 per A/B category + code.
  *
+ * SWEEP:
+ *   use the exact remaining recommendation
+ *   for every A/B category + code.
+ *
  * Preview only:
  * no DB write, confirmed cut or LINE send.
  */
@@ -103,8 +107,14 @@ function abPreviewBatchRows(
   const automatic =
     rawMode === "AUTO";
 
+  const sweep =
+    rawMode === "SWEEP";
+
   const limit =
-    automatic
+    (
+      automatic
+      || sweep
+    )
       ? null
       : Math.trunc(
           abPreviewNumber(
@@ -114,6 +124,7 @@ function abPreviewBatchRows(
 
   if (
     !automatic
+    && !sweep
     && (
       limit < 500
       || limit > 5000
@@ -142,18 +153,20 @@ function abPreviewBatchRows(
         );
 
       const quantity =
-        automatic
-          ? Math.min(
-              5000,
-              Math.floor(
-                required / 500
-              ) * 500
-            )
-          : (
-              required >= limit
-                ? limit
-                : 0
-            );
+        sweep
+          ? required
+          : automatic
+            ? Math.min(
+                5000,
+                Math.floor(
+                  required / 500
+                ) * 500
+              )
+            : (
+                required >= limit
+                  ? limit
+                  : 0
+              );
 
       if (quantity <= 0) {
         continue;
@@ -461,6 +474,10 @@ function abPreviewBatchLabel(
 
   if (mode === "AUTO") {
     return "อัตโนมัติ";
+  }
+
+  if (mode === "SWEEP") {
+    return "กวาดทั้งหมด";
   }
 
   return abPreviewFormat(

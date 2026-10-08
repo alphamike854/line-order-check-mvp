@@ -431,8 +431,14 @@ export function buildAbBatchAdvisory({
   const automatic =
     rawMode === "AUTO";
 
+  const sweep =
+    rawMode === "SWEEP";
+
   const limit =
-    automatic
+    (
+      automatic
+      || sweep
+    )
       ? null
       : Math.trunc(
           num(batchLimit),
@@ -448,10 +454,16 @@ export function buildAbBatchAdvisory({
    *   floor recommendation to nearest 500,
    *   capped at 5000 per category/code.
    *
+   * SWEEP:
+   *   select the exact recommended transfer
+   *   for every category/code so the current
+   *   recommendation can be cleared in one batch.
+   *
    * No confirmed cut or LINE send occurs here.
    */
   if (
     !automatic
+    && !sweep
     && (
       limit < 500
       || limit > 5000
@@ -487,7 +499,10 @@ export function buildAbBatchAdvisory({
 
       let quantity = 0;
 
-      if (automatic) {
+      if (sweep) {
+        quantity =
+          required;
+      } else if (automatic) {
         quantity =
           Math.min(
             5000,
@@ -497,8 +512,7 @@ export function buildAbBatchAdvisory({
           );
       } else if (finalRound) {
         /*
-         * Preserve the existing explicit
-         * finalRound core compatibility.
+         * Preserve legacy finalRound behavior.
          */
         quantity =
           required;
@@ -526,12 +540,17 @@ export function buildAbBatchAdvisory({
 
   return {
     mode:
-      automatic
-        ? "AUTO"
-        : "FIXED",
+      sweep
+        ? "SWEEP"
+        : automatic
+          ? "AUTO"
+          : "FIXED",
 
     batch_limit:
-      automatic
+      (
+        automatic
+        || sweep
+      )
         ? null
         : limit,
 
