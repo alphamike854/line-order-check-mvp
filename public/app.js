@@ -20587,6 +20587,109 @@ async function loadExportPreparationReadOnly() {
 }
 
 
+async function loadAbAdvisoryPreviewReadOnly() {
+  const groupId =
+    String(
+      summaryGroupSelect.value || ""
+    ).trim();
+
+  if (
+    !groupId
+    || groupId === "ALL"
+  ) {
+    renderAbAdvisoryPreview({
+      dashboard:
+        state.dashboard,
+
+      selectedSummaryGroup:
+        groupId || "ALL",
+    });
+
+    return;
+  }
+
+  /*
+   * While a Settlement is OPEN, the normal Dashboard
+   * advisory remains authoritative.
+   *
+   * When no Settlement is OPEN, use the independent
+   * GET-only calculator for the latest OPEN/CLOSED
+   * Summary-Group Round.
+   */
+  if (
+    state.dashboard
+      ?.settlement_session
+    && state.dashboard
+      ?.ab_advisory
+  ) {
+    renderAbAdvisoryPreview({
+      dashboard:
+        state.dashboard,
+
+      selectedSummaryGroup:
+        groupId,
+    });
+
+    return;
+  }
+
+  try {
+    const payload =
+      await api(
+        `/api/ab-advisory-preview?group=${
+          encodeURIComponent(
+            groupId
+          )
+        }`
+      );
+
+    state.dashboard = {
+      ...(state.dashboard || {}),
+
+      generated_at:
+        payload?.generated_at
+        ?? state.dashboard
+          ?.generated_at
+        ?? new Date()
+          .toISOString(),
+
+      ab_advisory:
+        payload?.ab_advisory
+        ?? null,
+    };
+  } catch (error) {
+    console.warn(
+      "A/B advisory preview fallback failed",
+      error,
+    );
+
+    state.dashboard = {
+      ...(state.dashboard || {}),
+
+      ab_advisory: {
+        calculation_status:
+          "ERROR",
+
+        calculation_error:
+          error?.message
+          ?? String(error),
+
+        summary_groups: [],
+        line_groups: [],
+      },
+    };
+  }
+
+  renderAbAdvisoryPreview({
+    dashboard:
+      state.dashboard,
+
+    selectedSummaryGroup:
+      groupId,
+  });
+}
+
+
 async function loadDashboard({
   silent = false,
   preserveReviewWorkbench = false,
@@ -20705,11 +20808,7 @@ async function loadDashboard({
     renderAllocation();
     void loadExportPreparationReadOnly();
 
-    renderAbAdvisoryPreview({
-      dashboard: state.dashboard,
-      selectedSummaryGroup:
-        summaryGroupSelect.value || "ALL",
-    });
+    await loadAbAdvisoryPreviewReadOnly();
     renderAfterCut();
     await loadSettlement();
     const activeTab = $(".tab.active")?.dataset.tab;

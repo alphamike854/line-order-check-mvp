@@ -77,24 +77,49 @@ function abPreviewCap(plan) {
 }
 
 /*
- * Normal-round contract:
- * 500  -> 0 or 500
- * 1000 -> 0 or 1000
- * 2000 -> 0 or 2000
+ * Phase-1 calculation-only contract.
  *
- * This UI is preview-only.
- * No confirmed cut is produced here.
+ * FIXED:
+ *   500..5000 in 500-unit steps.
+ *
+ * AUTO:
+ *   floor recommendation to nearest 500,
+ *   capped at 5000 per A/B category + code.
+ *
+ * Preview only:
+ * no DB write, confirmed cut or LINE send.
  */
 function abPreviewBatchRows(
   plan,
-  batchLimit
+  batchMode
 ) {
-  const limit =
-    Math.trunc(
-      abPreviewNumber(batchLimit)
-    );
+  const rawMode =
+    String(
+      batchMode ?? "500"
+    )
+      .trim()
+      .toUpperCase();
 
-  if (![500, 1000, 2000].includes(limit)) {
+  const automatic =
+    rawMode === "AUTO";
+
+  const limit =
+    automatic
+      ? null
+      : Math.trunc(
+          abPreviewNumber(
+            batchMode
+          )
+        );
+
+  if (
+    !automatic
+    && (
+      limit < 500
+      || limit > 5000
+      || limit % 500 !== 0
+    )
+  ) {
     return [];
   }
 
@@ -107,18 +132,32 @@ function abPreviewBatchRows(
         ?.recommendations || []
     ) {
       const required =
-        Math.trunc(
-          abPreviewNumber(
-            row.recommended_transfer
+        Math.max(
+          0,
+          Math.trunc(
+            abPreviewNumber(
+              row.recommended_transfer
+            )
           )
         );
 
       const quantity =
-        required >= limit
-          ? limit
-          : 0;
+        automatic
+          ? Math.min(
+              5000,
+              Math.floor(
+                required / 500
+              ) * 500
+            )
+          : (
+              required >= limit
+                ? limit
+                : 0
+            );
 
-      if (quantity <= 0) continue;
+      if (quantity <= 0) {
+        continue;
+      }
 
       rows.push({
         category,
@@ -150,20 +189,14 @@ function abPreviewBatchRows(
           ),
 
         recommended_transfer:
-          Math.max(
-            0,
-            Math.trunc(
-              abPreviewNumber(
-                row.recommended_transfer
-              )
-            )
-          ),
+          required,
       });
     }
   }
 
   return rows;
 }
+
 
 function abPreviewRowsByCode(
   rows = []
@@ -364,29 +397,75 @@ function abPreviewSplitRows(
 }
 
 
+/*
+ * Copy ordering follows the audit view.
+ *
+ * บ / ล:
+ *   retained order quantity high -> low.
+ *
+ * บล:
+ *   combined A+B retained high -> low.
+ *
+ * Code ascending is tie-break only.
+ */
 function abPreviewOrderEntries(
-  entries = []
+  entries = [],
+  category = null
 ) {
-  const byCode =
-    new Map(
-      entries.map(
-        entry => [
-          entry.code,
-          entry,
-        ]
-      )
-    );
+  const retained =
+    entry => {
+      if (
+        category === "A"
+        || category === "B"
+      ) {
+        return abPreviewNumber(
+          entry?.[category]
+            ?.retained_before
+        );
+      }
 
-  return abPreviewOrderCodes(
-    entries.map(
-      entry => entry.code
+      return (
+        abPreviewNumber(
+          entry?.A?.retained_before
+        )
+        +
+        abPreviewNumber(
+          entry?.B?.retained_before
+        )
+      );
+    };
+
+  return [...entries]
+    .sort(
+      (left, right) =>
+        retained(right)
+        - retained(left)
+        ||
+        abPreviewCodeCompare(
+          left.code,
+          right.code
+        )
+    );
+}
+
+
+function abPreviewBatchLabel(
+  value
+) {
+  const mode =
+    String(
+      value ?? "500"
     )
-  )
-    .map(
-      code =>
-        byCode.get(code)
-    )
-    .filter(Boolean);
+      .trim()
+      .toUpperCase();
+
+  if (mode === "AUTO") {
+    return "อัตโนมัติ";
+  }
+
+  return abPreviewFormat(
+    mode
+  );
 }
 
 
@@ -574,12 +653,14 @@ function abPreviewOperationalText(
 
   const a =
     abPreviewOrderEntries(
-      onlyA
+      onlyA,
+      "A"
     );
 
   const b =
     abPreviewOrderEntries(
-      onlyB
+      onlyB,
+      "B"
     );
 
   const ab =
@@ -1070,10 +1151,9 @@ function renderAbAdvisoryPreview({
       "abAdvisoryTemplateSelect"
     );
 
-  const batchLimit =
-    Number(
-      batchSelect?.value || 500
-    );
+  const batchMode =
+    batchSelect?.value
+    || "500";
 
   const template =
     abPreviewTemplate(
@@ -1143,7 +1223,7 @@ function renderAbAdvisoryPreview({
         const messages =
           abPreviewBuildMessages(
             summary,
-            batchLimit,
+            batchMode,
             dashboard,
             template
           );
@@ -1173,8 +1253,10 @@ function renderAbAdvisoryPreview({
               </strong>
 
               <span>
-                รอบ ${abPreviewFormat(
-                  batchLimit
+                คำนวณ ${abPreviewEscape(
+                  abPreviewBatchLabel(
+                    batchMode
+                  )
                 )}
                 · แบบ ${abPreviewEscape(
                   template
@@ -1377,9 +1459,8 @@ function bindAbAdvisoryPreviewControls({
         abPreviewBuildMessages(
           summary,
 
-          Number(
-            batchSelect.value || 500
-          ),
+          batchSelect.value
+          || "500",
 
           dashboard,
 

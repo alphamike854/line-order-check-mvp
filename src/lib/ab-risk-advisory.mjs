@@ -421,12 +421,45 @@ export function buildAbBatchAdvisory({
   batchLimit,
   finalRound = false,
 } = {}) {
-  const limit =
-    Math.trunc(num(batchLimit));
+  const rawMode =
+    String(
+      batchLimit ?? "",
+    )
+      .trim()
+      .toUpperCase();
 
-  if (limit <= 0) {
+  const automatic =
+    rawMode === "AUTO";
+
+  const limit =
+    automatic
+      ? null
+      : Math.trunc(
+          num(batchLimit),
+        );
+
+  /*
+   * Phase-1 calculation-only contract.
+   *
+   * FIXED:
+   *   500..5000, exact 500-unit steps.
+   *
+   * AUTO:
+   *   floor recommendation to nearest 500,
+   *   capped at 5000 per category/code.
+   *
+   * No confirmed cut or LINE send occurs here.
+   */
+  if (
+    !automatic
+    && (
+      limit < 500
+      || limit > 5000
+      || limit % 500 !== 0
+    )
+  ) {
     throw new Error(
-      "AB_BATCH_LIMIT_INVALID"
+      "AB_BATCH_LIMIT_INVALID",
     );
   }
 
@@ -439,39 +472,51 @@ export function buildAbBatchAdvisory({
         ?.recommendations || []
     ) {
       const required =
-        Math.trunc(
-          num(rec.recommended_transfer)
+        Math.max(
+          0,
+          Math.trunc(
+            num(
+              rec.recommended_transfer,
+            ),
+          ),
         );
 
-      if (required <= 0) continue;
+      if (required <= 0) {
+        continue;
+      }
 
-      /*
-       * Normal rounds:
-       *   only emit a full batch.
-       *
-       * Examples for batchLimit=500:
-       *   116 -> 0
-       *   499 -> 0
-       *   500 -> 500
-       *   3824 -> 500
-       *
-       * Final round:
-       *   emit the whole remaining requirement.
-       */
-      const quantity =
-        finalRound
-          ? required
-          : (
-              required >= limit
-                ? limit
-                : 0
-            );
+      let quantity = 0;
 
-      if (quantity <= 0) continue;
+      if (automatic) {
+        quantity =
+          Math.min(
+            5000,
+            Math.floor(
+              required / 500,
+            ) * 500,
+          );
+      } else if (finalRound) {
+        /*
+         * Preserve the existing explicit
+         * finalRound core compatibility.
+         */
+        quantity =
+          required;
+      } else {
+        quantity =
+          required >= limit
+            ? limit
+            : 0;
+      }
+
+      if (quantity <= 0) {
+        continue;
+      }
 
       rows.push({
         category,
-        code: rec.code,
+        code:
+          rec.code,
         quantity,
         required_total:
           required,
@@ -480,15 +525,28 @@ export function buildAbBatchAdvisory({
   }
 
   return {
-    batch_limit: limit,
+    mode:
+      automatic
+        ? "AUTO"
+        : "FIXED",
+
+    batch_limit:
+      automatic
+        ? null
+        : limit,
+
     final_round:
-      Boolean(finalRound),
+      Boolean(
+        finalRound,
+      ),
+
     rows,
+
     total_quantity:
       rows.reduce(
         (sum, row) =>
           sum + row.quantity,
-        0
+        0,
       ),
   };
 }
