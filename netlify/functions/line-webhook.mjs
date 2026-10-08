@@ -110,6 +110,13 @@ async function observeLineGroupsBestEffort(
       continue;
     }
 
+    const eventType =
+      String(
+        event.type
+        ?? "",
+      ).trim()
+      || null;
+
     const seenAt =
       lineIngressSeenAt(
         event.timestamp,
@@ -123,11 +130,20 @@ async function observeLineGroupsBestEffort(
         lineGroupId,
       );
 
+    const sawJoin =
+      eventType === "join"
+      || Boolean(
+        existing?.saw_join,
+      );
+
     if (
       existing
       && existing.seen_at_ms
         > seenAtMs
     ) {
+      existing.saw_join =
+        sawJoin;
+
       continue;
     }
 
@@ -144,11 +160,7 @@ async function observeLineGroupsBestEffort(
           seenAtMs,
 
         event_type:
-          String(
-            event.type
-            ?? "",
-          ).trim()
-          || null,
+          eventType,
 
         webhook_event_id:
           String(
@@ -156,9 +168,15 @@ async function observeLineGroupsBestEffort(
             ?? "",
           ).trim()
           || null,
+
+        saw_join:
+          sawJoin,
       },
     );
   }
+
+  const nameSyncGroups =
+    [];
 
   await Promise.all(
     [...latestByGroup.values()]
@@ -166,10 +184,11 @@ async function observeLineGroupsBestEffort(
         async (observed) => {
           try {
             const {
+              data,
               error,
             } =
               await supabase.rpc(
-                "observe_line_group_ingress",
+                "observe_line_group_ingress_v2",
                 {
                   p_line_group_id:
                     observed.line_group_id,
@@ -188,6 +207,24 @@ async function observeLineGroupsBestEffort(
             if (error) {
               throw error;
             }
+
+            const currentlyInGroup =
+              data?.membership_status
+              === "IN_GROUP";
+
+            const shouldSyncName =
+              currentlyInGroup
+              && (
+                observed.saw_join
+                || data?.needs_name_sync
+                  === true
+              );
+
+            if (shouldSyncName) {
+              nameSyncGroups.push(
+                observed.line_group_id,
+              );
+            }
           } catch (error) {
             console.warn(
               "LINE group observation failed; continuing ingress",
@@ -204,8 +241,94 @@ async function observeLineGroupsBestEffort(
         },
       ),
   );
+
+  return [
+    ...new Set(
+      nameSyncGroups,
+    ),
+  ];
 }
 
+
+function lineGroupProfileBackgroundSignal(
+  timeoutMs,
+) {
+  if (
+    typeof AbortSignal !== "undefined"
+    && typeof AbortSignal.timeout
+      === "function"
+  ) {
+    return AbortSignal.timeout(
+      timeoutMs,
+    );
+  }
+
+  return undefined;
+}
+
+
+async function invokeLineGroupProfileBackgroundBestEffort(
+  req,
+  rawBody,
+  signature,
+) {
+  try {
+    const url =
+      new URL(
+        "/.netlify/functions/line-group-profile-background",
+        req.url,
+      );
+
+    const response =
+      await fetch(
+        url,
+        {
+          method: "POST",
+
+          headers: {
+            "content-type":
+              "application/json",
+
+            "x-line-signature":
+              signature,
+          },
+
+          body:
+            rawBody,
+
+          signal:
+            lineGroupProfileBackgroundSignal(
+              750,
+            ),
+        },
+      );
+
+    if (response.status !== 202) {
+      console.warn(
+        "LINE group profile background invocation was not accepted",
+        {
+          status:
+            response.status,
+        },
+      );
+    }
+  } catch (error) {
+    /*
+     * Group profile enrichment is not order-critical.
+     *
+     * The registry remains correct and a later LINE event will
+     * request another sync while the cached name is missing/stale.
+     */
+    console.warn(
+      "LINE group profile background invocation failed; continuing ingress",
+      {
+        error:
+          error?.message
+          ?? String(error),
+      },
+    );
+  }
+}
 
 function bangkokBusinessDate(timestampMs) {
   const parts = new Intl.DateTimeFormat("en-GB", {
@@ -2546,9 +2669,28 @@ export default async (req) => {
       ? payload.events
       : [];
 
-  await observeLineGroupsBestEffort(
-    events,
-  );
+  const lineGroupNameSyncCandidates =
+    await observeLineGroupsBestEffort(
+      events,
+    );
+
+  /*
+   * Start profile enrichment acceptance immediately after
+   * discovery, but do not add it sequentially in front of
+   * temporal admission.
+   *
+   * The promise is still awaited before this serverless request
+   * returns, avoiding unsafe fire-and-forget behavior.
+   */
+  const lineGroupProfileBackgroundPromise =
+    lineGroupNameSyncCandidates.length
+      > 0
+      ? invokeLineGroupProfileBackgroundBestEffort(
+          req,
+          rawBody,
+          signature,
+        )
+      : Promise.resolve();
 
   const qstashAdmissionHints =
     new Map();
@@ -2566,11 +2708,22 @@ export default async (req) => {
     const originalEventCount =
       events.length;
 
-    const admittedEvents =
-      await selectQStashIngressEvents(
-        events,
-        qstashAdmissionHints,
-      );
+    /*
+     * Admission and Background Function acceptance are independent.
+     * Run them concurrently so profile enrichment does not add its
+     * acceptance timeout on top of admission latency.
+     */
+    const [
+      admittedEvents,
+    ] =
+      await Promise.all([
+        selectQStashIngressEvents(
+          events,
+          qstashAdmissionHints,
+        ),
+
+        lineGroupProfileBackgroundPromise,
+      ]);
 
     if (!admittedEvents.length) {
       return json({
@@ -2589,6 +2742,18 @@ export default async (req) => {
       events.length,
       ...admittedEvents,
     );
+  }
+
+
+  /*
+   * When the temporal admission pre-filter is disabled, there is no
+   * admission work to overlap. Still await Background Function
+   * acceptance before returning from this serverless invocation.
+   */
+  if (
+    !isQStashIngressEnabledForAdmission()
+  ) {
+    await lineGroupProfileBackgroundPromise;
   }
 
 

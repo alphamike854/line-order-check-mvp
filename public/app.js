@@ -100,6 +100,21 @@ function formatBangkokClock(value) {
 }
 
 
+function lineGroupMembershipLabel(
+  status,
+) {
+  if (status === "IN_GROUP") {
+    return "🟢 อยู่ในกลุ่ม";
+  }
+
+  if (status === "LEFT") {
+    return "⚪ ออกจากกลุ่ม";
+  }
+
+  return "🟡 ไม่ทราบสถานะ";
+}
+
+
 function reportCsvCell(value) {
   let text = String(value ?? "");
   // Guard user-configurable names/details against spreadsheet formula injection.
@@ -15842,16 +15857,104 @@ function renderSettings() {
   renderExportDestinationSettings();
   if (!s) return;
 
-  const unconfigured = s.unconfigured_line_groups || [];
-  $("#unconfiguredGroups").innerHTML = unconfigured.length ? `
-    <h3>พบ LINE Group ที่ยังไม่ตั้งค่า</h3>
-    <p class="muted">กดเพิ่มเพื่อเติม Group ID ลงฟอร์ม แล้วตั้งชื่อและกลุ่มสรุป</p>
-    <div class="item-chips">${unconfigured.map((g) => `<button class="chip-button use-unconfigured" data-id="${escapeHtml(g.line_group_id)}">${escapeHtml(g.line_group_id)} · ${escapeHtml(formatBangkokTime(g.last_seen_at))}</button>`).join("")}</div>
-  ` : `<div class="muted">ไม่พบ LINE Group ที่ยังไม่ได้ตั้งค่า</div>`;
+  const unconfigured =
+    s.unconfigured_line_groups
+    || [];
 
-  $$(".use-unconfigured").forEach((button) => button.addEventListener("click", () => {
-    const form = $("#lineGroupForm"); form.elements.line_group_id.value = button.dataset.id; form.elements.line_group_name.focus();
-  }));
+  $("#unconfiguredGroups").innerHTML =
+    unconfigured.length
+      ? `
+        <h3>LINE Group ที่ระบบพบ</h3>
+        <p class="muted">
+          ชื่ออ่านจาก LINE อัตโนมัติ ·
+          กลุ่มที่ OA ออกแล้วจะแสดงไว้เพื่อตรวจสอบ แต่เพิ่มเป็นกลุ่มรับออเดอร์ไม่ได้
+        </p>
+
+        <div class="item-chips">
+          ${unconfigured.map(
+            (g) => {
+              const name =
+                g.line_group_name
+                || (
+                  g.membership_status
+                    === "LEFT"
+                    ? "ไม่ทราบชื่อกลุ่ม"
+                    : "รออ่านชื่อจาก LINE"
+                );
+
+              const disabled =
+                g.can_configure
+                  ? ""
+                  : "disabled";
+
+              return `
+                <button
+                  type="button"
+                  class="chip-button use-unconfigured"
+                  data-id="${escapeHtml(
+                    g.line_group_id,
+                  )}"
+                  ${disabled}
+                >
+                  ${escapeHtml(
+                    lineGroupMembershipLabel(
+                      g.membership_status,
+                    ),
+                  )}
+                  ·
+                  ${escapeHtml(name)}
+                  ·
+                  ${escapeHtml(
+                    g.line_group_id,
+                  )}
+                  ·
+                  ${escapeHtml(
+                    formatBangkokTime(
+                      g.last_seen_at,
+                    ),
+                  )}
+                </button>
+              `;
+            },
+          ).join("")}
+        </div>
+      `
+      : `<div class="muted">ไม่พบ LINE Group ที่ยังไม่ได้ตั้งค่า</div>`;
+
+  $$(".use-unconfigured")
+    .forEach(
+      (button) =>
+        button.addEventListener(
+          "click",
+          () => {
+            const row =
+              unconfigured.find(
+                (item) =>
+                  item.line_group_id
+                  === button.dataset.id,
+              );
+
+            if (
+              !row
+              || !row.can_configure
+              || !row.line_group_name
+            ) {
+              return;
+            }
+
+            const form =
+              $("#lineGroupForm");
+
+            form.elements.line_group_id.value =
+              row.line_group_id;
+
+            form.elements.line_group_name.value =
+              row.line_group_name;
+
+            form.elements.summary_group_id.focus();
+          },
+        ),
+    );
 
   setSummaryOptions($("#lineGroupForm").elements.summary_group_id);
   setSummaryOptions($("#riskBudgetForm").elements.summary_group_id);
@@ -15872,8 +15975,47 @@ function renderSettings() {
   $("#summaryGroupsList").innerHTML = s.summary_groups.map((row) => `
     <div class="settings-row"><span><strong>${escapeHtml(row.name)}</strong><small>${escapeHtml(row.id)}</small></span><span>${row.enabled ? "ใช้งาน" : "ปิด"}</span><button class="button ghost small edit-summary" data-id="${escapeHtml(row.id)}">แก้ไข</button></div>`).join("");
 
-  $("#lineGroupsList").innerHTML = s.line_groups.map((row) => `
-    <div class="settings-row"><span><strong>${escapeHtml(row.line_group_name)}</strong><small>${escapeHtml(row.line_group_id)}</small></span><span>${escapeHtml(groupName(row.summary_group_id))} · ลด ${formatNumber(row.reduction_pct || 0)}% · ${row.enabled ? "ใช้งาน" : "ปิด"}</span><button class="button ghost small edit-line" data-id="${escapeHtml(row.line_group_id)}">แก้ไข</button></div>`).join("");
+  $("#lineGroupsList").innerHTML =
+    s.line_groups.map(
+      (row) => {
+        const displayName =
+          row.observed_group_name
+          || row.line_group_name
+          || row.line_group_id;
+
+        return `
+          <div class="settings-row">
+            <span>
+              <strong>${escapeHtml(displayName)}</strong>
+              <small>${escapeHtml(row.line_group_id)}</small>
+            </span>
+
+            <span>
+              ${escapeHtml(
+                lineGroupMembershipLabel(
+                  row.membership_status,
+                ),
+              )}
+              ·
+              ${escapeHtml(
+                groupName(
+                  row.summary_group_id,
+                ),
+              )}
+              · ลด ${formatNumber(row.reduction_pct || 0)}%
+              · ${row.enabled ? "ใช้งาน" : "ปิด"}
+            </span>
+
+            <button
+              class="button ghost small edit-line"
+              data-id="${escapeHtml(row.line_group_id)}"
+            >
+              แก้ไข
+            </button>
+          </div>
+        `;
+      },
+    ).join("");
 
   $("#mirrorRoutesList").innerHTML =
     (s.mirror_routes || []).length
@@ -15966,7 +16108,7 @@ function renderSettings() {
   }));
   $$(".edit-line").forEach((button) => button.addEventListener("click", () => {
     const row = s.line_groups.find((x) => x.line_group_id === button.dataset.id); const form = $("#lineGroupForm");
-    form.elements.line_group_id.value = row.line_group_id; form.elements.line_group_name.value = row.line_group_name; setSummaryOptions(form.elements.summary_group_id, row.summary_group_id); form.elements.reduction_pct.value = row.reduction_pct || 0; form.elements.enabled.checked = row.enabled;
+    form.elements.line_group_id.value = row.line_group_id; form.elements.line_group_name.value = row.observed_group_name || row.line_group_name || ""; setSummaryOptions(form.elements.summary_group_id, row.summary_group_id); form.elements.reduction_pct.value = row.reduction_pct || 0; form.elements.enabled.checked = row.enabled;
   }));
 
   $$(".edit-mirror-route").forEach(

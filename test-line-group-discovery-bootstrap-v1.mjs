@@ -2,6 +2,9 @@
 
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import {
+  fetchLineGroupSummary,
+} from "./src/lib/line-group-profile.mjs";
 
 const migration =
   fs.readFileSync(
@@ -20,6 +23,35 @@ const webhook =
 const dashboard =
   fs.readFileSync(
     "src/lib/dashboard-api.mjs",
+    "utf8",
+  );
+
+
+const groupProfileBackground =
+  fs.readFileSync(
+    "netlify/functions/"
+      + "line-group-profile-background.mjs",
+    "utf8",
+  );
+
+
+const identityMigration =
+  fs.readFileSync(
+    "supabase/migrations/"
+      + "20261008063000_"
+      + "add_line_group_identity.sql",
+    "utf8",
+  );
+
+const app =
+  fs.readFileSync(
+    "public/app.js",
+    "utf8",
+  );
+
+const html =
+  fs.readFileSync(
+    "public/index.html",
     "utf8",
   );
 
@@ -162,7 +194,7 @@ const observeCallIndex =
 
 const admissionIndex =
   webhook.indexOf(
-    "await selectQStashIngressEvents(",
+    "selectQStashIngressEvents(",
     observeCallIndex,
   );
 
@@ -184,6 +216,52 @@ assert.ok(
 assert.ok(
   admissionIndex > observeCallIndex,
   "observation must precede temporal admission",
+);
+
+
+const profileBackgroundPromiseIndex =
+  webhook.indexOf(
+    "const lineGroupProfileBackgroundPromise =",
+    observeCallIndex,
+  );
+
+const profileBackgroundInvokeIndex =
+  webhook.indexOf(
+    "invokeLineGroupProfileBackgroundBestEffort(",
+    profileBackgroundPromiseIndex,
+  );
+
+assert.ok(
+  profileBackgroundPromiseIndex
+    > observeCallIndex,
+  "profile background promise must start after registry observation",
+);
+
+assert.ok(
+  profileBackgroundInvokeIndex
+    > profileBackgroundPromiseIndex,
+  "profile background invocation must initialize the promise",
+);
+
+assert.ok(
+  profileBackgroundInvokeIndex
+    < admissionIndex,
+  "profile enrichment must start before temporal admission can discard a new group",
+);
+
+assert.doesNotMatch(
+  webhook,
+  /await invokeLineGroupProfileBackgroundBestEffort\(/,
+);
+
+assert.match(
+  webhook,
+  /await Promise\.all\(\[[\s\S]*selectQStashIngressEvents\([\s\S]*lineGroupProfileBackgroundPromise[\s\S]*\]\)/,
+);
+
+assert.match(
+  webhook,
+  /!isQStashIngressEnabledForAdmission\(\)[\s\S]*await lineGroupProfileBackgroundPromise/,
 );
 
 
@@ -238,6 +316,195 @@ assert.match(
 );
 
 
+
+/*
+ * Real LINE Group identity + membership lifecycle.
+ */
+assert.match(
+  identityMigration,
+  /last_known_group_name text/i,
+);
+
+assert.match(
+  identityMigration,
+  /group_name_synced_at timestamptz/i,
+);
+
+assert.match(
+  identityMigration,
+  /observe_line_group_ingress_v2/i,
+);
+
+assert.match(
+  identityMigration,
+  /set_observed_line_group_name/i,
+);
+
+assert.match(
+  identityMigration,
+  /v_last_event_type = 'leave'[\s\S]*'LEFT'/i,
+);
+
+assert.doesNotMatch(
+  webhook,
+  /fetchLineGroupSummary/,
+);
+
+assert.match(
+  webhook,
+  /line-group-profile-background/,
+);
+
+assert.match(
+  webhook,
+  /invokeLineGroupProfileBackgroundBestEffort/,
+);
+
+assert.match(
+  groupProfileBackground,
+  /verifyLineSignature/,
+);
+
+assert.match(
+  groupProfileBackground,
+  /fetchLineGroupSummary/,
+);
+
+assert.match(
+  groupProfileBackground,
+  /observe_line_group_ingress_v2/,
+);
+
+assert.match(
+  groupProfileBackground,
+  /set_observed_line_group_name/,
+);
+
+assert.match(
+  groupProfileBackground,
+  /background:\s*true/,
+);
+
+assert.match(
+  webhook,
+  /observe_line_group_ingress_v2/,
+);
+
+assert.match(
+  webhook,
+  /data\?\.membership_status[\s\S]*=== "IN_GROUP"/,
+);
+
+assert.match(
+  webhook,
+  /data\?\.needs_name_sync[\s\S]*=== true/,
+);
+
+assert.match(
+  webhook,
+  /LINE group profile background invocation failed; continuing ingress/,
+);
+
+assert.match(
+  settingsBody,
+  /last_known_group_name/,
+);
+
+assert.match(
+  settingsBody,
+  /membership_status/,
+);
+
+assert.match(
+  settingsBody,
+  /observed_group_name/,
+);
+
+assert.match(
+  app,
+  /🟢 อยู่ในกลุ่ม/,
+);
+
+assert.match(
+  app,
+  /⚪ ออกจากกลุ่ม/,
+);
+
+assert.match(
+  app,
+  /row\.line_group_name/,
+);
+
+assert.match(
+  html,
+  /name="line_group_name"[\s\S]*readonly/,
+);
+
+assert.doesNotMatch(
+  app,
+  /แล้วตั้งชื่อและกลุ่มสรุป/,
+);
+
+
+/*
+ * Group Summary helper must not require a live LINE request in tests.
+ */
+const foundSummary =
+  await fetchLineGroupSummary({
+    lineGroupId:
+      "C1234567890abcdef",
+
+    channelAccessToken:
+      "test-token",
+
+    fetchImpl:
+      async () => ({
+        ok: true,
+        status: 200,
+        json:
+          async () => ({
+            groupId:
+              "C1234567890abcdef",
+            groupName:
+              "กลุ่มจริงจาก LINE",
+          }),
+      }),
+  });
+
+assert.deepEqual(
+  foundSummary,
+  {
+    status: "FOUND",
+    group_name:
+      "กลุ่มจริงจาก LINE",
+  },
+);
+
+
+const leftSummary =
+  await fetchLineGroupSummary({
+    lineGroupId:
+      "C1234567890abcdef",
+
+    channelAccessToken:
+      "test-token",
+
+    fetchImpl:
+      async () => ({
+        ok: false,
+        status: 404,
+      }),
+  });
+
+assert.deepEqual(
+  leftSummary,
+  {
+    status: "NOT_MEMBER",
+    group_name: null,
+  },
+);
+
+
 console.log(
   "PASS: signed group is observed before Round admission",
 );
@@ -252,4 +519,27 @@ console.log(
 
 console.log(
   "PASS: observed LINE group bootstrap regression contract",
+);
+
+
+console.log(
+  "PASS: real LINE Group name is cached without manual naming",
+);
+
+console.log(
+  "PASS: membership status derives from LINE leave lifecycle",
+);
+
+
+console.log(
+  "PASS: LINE Group Summary runs only in background enrichment",
+);
+
+console.log(
+  "PASS: public webhook ingress does not wait for LINE Group Summary",
+);
+
+
+console.log(
+  "PASS: profile background acceptance overlaps temporal admission",
 );

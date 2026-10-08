@@ -556,6 +556,26 @@ export async function fetchOpenReviewById(reviewId) {
   return { review, message };
 }
 
+function lineGroupMembershipStatus(
+  lastEventType,
+) {
+  const type =
+    String(
+      lastEventType ?? "",
+    ).trim();
+
+  if (!type) {
+    return "UNKNOWN";
+  }
+
+  if (type === "leave") {
+    return "LEFT";
+  }
+
+  return "IN_GROUP";
+}
+
+
 export async function fetchSettings() {
   const [summaryResult, lineResult, allocationResult, aliasResult, profileResult, riskBudgetResult, categoryDefinitionResult, warehouseLimitResult, mirrorRouteResult, observedGroupResult] = await Promise.all([
     supabase.from("summary_groups").select("id,name,enabled,created_at").order("name"),
@@ -573,7 +593,7 @@ export async function fetchSettings() {
     supabase
       .from("observed_line_groups")
       .select(
-        "line_group_id,first_seen_at,last_seen_at,last_event_type"
+        "line_group_id,first_seen_at,last_seen_at,last_event_type,last_known_group_name,group_name_synced_at"
       )
       .order(
         "last_seen_at",
@@ -588,6 +608,17 @@ export async function fetchSettings() {
     if (result.error) throw result.error;
   }
 
+  const observedByGroup =
+    new Map(
+      (observedGroupResult.data ?? [])
+        .map(
+          (row) => [
+            row.line_group_id,
+            row,
+          ],
+        ),
+    );
+
   const configured =
     new Set(
       (lineResult.data ?? [])
@@ -596,6 +627,34 @@ export async function fetchSettings() {
             row.line_group_id,
         ),
     );
+
+  const lineGroups =
+    (lineResult.data ?? [])
+      .map(
+        (row) => {
+          const observed =
+            observedByGroup.get(
+              row.line_group_id,
+            );
+
+          return {
+            ...row,
+
+            observed_group_name:
+              observed?.last_known_group_name
+              ?? null,
+
+            membership_status:
+              lineGroupMembershipStatus(
+                observed?.last_event_type,
+              ),
+
+            observed_last_seen_at:
+              observed?.last_seen_at
+              ?? null,
+          };
+        },
+      );
 
   const unconfiguredLineGroups =
     (observedGroupResult.data ?? [])
@@ -606,25 +665,53 @@ export async function fetchSettings() {
           ),
       )
       .map(
-        (row) => ({
-          line_group_id:
-            row.line_group_id,
+        (row) => {
+          const membershipStatus =
+            lineGroupMembershipStatus(
+              row.last_event_type,
+            );
 
-          first_seen_at:
-            row.first_seen_at,
+          const lineGroupName =
+            row.last_known_group_name
+            ?? null;
 
-          last_seen_at:
-            row.last_seen_at,
+          return {
+            line_group_id:
+              row.line_group_id,
 
-          last_event_type:
-            row.last_event_type
-            ?? null,
-        }),
+            line_group_name:
+              lineGroupName,
+
+            first_seen_at:
+              row.first_seen_at,
+
+            last_seen_at:
+              row.last_seen_at,
+
+            last_event_type:
+              row.last_event_type
+              ?? null,
+
+            group_name_synced_at:
+              row.group_name_synced_at
+              ?? null,
+
+            membership_status:
+              membershipStatus,
+
+            can_configure:
+              membershipStatus
+                === "IN_GROUP"
+              && Boolean(
+                lineGroupName,
+              ),
+          };
+        },
       );
 
   return {
     summary_groups: summaryResult.data ?? [],
-    line_groups: lineResult.data ?? [],
+    line_groups: lineGroups,
     allocation_rules: allocationResult.data ?? [],
     category_aliases: aliasResult.data ?? [],
     point_profiles: profileResult.data ?? [],
