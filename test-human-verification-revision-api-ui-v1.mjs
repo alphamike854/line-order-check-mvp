@@ -324,6 +324,21 @@ console.log(
     "PASS B2B2A-03: Edit Again fetches exact Human Truth then revision-claims",
   );
 
+  const revisionClaim = app.slice(
+    app.indexOf("const claimPayload =", app.indexOf("async function startStaffVerificationRevision(")),
+    app.indexOf("const claim =", app.indexOf("async function startStaffVerificationRevision(")),
+  );
+
+  assert.match(
+    revisionClaim,
+    /revision_mode:\s*true,\s*revision_no:\s*revisionNo,\s*lease_seconds:\s*300,/,
+  );
+
+  console.log(
+    "PASS B2B2A-03B: Edit Again CLAIM sends exact revision_no",
+  );
+
+
 
   assert.match(
     app,

@@ -8123,6 +8123,9 @@ async function startStaffVerificationRevision(
               revision_mode:
                 true,
 
+              revision_no:
+                revisionNo,
+
               lease_seconds:
                 300,
             }),
