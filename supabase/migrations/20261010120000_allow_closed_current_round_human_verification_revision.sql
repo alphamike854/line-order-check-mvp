@@ -1,0 +1,1309 @@
+-- LOCAL PATCH CANDIDATE -- NOT APPLIED TO PRODUCTION
+-- Latest CLOSED working Round supports repeat Human Truth correction.
+-- Only OPEN rounds may mutate canonical order_items/messages.
+-- Reproduced from checked-in v1 foundation with narrow fenced changes.
+-- Prior migrations, including the six-arg revision claim wrapper and
+-- service_role privilege hardening, remain in force.
+-- Requires separate review and explicit DB migration approval.
+
+begin;
+
+create or replace function
+  public.claim_staff_message_verification_revision_work(
+    p_message_record_id uuid,
+    p_staff_id uuid,
+    p_allowed_line_group_ids text[],
+    p_settlement_session_id uuid,
+    p_lease_seconds integer default 300
+  )
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_now timestamptz :=
+    clock_timestamp();
+
+  v_lease_seconds integer;
+
+  v_staff
+    public.staff_accounts%rowtype;
+
+  v_message
+    public.messages%rowtype;
+
+  v_verification
+    public.message_verifications%rowtype;
+
+  v_latest_round_id uuid;
+  v_latest_round_status text;
+
+  v_claim
+    public.staff_message_work_claims%rowtype;
+
+  v_holder_name text;
+  v_result text;
+  v_claim_version bigint;
+
+begin
+  perform pg_advisory_xact_lock(
+    hashtextextended('LINE_ORDER_SETTLEMENT_OPEN_CLOSE', 0)
+  );
+  if p_message_record_id is null then
+    raise exception
+      'MESSAGE_RECORD_ID_REQUIRED';
+  end if;
+
+  if p_staff_id is null then
+    raise exception
+      'STAFF_ID_REQUIRED';
+  end if;
+
+  if p_settlement_session_id is null then
+    raise exception
+      'SETTLEMENT_SESSION_ID_REQUIRED';
+  end if;
+
+
+  perform 1
+  from public.settlement_sessions s
+  where
+    s.id =
+      p_settlement_session_id
+    and s.status =
+      'OPEN';
+
+  if not found then
+    raise exception
+      'SETTLEMENT_NOT_OPEN';
+  end if;
+
+
+  v_lease_seconds :=
+    greatest(
+      60,
+      least(
+        coalesce(
+          p_lease_seconds,
+          300
+        ),
+        1800
+      )
+    );
+
+
+  select s.*
+  into v_staff
+  from public.staff_accounts s
+  where
+    s.id =
+      p_staff_id
+    and s.enabled =
+      true;
+
+  if not found then
+    raise exception
+      'STAFF_NOT_ACTIVE';
+  end if;
+
+
+  perform pg_advisory_xact_lock(
+    hashtextextended(
+      'staff-work-claim:'
+      || p_message_record_id::text,
+      0
+    )
+  );
+
+
+  select mv.*
+  into v_verification
+  from public.message_verifications mv
+  where
+    mv.message_record_id =
+      p_message_record_id
+  for update;
+
+  if not found then
+    raise exception
+      'MESSAGE_NOT_VERIFIED';
+  end if;
+
+
+  if
+    v_verification.settlement_session_id
+      is distinct from
+      p_settlement_session_id
+  then
+    raise exception
+      'MESSAGE_OUTSIDE_CURRENT_SETTLEMENT';
+  end if;
+
+
+  select m.*
+  into v_message
+  from public.messages m
+  where
+    m.id =
+      p_message_record_id;
+
+  if not found then
+    raise exception
+      'MESSAGE_NOT_AVAILABLE_FOR_OPEN_REVISION';
+  end if;
+
+
+  if
+    v_message.settlement_session_id
+      is distinct from
+      p_settlement_session_id
+    or v_message.summary_group_id
+      is distinct from
+      v_verification.summary_group_id
+    or v_message.summary_group_round_id
+      is distinct from
+      v_verification.summary_group_round_id
+    or v_message.line_group_id
+      is distinct from
+      v_verification.line_group_id
+  then
+    raise exception
+      'VERIFICATION_MESSAGE_CONTEXT_MISMATCH';
+  end if;
+
+
+  if v_message.unsent then
+    raise exception
+      'MESSAGE_ALREADY_UNSENT';
+  end if;
+
+
+  if not (
+    v_verification.line_group_id =
+      any(
+        coalesce(
+          p_allowed_line_group_ids,
+          array[]::text[]
+        )
+      )
+  ) then
+    raise exception
+      'MESSAGE_OUTSIDE_STAFF_SCOPE';
+  end if;
+
+
+  select
+    r.id,
+    r.status
+  into
+    v_latest_round_id,
+    v_latest_round_status
+  from public.summary_group_round_runtime_state state
+  join public.settlement_summary_group_rounds r
+    on r.id = state.latest_round_id
+  where
+    state.summary_group_id =
+      v_verification.summary_group_id
+    and r.settlement_session_id =
+      p_settlement_session_id;
+
+
+  if
+    v_latest_round_id is null
+    or v_verification.summary_group_round_id
+      is distinct from
+      v_latest_round_id
+  then
+    raise exception
+      'MESSAGE_ROUND_NOT_CURRENT';
+  end if;
+
+
+  -- Latest OPEN or CLOSED Round is the only mutable Human Truth scope.
+  -- The successor Round retirement guard remains authoritative.
+  if
+    coalesce(v_latest_round_status, '') not in ('OPEN', 'CLOSED')
+  then
+    raise exception
+      'REVISION_OPEN_ROUND_ONLY'; -- legacy client conflict code
+  end if;
+
+
+  perform 1
+  from public.settlement_line_group_config cfg
+  where
+    cfg.settlement_session_id =
+      p_settlement_session_id
+    and cfg.line_group_id =
+      v_verification.line_group_id
+    and cfg.summary_group_id =
+      v_verification.summary_group_id;
+
+  if not found then
+    raise exception
+      'MESSAGE_LINE_GROUP_CONFIG_MISMATCH';
+  end if;
+
+
+  select c.*
+  into v_claim
+  from public.staff_message_work_claims c
+  where
+    c.message_record_id =
+      p_message_record_id
+  for update;
+
+
+  if not found then
+    update public.messages
+    set verification_claim_version =
+      greatest(
+        verification_claim_version + 1,
+        floor(
+          extract(
+            epoch from clock_timestamp()
+          ) * 1000000
+        )::bigint
+      )
+    where
+      id =
+        p_message_record_id
+    returning
+      verification_claim_version
+    into
+      v_claim_version;
+
+
+    insert into
+      public.staff_message_work_claims (
+        message_record_id,
+        staff_id,
+        claimed_at,
+        claim_expires_at,
+        lease_version,
+        updated_at
+      )
+    values (
+      p_message_record_id,
+      p_staff_id,
+      v_now,
+      v_now
+        + make_interval(
+            secs => v_lease_seconds
+          ),
+      v_claim_version,
+      v_now
+    )
+    returning *
+    into v_claim;
+
+    v_result :=
+      'CLAIMED';
+
+
+  elsif
+    v_claim.staff_id =
+      p_staff_id
+  then
+    update public.messages
+    set verification_claim_version =
+      greatest(
+        verification_claim_version + 1,
+        floor(
+          extract(
+            epoch from clock_timestamp()
+          ) * 1000000
+        )::bigint,
+        v_claim.lease_version + 1
+      )
+    where
+      id =
+        p_message_record_id
+    returning
+      verification_claim_version
+    into
+      v_claim_version;
+
+
+    update
+      public.staff_message_work_claims
+    set
+      claim_expires_at =
+        v_now
+        + make_interval(
+            secs => v_lease_seconds
+          ),
+      lease_version =
+        v_claim_version,
+      updated_at =
+        v_now
+    where
+      message_record_id =
+        p_message_record_id
+    returning *
+    into v_claim;
+
+    v_result :=
+      'RENEWED';
+
+
+  elsif
+    v_claim.claim_expires_at <=
+      v_now
+  then
+    update public.messages
+    set verification_claim_version =
+      greatest(
+        verification_claim_version + 1,
+        floor(
+          extract(
+            epoch from clock_timestamp()
+          ) * 1000000
+        )::bigint,
+        v_claim.lease_version + 1
+      )
+    where
+      id =
+        p_message_record_id
+    returning
+      verification_claim_version
+    into
+      v_claim_version;
+
+
+    update
+      public.staff_message_work_claims
+    set
+      staff_id =
+        p_staff_id,
+      claimed_at =
+        v_now,
+      claim_expires_at =
+        v_now
+        + make_interval(
+            secs => v_lease_seconds
+          ),
+      lease_version =
+        v_claim_version,
+      updated_at =
+        v_now
+    where
+      message_record_id =
+        p_message_record_id
+    returning *
+    into v_claim;
+
+    v_result :=
+      'CLAIMED';
+
+
+  else
+    select s.display_name
+    into v_holder_name
+    from public.staff_accounts s
+    where
+      s.id =
+        v_claim.staff_id;
+
+
+    return jsonb_build_object(
+      'ok',
+        false,
+      'status',
+        'BUSY',
+      'message_record_id',
+        p_message_record_id,
+      'revision_no',
+        v_verification.revision_no,
+      'claimed_by_staff_id',
+        v_claim.staff_id,
+      'claimed_by_display_name',
+        v_holder_name,
+      'claim_expires_at',
+        v_claim.claim_expires_at,
+      'lease_version',
+        v_claim.lease_version
+    );
+  end if;
+
+
+  return jsonb_build_object(
+    'ok',
+      true,
+    'status',
+      v_result,
+    'message_record_id',
+      v_claim.message_record_id,
+    'revision_no',
+      v_verification.revision_no,
+    'staff_id',
+      v_claim.staff_id,
+    'claimed_at',
+      v_claim.claimed_at,
+    'claim_expires_at',
+      v_claim.claim_expires_at,
+    'lease_version',
+      v_claim.lease_version
+  );
+end;
+$$;
+
+create or replace function
+  public.claim_staff_message_verification_revision_work(
+    p_message_record_id uuid,
+    p_staff_id uuid,
+    p_allowed_line_group_ids text[],
+    p_settlement_session_id uuid,
+    p_expected_revision_no bigint,
+    p_lease_seconds integer
+  )
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_verification
+    public.message_verifications%rowtype;
+begin
+  perform pg_advisory_xact_lock(
+    hashtextextended('LINE_ORDER_SETTLEMENT_OPEN_CLOSE', 0)
+  );
+  if
+    p_expected_revision_no is null
+    or p_expected_revision_no < 1
+  then
+    raise exception
+      'REVISION_NO_REQUIRED';
+  end if;
+
+
+  select mv.*
+  into v_verification
+  from public.message_verifications mv
+  where
+    mv.message_record_id =
+      p_message_record_id
+  for update;
+
+
+  if not found then
+    raise exception
+      'MESSAGE_NOT_VERIFIED';
+  end if;
+
+
+  if
+    v_verification.revision_no
+      is distinct from
+        p_expected_revision_no
+  then
+    raise exception
+      'STALE_VERIFICATION_REVISION';
+  end if;
+
+
+  return
+    public.claim_staff_message_verification_revision_work(
+      p_message_record_id,
+      p_staff_id,
+      p_allowed_line_group_ids,
+      p_settlement_session_id,
+      p_lease_seconds
+    );
+end;
+$$;
+
+create or replace function
+  public.revise_staff_message_verification_order(
+    p_message_record_id uuid,
+    p_staff_id uuid,
+    p_allowed_line_group_ids text[],
+    p_settlement_session_id uuid,
+    p_expected_lease_version bigint,
+    p_expected_revision_no bigint,
+    p_corrected_text text,
+    p_corrected_parser_version text,
+    p_corrected_normalized_text text,
+    p_corrected_order_items jsonb,
+    p_corrected_first_order_code text
+  )
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_now timestamptz :=
+    clock_timestamp();
+
+  v_staff
+    public.staff_accounts%rowtype;
+
+  v_message
+    public.messages%rowtype;
+
+  v_verification
+    public.message_verifications%rowtype;
+
+  v_claim
+    public.staff_message_work_claims%rowtype;
+
+  v_latest_round_id uuid;
+  v_latest_round_status text;
+
+  v_before jsonb;
+  v_after jsonb;
+
+  v_corrected_order_items jsonb;
+
+  v_inserted integer;
+  v_canonical_mutation_applied boolean := false;
+
+begin
+  perform pg_advisory_xact_lock(
+    hashtextextended('LINE_ORDER_SETTLEMENT_OPEN_CLOSE', 0)
+  );
+  if p_message_record_id is null then
+    raise exception
+      'MESSAGE_RECORD_ID_REQUIRED';
+  end if;
+
+  if p_staff_id is null then
+    raise exception
+      'STAFF_ID_REQUIRED';
+  end if;
+
+  if p_settlement_session_id is null then
+    raise exception
+      'SETTLEMENT_SESSION_ID_REQUIRED';
+  end if;
+
+  if
+    p_expected_lease_version is null
+    or p_expected_lease_version <= 0
+  then
+    raise exception
+      'LEASE_VERSION_REQUIRED';
+  end if;
+
+  if
+    p_expected_revision_no is null
+    or p_expected_revision_no < 1
+  then
+    raise exception
+      'REVISION_NO_REQUIRED';
+  end if;
+
+
+  if
+    p_corrected_text is null
+    or btrim(p_corrected_text) = ''
+  then
+    raise exception
+      'CORRECTED_TEXT_REQUIRED';
+  end if;
+
+  if
+    p_corrected_parser_version is null
+    or btrim(p_corrected_parser_version) = ''
+  then
+    raise exception
+      'CORRECTED_PARSER_VERSION_REQUIRED';
+  end if;
+
+  if
+    p_corrected_normalized_text is null
+    or btrim(p_corrected_normalized_text) = ''
+  then
+    raise exception
+      'CORRECTED_NORMALIZED_TEXT_REQUIRED';
+  end if;
+
+  if
+    p_corrected_first_order_code is null
+    or btrim(p_corrected_first_order_code) = ''
+  then
+    raise exception
+      'CORRECTED_FIRST_ORDER_CODE_REQUIRED';
+  end if;
+
+  if
+    p_corrected_order_items is null
+    or jsonb_typeof(
+      p_corrected_order_items
+    ) <> 'array'
+    or jsonb_array_length(
+      p_corrected_order_items
+    ) = 0
+  then
+    raise exception
+      'CORRECTED_ORDER_ITEMS_REQUIRED';
+  end if;
+
+
+  -- Every corrected item must be an object carrying a normalized
+  -- category/code and a strictly positive integer quantity.
+  if exists (
+    select 1
+    from jsonb_array_elements(
+      p_corrected_order_items
+    ) item
+    where
+      jsonb_typeof(item) <> 'object'
+      or coalesce(
+        btrim(item ->> 'category'),
+        ''
+      ) = ''
+      or coalesce(
+        btrim(item ->> 'code'),
+        ''
+      ) = ''
+      or coalesce(
+        item ->> 'quantity',
+        ''
+      ) !~ '^[1-9][0-9]*$'
+  ) then
+    raise exception
+      'INVALID_CORRECTED_ITEM';
+  end if;
+
+
+  -- Do not permit duplicate category/code identities.
+  if (
+    select count(*)
+    from jsonb_array_elements(
+      p_corrected_order_items
+    ) item
+  ) <> (
+    select count(
+      distinct (
+        upper(
+          btrim(item ->> 'category')
+        )
+        || ':'
+        || btrim(item ->> 'code')
+      )
+    )
+    from jsonb_array_elements(
+      p_corrected_order_items
+    ) item
+  ) then
+    raise exception
+      'DUPLICATE_CORRECTED_ITEM';
+  end if;
+
+
+  -- Validate against active category master data.
+  if exists (
+    select 1
+    from jsonb_array_elements(
+      p_corrected_order_items
+    ) item
+    left join public.category_definitions category
+      on category.category =
+        upper(
+          btrim(item ->> 'category')
+        )
+      and category.enabled =
+        true
+    where
+      category.category is null
+      or char_length(
+        btrim(item ->> 'code')
+      ) <> category.code_length
+  ) then
+    raise exception
+      'INVALID_CORRECTED_ITEM_CODE';
+  end if;
+
+
+  if not exists (
+    select 1
+    from jsonb_array_elements(
+      p_corrected_order_items
+    ) item
+    where
+      btrim(item ->> 'code') =
+        btrim(
+          p_corrected_first_order_code
+        )
+  ) then
+    raise exception
+      'CORRECTED_FIRST_ORDER_CODE_MISMATCH';
+  end if;
+
+
+  perform 1
+  from public.settlement_sessions s
+  where
+    s.id =
+      p_settlement_session_id
+    and s.status =
+      'OPEN';
+
+  if not found then
+    raise exception
+      'SETTLEMENT_NOT_OPEN';
+  end if;
+
+
+  select s.*
+  into v_staff
+  from public.staff_accounts s
+  where
+    s.id =
+      p_staff_id
+    and s.enabled =
+      true;
+
+  if not found then
+    raise exception
+      'STAFF_NOT_ACTIVE';
+  end if;
+
+
+  perform pg_advisory_xact_lock(
+    hashtextextended(
+      'staff-work-claim:'
+      || p_message_record_id::text,
+      0
+    )
+  );
+
+
+  select mv.*
+  into v_verification
+  from public.message_verifications mv
+  where
+    mv.message_record_id =
+      p_message_record_id
+  for update;
+
+  if not found then
+    raise exception
+      'MESSAGE_NOT_VERIFIED';
+  end if;
+
+
+  if
+    v_verification.revision_no
+      is distinct from
+      p_expected_revision_no
+  then
+    raise exception
+      'STALE_VERIFICATION_REVISION';
+  end if;
+
+
+  if
+    v_verification.settlement_session_id
+      is distinct from
+      p_settlement_session_id
+  then
+    raise exception
+      'MESSAGE_OUTSIDE_CURRENT_SETTLEMENT';
+  end if;
+
+
+  select m.*
+  into v_message
+  from public.messages m
+  where
+    m.id =
+      p_message_record_id
+  for update;
+
+  if not found then
+    raise exception
+      'MESSAGE_NOT_AVAILABLE_FOR_OPEN_REVISION';
+  end if;
+
+
+  if
+    v_message.settlement_session_id
+      is distinct from
+      p_settlement_session_id
+    or v_message.summary_group_id
+      is distinct from
+      v_verification.summary_group_id
+    or v_message.summary_group_round_id
+      is distinct from
+      v_verification.summary_group_round_id
+    or v_message.line_group_id
+      is distinct from
+      v_verification.line_group_id
+  then
+    raise exception
+      'VERIFICATION_MESSAGE_CONTEXT_MISMATCH';
+  end if;
+
+
+  if v_message.unsent then
+    raise exception
+      'MESSAGE_ALREADY_UNSENT';
+  end if;
+
+
+  if v_message.parse_status <> 'PARSED' then
+    raise exception
+      'MESSAGE_NOT_READY_FOR_REVISION';
+  end if;
+
+
+  if not (
+    v_verification.line_group_id =
+      any(
+        coalesce(
+          p_allowed_line_group_ids,
+          array[]::text[]
+        )
+      )
+  ) then
+    raise exception
+      'MESSAGE_OUTSIDE_STAFF_SCOPE';
+  end if;
+
+
+  select
+    r.id,
+    r.status
+  into
+    v_latest_round_id,
+    v_latest_round_status
+  from public.summary_group_round_runtime_state state
+  join public.settlement_summary_group_rounds r
+    on r.id = state.latest_round_id
+  where
+    state.summary_group_id =
+      v_verification.summary_group_id
+    and r.settlement_session_id =
+      p_settlement_session_id;
+
+
+  if
+    v_latest_round_id is null
+    or v_verification.summary_group_round_id
+      is distinct from
+      v_latest_round_id
+  then
+    raise exception
+      'MESSAGE_ROUND_NOT_CURRENT';
+  end if;
+
+
+  -- Latest OPEN or CLOSED Round is the only mutable Human Truth scope.
+  -- The successor Round retirement guard remains authoritative.
+  if
+    coalesce(v_latest_round_status, '') not in ('OPEN', 'CLOSED')
+  then
+    raise exception
+      'REVISION_OPEN_ROUND_ONLY'; -- legacy client conflict code
+  end if;
+
+
+  perform 1
+  from public.settlement_line_group_config cfg
+  where
+    cfg.settlement_session_id =
+      p_settlement_session_id
+    and cfg.line_group_id =
+      v_verification.line_group_id
+    and cfg.summary_group_id =
+      v_verification.summary_group_id;
+
+  if not found then
+    raise exception
+      'MESSAGE_LINE_GROUP_CONFIG_MISMATCH';
+  end if;
+
+
+  select c.*
+  into v_claim
+  from public.staff_message_work_claims c
+  where
+    c.message_record_id =
+      p_message_record_id
+  for update;
+
+  if not found then
+    raise exception
+      'CLAIM_REQUIRED';
+  end if;
+
+  if
+    v_claim.claim_expires_at <=
+      v_now
+  then
+    raise exception
+      'CLAIM_EXPIRED';
+  end if;
+
+  if
+    v_claim.staff_id
+      is distinct from
+      p_staff_id
+  then
+    raise exception
+      'CLAIM_OWNED_BY_OTHER';
+  end if;
+
+  if
+    v_claim.lease_version
+      is distinct from
+      p_expected_lease_version
+  then
+    raise exception
+      'STALE_CLAIM_VERSION';
+  end if;
+
+
+  -- A row that began as CONFIRMED has no source_* correction
+  -- evidence yet. Before converting it to CORRECTED, freeze the
+  -- original parser proposal from its current verified_* snapshot.
+  if
+    coalesce(
+      v_verification.source_parser_version,
+      v_verification.verified_parser_version
+    ) is null
+    or coalesce(
+      v_verification.source_normalized_text,
+      v_verification.verified_normalized_text
+    ) is null
+    or coalesce(
+      v_verification.source_order_items,
+      v_verification.verified_order_items
+    ) is null
+    or jsonb_typeof(
+      coalesce(
+        v_verification.source_order_items,
+        v_verification.verified_order_items
+      )
+    ) <> 'array'
+    or jsonb_array_length(
+      coalesce(
+        v_verification.source_order_items,
+        v_verification.verified_order_items
+      )
+    ) = 0
+  then
+    raise exception
+      'REVISION_SOURCE_EVIDENCE_MISSING';
+  end if;
+
+
+  v_before :=
+    to_jsonb(v_verification);
+
+
+  if v_latest_round_status = 'OPEN' then
+    -- Rewrite canonical OPEN-Round order rows atomically.
+    delete from
+      public.order_items
+    where
+      message_record_id =
+        p_message_record_id;
+
+
+    insert into
+      public.order_items (
+        message_record_id,
+        business_date,
+        line_group_id,
+        summary_group_id,
+        category,
+        code,
+        quantity,
+        unsent_flag,
+        parser_version,
+        settlement_session_id
+      )
+    select
+      p_message_record_id,
+      v_verification.business_date,
+      v_verification.line_group_id,
+      v_verification.summary_group_id,
+      upper(
+        btrim(item ->> 'category')
+      ),
+      btrim(item ->> 'code'),
+      (item ->> 'quantity')::integer,
+      false,
+      p_corrected_parser_version,
+      v_verification.settlement_session_id
+    from jsonb_array_elements(
+      p_corrected_order_items
+    ) item;
+
+    -- summary_group_round_id is deliberately omitted.
+    -- order_items_round_ownership_trg inherits and validates
+    -- immutable Round ownership from the authoritative message.
+
+
+    get diagnostics
+      v_inserted =
+        row_count;
+
+
+    if
+      v_inserted <>
+        jsonb_array_length(
+          p_corrected_order_items
+        )
+    then
+      raise exception
+        'CORRECTED_ITEM_COUNT_MISMATCH';
+    end if;
+
+
+    -- Re-read exactly what became operational canonical truth.
+    select
+      coalesce(
+        jsonb_agg(
+          jsonb_build_object(
+            'category',
+              oi.category,
+            'code',
+              oi.code,
+            'quantity',
+              oi.quantity
+          )
+          order by
+            oi.category,
+            oi.code,
+            oi.quantity
+        ),
+        '[]'::jsonb
+      )
+    into
+      v_corrected_order_items
+    from public.order_items oi
+    where
+      oi.message_record_id =
+        p_message_record_id;
+
+
+    if
+      jsonb_array_length(
+        v_corrected_order_items
+      ) <> v_inserted
+    then
+      raise exception
+        'CORRECTED_ITEM_COUNT_MISMATCH';
+    end if;
+
+
+    if
+      v_corrected_order_items
+        is distinct from
+          p_corrected_order_items
+    then
+      raise exception
+        'CORRECTED_CANONICAL_SNAPSHOT_MISMATCH';
+    end if;
+
+
+    update public.messages
+    set
+      normalized_text =
+        p_corrected_normalized_text,
+      parser_version =
+        p_corrected_parser_version,
+      first_order_code =
+        p_corrected_first_order_code,
+      parse_status =
+        'PARSED'
+    where
+      id =
+        p_message_record_id;
+
+    v_canonical_mutation_applied := true;
+
+  elsif v_latest_round_status = 'CLOSED' then
+    -- Deliberately no DELETE/INSERT/UPDATE on canonical order_items
+    -- or messages. Accounting consumes message_verifications Human Truth.
+    -- Match OPEN's category/code/INT4 contract without canonical writes.
+    -- Preserve input item order; discard extraneous input object keys.
+    select coalesce(
+      jsonb_agg(
+        jsonb_build_object(
+          'category', upper(btrim(item.value ->> 'category')),
+          'code', btrim(item.value ->> 'code'),
+          'quantity', (item.value ->> 'quantity')::integer
+        )
+        order by item.position
+      ),
+      '[]'::jsonb
+    )
+    into v_corrected_order_items
+    from jsonb_array_elements(p_corrected_order_items)
+      with ordinality as item(value, position);
+    v_inserted := jsonb_array_length(v_corrected_order_items);
+    v_canonical_mutation_applied := false;
+
+  else
+    raise exception 'REVISION_OPEN_ROUND_ONLY';
+  end if;
+
+
+  update public.message_verifications
+  set
+    verification_mode =
+      'CORRECTED',
+
+    source_parser_version =
+      coalesce(
+        source_parser_version,
+        v_verification.verified_parser_version
+      ),
+
+    source_normalized_text =
+      coalesce(
+        source_normalized_text,
+        v_verification.verified_normalized_text
+      ),
+
+    source_order_items =
+      coalesce(
+        source_order_items,
+        v_verification.verified_order_items
+      ),
+
+    corrected_text =
+      p_corrected_text,
+
+    verified_parser_version =
+      p_corrected_parser_version,
+
+    verified_normalized_text =
+      p_corrected_normalized_text,
+
+    verified_order_items =
+      v_corrected_order_items,
+
+    verified_first_order_code =
+      p_corrected_first_order_code,
+
+    canonical_mutation_applied =
+      v_canonical_mutation_applied,
+
+    revision_no =
+      revision_no + 1,
+
+    last_revised_at =
+      v_now,
+
+    last_revised_by_staff_id =
+      v_staff.id,
+
+    last_revised_by_staff_code =
+      v_staff.staff_code,
+
+    last_revised_by_display_name =
+      v_staff.display_name
+
+  where
+    message_record_id =
+      p_message_record_id
+    and revision_no =
+      p_expected_revision_no
+
+  returning *
+  into v_verification;
+
+
+  if not found then
+    raise exception
+      'STALE_VERIFICATION_REVISION';
+  end if;
+
+
+  v_after :=
+    to_jsonb(v_verification);
+
+
+  insert into
+    public.message_verification_revision_events (
+      message_record_id,
+      settlement_session_id,
+      summary_group_id,
+      summary_group_round_id,
+      line_group_id,
+      business_date,
+      from_revision_no,
+      to_revision_no,
+      revised_at,
+      revised_by_staff_id,
+      revised_by_staff_code,
+      revised_by_display_name,
+      previous_snapshot,
+      next_snapshot,
+      canonical_mutation_applied
+    )
+  values (
+    p_message_record_id,
+    v_verification.settlement_session_id,
+    v_verification.summary_group_id,
+    v_verification.summary_group_round_id,
+    v_verification.line_group_id,
+    v_verification.business_date,
+    p_expected_revision_no,
+    v_verification.revision_no,
+    v_now,
+    v_staff.id,
+    v_staff.staff_code,
+    v_staff.display_name,
+    v_before,
+    v_after,
+    v_canonical_mutation_applied
+  );
+
+
+  delete from
+    public.staff_message_work_claims
+  where
+    message_record_id =
+      p_message_record_id
+    and staff_id =
+      p_staff_id
+    and lease_version =
+      p_expected_lease_version;
+
+
+  if not found then
+    raise exception
+      'CLAIM_RELEASE_FAILED';
+  end if;
+
+
+  return jsonb_build_object(
+    'ok',
+      true,
+    'status',
+      'REVISED',
+    'message_record_id',
+      p_message_record_id,
+    'revision_no',
+      v_verification.revision_no,
+    'verification_mode',
+      v_verification.verification_mode,
+    'canonical_mutation_applied',
+      v_canonical_mutation_applied,
+    'revised_at',
+      v_now,
+    'revised_by_staff_id',
+      v_staff.id,
+    'revised_by_staff_code',
+      v_staff.staff_code,
+    'revised_by_display_name',
+      v_staff.display_name,
+    'items_count',
+      v_inserted
+  );
+end;
+$$;
+
+-- Existing service_role execute grants are retained by CREATE OR REPLACE.
+-- The fenced six-arg claim RPC still delegates to the five-arg body.
+commit;

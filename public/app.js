@@ -5900,7 +5900,7 @@ function staffVerificationRevisionStatusEligible(
     )
       .trim()
       .toUpperCase()
-      === "OPEN"
+      .match(/^(OPEN|CLOSED)$/) !== null
   );
 }
 

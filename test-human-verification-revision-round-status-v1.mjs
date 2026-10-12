@@ -78,7 +78,7 @@ assert.match(
 
 assert.match(
   revisionAccess,
-  /latestRound\.status[\s\S]*?!==\s*"OPEN"/,
+  /!\["OPEN",\s*"CLOSED"\]\.includes\([\s\S]*?latestRound\.status/,
 );
 
 assert.match(
@@ -87,7 +87,7 @@ assert.match(
 );
 
 console.log(
-  "PASS RSC-03: revision access fails closed outside latest OPEN Round",
+  "PASS RSC-03: revision access fails closed outside latest OPEN/CLOSED Round",
 );
 
 assert.match(

@@ -97,9 +97,11 @@ assert.doesNotMatch(
   "application-level destination lookup must not exist",
 );
 
+// Q1A/QStash widened the processEvent signature. Match its entry point
+// without coupling this security guard to a fixed argument count.
 const processStart =
-  webhook.indexOf(
-    "export async function processEvent(destination, event)",
+  webhook.search(
+    /export\s+async\s+function\s+processEvent\s*\(\s*destination\s*,\s*event\b/,
   );
 
 assert.ok(
@@ -107,93 +109,98 @@ assert.ok(
   "processEvent must exist",
 );
 
-const processTail =
-  webhook.slice(
+const processEnd =
+  webhook.indexOf(
+    "\nexport default async (req)",
     processStart,
   );
 
+assert.ok(
+  processEnd > processStart,
+  "processEvent must end before webhook handler",
+);
+
+const processBody =
+  webhook.slice(processStart, processEnd);
+
+const find = (regex) =>
+  processBody.search(regex);
+
+// Temporal admission is a read-only gate before the authoritative
+// webhook claim. Mirror destination DENIED must happen after claim,
+// but before any normal message, OCR, review, or UNSEND handler.
+const temporalAdmissionPosition =
+  find(/\breadLineWebhookIngressAdmission\s*\(/);
+const temporalRejectPosition =
+  find(/"INGRESS_NOT_OPEN_AT_EVENT_TIME"/);
 const claimPosition =
-  processTail.indexOf(
-    "claimWebhookEvent(destination, event)",
-  );
-
+  find(/await\s+claimWebhookEvent\s*\(\s*destination\s*,\s*event\s*,\s*admissionRoundId/);
+const retiredPosition =
+  find(/claim\?\.state\s*===\s*"RETIRED"/);
 const deniedPosition =
-  processTail.indexOf(
-    'claim?.state === "DENIED"',
-  );
-
+  find(/claim\?\.state\s*===\s*"DENIED"/);
 const deniedResult =
-  processTail.indexOf(
-    "MIRROR_DESTINATION_INGESTION_DENIED",
-  );
-
+  find(/"MIRROR_DESTINATION_INGESTION_DENIED"/);
+const donePosition =
+  find(/claim\?\.state\s*===\s*"DONE"/);
 const existingMessagePosition =
-  processTail.indexOf(
-    "findMessageByWebhookEvent(",
-  );
-
+  find(/\bfindMessageByWebhookEvent\s*\(/);
 const sessionPosition =
-  processTail.indexOf(
-    "resolveOpenSettlementSession()",
-  );
-
+  find(/\bresolveOpenSettlementSession\s*\(/);
 const textPosition =
-  processTail.indexOf(
-    "handleTextMessage(",
-  );
-
+  find(/\bhandleTextMessage\s*\(/);
 const imagePosition =
-  processTail.indexOf(
-    "handleImageMessage(",
-  );
-
+  find(/\bhandleImageMessage\s*\(/);
 const unsendPosition =
-  processTail.indexOf(
-    "handleUnsend(destination, event)",
-  );
+  find(/\bhandleUnsend\s*\(\s*destination\s*,\s*event\s*,/);
 
 assert.ok(
-  claimPosition >= 0,
-  "claim must remain first persistence boundary",
+  temporalAdmissionPosition >= 0
+    && temporalRejectPosition > temporalAdmissionPosition
+    && claimPosition > temporalRejectPosition,
+  "temporal admission must gate message claim without persisting orders",
+);
+
+assert.doesNotMatch(
+  processBody.slice(0, claimPosition),
+  /await\s+(?:createMessage|persistParsedResult|handleTextMessage|handleImageMessage|handleUnsend)\s*\(/,
+  "no order persistence or message handlers before claim",
 );
 
 assert.ok(
-  deniedPosition > claimPosition,
-  "DENIED must be handled immediately after claim",
+  retiredPosition > claimPosition
+    && deniedPosition > retiredPosition,
+  "RETIRED and DENIED must be handled immediately after claim",
 );
 
 assert.ok(
-  deniedResult > deniedPosition,
-  "explicit denied result must be returned",
+  deniedResult > deniedPosition
+    && donePosition > deniedResult,
+  "DENIED must return before DONE/other claim states",
+);
+
+assert.match(
+  processBody.slice(deniedPosition, donePosition),
+  /return\s*\{\s*skipped:\s*"MIRROR_DESTINATION_INGESTION_DENIED"/,
+  "DENIED must return immediately instead of continuing ingestion",
 );
 
 for (const [name, position] of [
-  [
-    "existing message lookup",
-    existingMessagePosition,
-  ],
-  [
-    "settlement resolution",
-    sessionPosition,
-  ],
-  [
-    "text handler",
-    textPosition,
-  ],
-  [
-    "image handler",
-    imagePosition,
-  ],
-  [
-    "unsend handler",
-    unsendPosition,
-  ],
+  ["existing message lookup", existingMessagePosition],
+  ["settlement resolution", sessionPosition],
+  ["text handler", textPosition],
+  ["image handler", imagePosition],
+  ["unsend handler", unsendPosition],
 ]) {
   assert.ok(
     position > deniedPosition,
     `${name} must occur after DENIED exit`,
   );
 }
+
+console.log(
+  "PASS: temporal admission and RETIRED checks precede DENIED",
+);
 
 console.log(
   "PASS: destination detection moved into claim RPC",

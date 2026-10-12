@@ -1045,7 +1045,7 @@ export async function loadStaffMessageVerificationRevisionAccess(
 
   /*
    * Revision Preview/Apply must use the same authoritative
-   * latest OPEN Round contract as the revision RPC boundary.
+   * latest OPEN/CLOSED Working Round contract as the revision RPC boundary.
    *
    * Do not infer Round state from message_verifications alone.
    */
@@ -1091,8 +1091,9 @@ export async function loadStaffMessageVerificationRevisionAccess(
           .summary_group_round_id
         ?? "",
       )
-    || latestRound.status
-      !== "OPEN"
+    || !["OPEN", "CLOSED"].includes(
+      latestRound.status,
+    )
   ) {
     throw new Error(
       "REVISION_OPEN_ROUND_ONLY",
