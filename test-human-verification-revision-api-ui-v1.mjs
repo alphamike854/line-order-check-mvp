@@ -324,6 +324,26 @@ console.log(
     "PASS B2B2A-03: Edit Again fetches exact Human Truth then revision-claims",
   );
 
+  const editAgainStart = app.slice(
+    app.indexOf("async function startStaffVerificationRevision("),
+    app.indexOf("async function mutateStaffVerificationClaim("),
+  );
+
+  assert.doesNotMatch(
+    editAgainStart,
+    /state\.authMode\s*!==\s*"STAFF"/,
+  );
+
+  assert.match(
+    editAgainStart,
+    /workbench\?\._verificationWorkbenchActor\?\.staff_id/,
+  );
+
+  console.log(
+    "PASS: Edit Again accepts server-authorized Admin/Staff identity",
+  );
+
+
   const revisionClaim = app.slice(
     app.indexOf("const claimPayload =", app.indexOf("async function startStaffVerificationRevision(")),
     app.indexOf("const claim =", app.indexOf("async function startStaffVerificationRevision(")),

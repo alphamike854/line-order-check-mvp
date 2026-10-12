@@ -8029,7 +8029,7 @@ async function startStaffVerificationRevision(
     !root
     || !workbench
     || !messageRecordId
-    || state.authMode !== "STAFF"
+    || !workbench?._verificationWorkbenchActor?.staff_id
     || !staffVerificationRevisionStatusEligible(
       currentItem,
     )
