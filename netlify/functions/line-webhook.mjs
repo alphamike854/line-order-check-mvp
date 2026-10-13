@@ -675,17 +675,19 @@ export async function readLineWebhookIngressAdmission(
   }
 }
 
-async function reserveLineQStashIngressEvent(event, roundId) {
+async function reserveLineQStashIngressEvent(event, roundId, destination) {
   const normalized = normalizeLineEventTimestamp(event.timestamp);
   if (!normalized) throw new Error("QSTASH_INGRESS_EVENT_TIME_INVALID");
 
   const { data, error } = await supabase.rpc(
-    "reserve_line_qstash_ingress_event",
+    "reserve_line_qstash_ingress_event_v2",
     {
       p_webhook_event_id: event.webhookEventId,
       p_summary_group_round_id: roundId,
       p_line_group_id: event.source.groupId,
       p_event_timestamp: normalized.iso,
+      p_destination: destination,
+      p_event_payload: event,
     },
   );
   if (error || data?.reserved !== true) {
@@ -733,6 +735,7 @@ export async function completeLineQStashIngressEvent(
 async function selectQStashIngressEvents(
   events,
   admissionHints,
+  destination,
 ) {
   const selected = [];
 
@@ -789,7 +792,7 @@ async function selectQStashIngressEvents(
         && admission.round_id
       ) {
         if (isLineQStashIngressLedgerEnabled()) {
-          await reserveLineQStashIngressEvent(event, admission.round_id);
+          await reserveLineQStashIngressEvent(event, admission.round_id, destination);
         }
         selected.push(event);
 
@@ -2782,7 +2785,7 @@ export default async (req) => {
     let admittedEvents;
     try {
       [admittedEvents] = await Promise.all([
-        selectQStashIngressEvents(events, qstashAdmissionHints),
+        selectQStashIngressEvents(events, qstashAdmissionHints, payload.destination),
         lineGroupProfileBackgroundPromise,
       ]);
     } catch (error) {

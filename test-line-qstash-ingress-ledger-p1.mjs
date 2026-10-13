@@ -18,7 +18,7 @@ assert.match(migration,/retention_round_has_inflight_work[\s\S]*?line_qstash_ing
 assert.match(migration,/grant execute on function public\.reserve_line_qstash_ingress_event[\s\S]*?to service_role/i);
 assert.match(migration,/commit;\s*$/i);
 
-const reserveCall = gateway.indexOf('await reserveLineQStashIngressEvent(event, admission.round_id);');
+const reserveCall = gateway.indexOf('await reserveLineQStashIngressEvent(event, admission.round_id, destination);');
 const selectEvent = gateway.indexOf('selected.push(event);', reserveCall);
 const publication = gateway.indexOf('qstash.publishJSON({');
 assert.ok(reserveCall !== -1 && selectEvent > reserveCall && publication > reserveCall,
