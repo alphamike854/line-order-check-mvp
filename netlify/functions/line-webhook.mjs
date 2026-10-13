@@ -489,6 +489,13 @@ function isQStashIngressEnabledForAdmission() {
   );
 }
 
+function isLineQStashIngressLedgerEnabled() {
+  return ["1", "true", "yes", "on"].includes(
+    String(process.env.LINE_QSTASH_INGRESS_LEDGER_ENABLED ?? "")
+      .trim().toLowerCase(),
+  );
+}
+
 function isLineOrderIngressMessage(event) {
   return (
     event?.source?.type === "group"
@@ -668,6 +675,61 @@ export async function readLineWebhookIngressAdmission(
   }
 }
 
+async function reserveLineQStashIngressEvent(event, roundId) {
+  const normalized = normalizeLineEventTimestamp(event.timestamp);
+  if (!normalized) throw new Error("QSTASH_INGRESS_EVENT_TIME_INVALID");
+
+  const { data, error } = await supabase.rpc(
+    "reserve_line_qstash_ingress_event",
+    {
+      p_webhook_event_id: event.webhookEventId,
+      p_summary_group_round_id: roundId,
+      p_line_group_id: event.source.groupId,
+      p_event_timestamp: normalized.iso,
+    },
+  );
+  if (error || data?.reserved !== true) {
+    throw new Error(
+      "QSTASH_INGRESS_RESERVATION_FAILED: "
+      + (error?.message ?? "NOT_RESERVED"),
+    );
+  }
+}
+
+// Called by the QStash consumer only after processEvent finishes successfully.
+// A completion failure causes HTTP 500 and a safe QStash retry, never false ACK.
+export async function completeLineQStashIngressEvent(
+  event, admissionHint, result, ledgerEnrolled = false,
+) {
+  // The signed QStash job owns its ledger contract across deployments.
+  // Old, unmarked jobs remain legacy; flagged jobs always complete even
+  // if the publisher feature flag is later disabled for rollback.
+  if (ledgerEnrolled !== true) return;
+  if (!isLineOrderIngressMessage(event)) {
+    throw new Error("QSTASH_INGRESS_LEDGER_EVENT_TYPE_MISMATCH");
+  }
+
+  const admission = validTemporalAdmissionHint(admissionHint, event);
+  if (!admission?.round_id) {
+    throw new Error("QSTASH_INGRESS_LEDGER_HINT_MISSING");
+  }
+
+  if (result?.status === "IGNORED"
+      || ["RETIRED_ROUND", "INGRESS_NOT_OPEN_AT_EVENT_TIME",
+          "MIRROR_DESTINATION_INGESTION_DENIED"].includes(result?.skipped)) {
+    throw new Error("QSTASH_INGRESS_RESERVED_EVENT_NOT_APPLIED");
+  }
+
+  const { error } = await supabase.rpc(
+    "complete_line_qstash_ingress_event",
+    {
+      p_webhook_event_id: event.webhookEventId,
+      p_summary_group_round_id: admission.round_id,
+    },
+  );
+  if (error) throw new Error("QSTASH_INGRESS_COMPLETE_FAILED: " + error.message);
+}
+
 async function selectQStashIngressEvents(
   events,
   admissionHints,
@@ -726,6 +788,9 @@ async function selectQStashIngressEvents(
         admission.admitted
         && admission.round_id
       ) {
+        if (isLineQStashIngressLedgerEnabled()) {
+          await reserveLineQStashIngressEvent(event, admission.round_id);
+        }
         selected.push(event);
 
         admissionHints.set(
@@ -761,9 +826,10 @@ async function selectQStashIngressEvents(
         },
       );
     } catch (error) {
-      // Public gateway fails OPEN into QStash when DB state
-      // cannot be determined. The consumer will retry temporal
-      // admission before touching claim_webhook_event.
+      // Under ledger protection, NEVER ACK or publish unreserved events.
+      // Return 503 to LINE so it can redeliver; the existing fallback
+      // remains unchanged while the feature is disabled.
+      if (isLineQStashIngressLedgerEnabled()) throw error;
       console.warn(
         "LINE QStash temporal admission unavailable; fail-open",
         {
@@ -2713,17 +2779,16 @@ export default async (req) => {
      * Run them concurrently so profile enrichment does not add its
      * acceptance timeout on top of admission latency.
      */
-    const [
-      admittedEvents,
-    ] =
-      await Promise.all([
-        selectQStashIngressEvents(
-          events,
-          qstashAdmissionHints,
-        ),
-
+    let admittedEvents;
+    try {
+      [admittedEvents] = await Promise.all([
+        selectQStashIngressEvents(events, qstashAdmissionHints),
         lineGroupProfileBackgroundPromise,
       ]);
+    } catch (error) {
+      console.error("QStash ingress reservation failed", error);
+      return json({ ok: false, error: "QSTASH_INGRESS_LEDGER_UNAVAILABLE" }, 503);
+    }
 
     if (!admittedEvents.length) {
       return json({
@@ -2854,6 +2919,11 @@ export default async (req) => {
                     event.webhookEventId,
                   )
                   ?? null,
+                // Immutable enrollment marker. Never infer from current ENV
+                // in the consumer: old jobs and rollback must remain safe.
+                ingress_ledger_v1:
+                  isLineQStashIngressLedgerEnabled()
+                  && isLineOrderIngressMessage(event),
               },
 
               /*

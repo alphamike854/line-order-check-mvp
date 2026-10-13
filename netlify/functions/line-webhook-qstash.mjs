@@ -4,6 +4,7 @@ import { Receiver } from "@upstash/qstash";
 
 import {
   processEvent,
+  completeLineQStashIngressEvent,
 } from "./line-webhook.mjs";
 
 function json(body, status = 200) {
@@ -125,6 +126,8 @@ export default async (req) => {
   const admission =
     payload?.admission
     ?? null;
+  const ledgerEnrolled =
+    payload?.ingress_ledger_v1 === true;
 
   if (
     !destination
@@ -174,6 +177,11 @@ export default async (req) => {
         503,
       );
     }
+
+    // Receipt must not be acknowledged until the DB reservation is completed.
+    await completeLineQStashIngressEvent(
+      event, admission, result, ledgerEnrolled,
+    );
 
     return json({
       ok: true,
