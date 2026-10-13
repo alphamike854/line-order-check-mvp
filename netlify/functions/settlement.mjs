@@ -347,6 +347,7 @@ function mapError(message) {
 async function changeSummaryGroupState(
   body,
   acceptingOrders,
+  req,
 ) {
   const sessionId =
     String(body.settlement_session_id ?? "");
@@ -386,6 +387,53 @@ async function changeSummaryGroupState(
       { ok: false, error: code },
       status,
     );
+  }
+
+  // OPEN is committed by the RPC above. Return its identity immediately;
+  // storage cleanup is durably queued in Postgres and handled separately.
+  // Never make an already committed OPEN appear to fail because cleanup,
+  // report readback, or Netlify's synchronous deadline took too long.
+  if (acceptingOrders) {
+    let cleanupEnqueued = false;
+    if (data?.reset_from_round_id) {
+      try {
+        const cleanupUrl = new URL(
+          "/api/settlement-storage-cleanup-background",
+          req.url,
+        );
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 2500);
+        try {
+          const response = await fetch(cleanupUrl, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-dashboard-key": process.env.DASHBOARD_ACCESS_KEY || "",
+            },
+            body: JSON.stringify({
+              summary_group_id: summaryGroupId,
+              retiring_round_id: data.reset_from_round_id,
+            }),
+            signal: controller.signal,
+          });
+          cleanupEnqueued = response.status === 202;
+          if (!cleanupEnqueued) {
+            console.error("OPEN cleanup background enqueue rejected", response.status);
+          }
+        } finally {
+          clearTimeout(timer);
+        }
+      } catch (cleanupError) {
+        console.error("OPEN cleanup background enqueue failed", cleanupError);
+      }
+    }
+    return json({
+      ok: true,
+      group_state: data,
+      storage_cleanup: data?.reset_from_round_id
+        ? (cleanupEnqueued ? "QUEUED" : "PENDING_RETRY")
+        : "NOT_NEEDED",
+    });
   }
 
   const explicitJobs =
@@ -1133,6 +1181,7 @@ export default async (req) => {
       return changeSummaryGroupState(
         body,
         true,
+        req,
       );
     }
 

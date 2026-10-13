@@ -18343,6 +18343,47 @@ async function changeSettlementSummaryGroup(
         : `ปิดรับยอด ${label} แล้ว`,
     );
   } catch (error) {
+    // After a 504/network timeout the OPEN RPC may already have committed.
+    // Read the authoritative Round cursor before allowing a retry.
+    if (nextAccepting && /504|timeout|gateway|network|fetch/i.test(String(error.message))) {
+      try {
+        const verified = await api(
+          `/api/round-open-status?summary_group_id=${encodeURIComponent(summaryGroupId)}`,
+        );
+        if (
+          verified.round_status === "OPEN"
+          && verified.settlement_session_id === open.id
+        ) {
+          const row = (state.settlement?.summary_group_states || []).find(
+            item => String(item.summary_group_id || "") === summaryGroupId,
+          );
+          if (row) {
+            row.accepting_orders = true;
+            row.round_status = "OPEN";
+            row.round_id = verified.round_id;
+            row.business_date = verified.business_date;
+            row.daily_round_no = verified.daily_round_no;
+            row.changed_at = verified.opened_at;
+            row.closed_at = null;
+            renderSettlementStatus(state.settlement);
+          }
+          toast(`เปิดรับยอด ${label} สำเร็จแล้ว (ตรวจยืนยันจากฐานข้อมูล)`);
+          return;
+        }
+        toast(
+          `ยังไม่ยืนยันการเปิดรับยอด ${label}: ${error.message} — ตรวจสถานะก่อนกด OPEN ซ้ำ`,
+          true,
+        );
+        return;
+      } catch (verificationError) {
+        console.warn("OPEN status readback unavailable", verificationError);
+        toast(
+          `ยังไม่ทราบผลการเปิดรับยอด ${label}: ${error.message} — ห้ามกดซ้ำก่อนตรวจสถานะ`,
+          true,
+        );
+        return;
+      }
+    }
     toast(
       `${
         nextAccepting
