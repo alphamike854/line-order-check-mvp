@@ -1,0 +1,22 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { canReadSupervisorCategoryCeiling as allow } from './src/lib/supervisor-category-access.mjs';
+
+assert.equal(allow(null), false);
+assert.equal(allow({ role:'STAFF', kind:'STAFF' }), false);
+assert.equal(allow({ role:'SUPERVISOR', kind:'STAFF' }), true);
+assert.equal(allow({ role:'ADMIN', kind:'STAFF' }), true);
+assert.equal(allow({ role:'ADMIN', kind:'DASHBOARD' }), true);
+assert.equal(allow({ role:'VIEWER' }), false);
+const api=readFileSync(new URL('./netlify/functions/supervisor-category-ceiling.mjs', import.meta.url), 'utf8');
+const page=readFileSync(new URL('./public/supervisor-category-ceiling.js', import.meta.url), 'utf8');
+assert.match(api, /authenticateWorkbenchActor/);
+assert.match(api, /canReadSupervisorCategoryCeiling\(auth\.actor\)/);
+assert.match(api, /error:'FORBIDDEN' \}, 403/);
+assert.ok(api.indexOf('authenticateWorkbenchActor(req') < api.indexOf('readReport(bangkokToday())'));
+assert.doesNotMatch(api, /SUPERVISOR_READONLY_KEY/);
+assert.doesNotMatch(api, /req\.headers\.get\('x-supervisor-key'\)/);
+assert.doesNotMatch(page, /'x-supervisor-key': accessKey/);
+assert.match(page, /'x-staff-key': accessKey/);
+assert.match(page, /'x-dashboard-key': accessKey/);
+console.log('PASS: Supervisor role allowlist, 401/403 boundary and legacy key removal');

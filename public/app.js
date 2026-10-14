@@ -579,6 +579,16 @@ function configureAppForAuthMode(
   const staffMode =
     mode === "STAFF";
 
+  // UI visibility only. The API independently validates actor role.
+  const reportLink = $("#supervisorReportLink");
+  if (reportLink) {
+    const role = String(state.actor?.role ?? "").toUpperCase();
+    reportLink.classList.toggle(
+      "hidden",
+      role !== "ADMIN" && role !== "SUPERVISOR",
+    );
+  }
+
   /*
    * Review/Unsend badges are populated by Dashboard-oriented
    * aggregate/read paths. Staff mode must not present the
