@@ -2,6 +2,7 @@ import {
   CATEGORIES, formatQty, parsePositiveLimit,
   buildCeilingReport, buildAnnouncement,
 } from './supervisor-category-ceiling-calc.js';
+import { CODE_ROW_LIMIT, selectCodeRows } from './supervisor-code-collapse.js';
 
 const $ = id => document.getElementById(id);
 const STORAGE_KEY = 'locSupervisorCategoryCeilingKeyV2';
@@ -11,6 +12,7 @@ let snapshot = null;
 let preferences = {};
 let selectedGroupIds = null; // null = all enabled groups; [] = none
 let availableGroups = [];
+const expandedCodeCategories = new Set();
 function status(text) { $('status').textContent = text; }
 function elem(tag, cls = '', text) {
   const el = document.createElement(tag);
@@ -130,7 +132,11 @@ function render() {
     panel.append(elem('p', 'small muted',
       `ถึงเพดาน ${c.reached.length} รหัส · ` +
       (c.defaultCap !== null ? `เพดานพื้นฐาน ${money(c.defaultCap)}` : 'ยังไม่มีเพดานพื้นฐานที่ใช้ได้')));
+    const { matched, visible, hasMore } = selectCodeRows(
+      c.records, $('filter').value, expandedCodeCategories.has(category));
     const wrap = elem('div', 'table-wrap');
+    wrap.id = `code-table-${category}`;
+    wrap.classList.toggle('code-list-expanded', expandedCodeCategories.has(category) && hasMore);
     const table = elem('table');
     const head = elem('tr');
     for (const h of ['รหัส', 'ออเดอร์รวม', 'เพดาน', 'ส่วนต่าง', 'กำหนดเฉพาะรหัส']) {
@@ -138,11 +144,7 @@ function render() {
     }
     table.append(elem('thead')); table.tHead.append(head);
     const tbody = elem('tbody');
-    let displayed = 0;
-    for (const r of c.records) {
-      if ($('filter').value === 'over' && !r.reached) continue;
-      if ($('filter').value === 'near' && !r.reached && !r.near) continue;
-      displayed++;
+    for (const r of visible) {
       const tr = elem('tr', r.reached ? 'over' : r.near ? 'near' : '');
       tr.append(elem('td', '', r.code), elem('td', 'num', money(r.total)),
         elem('td', 'num', r.cap === null ? '—' : money(r.cap)),
@@ -160,11 +162,30 @@ function render() {
       });
       overrideCell.append(overrideInput); tr.append(overrideCell); tbody.append(tr);
     }
-    if (!displayed) {
+    if (!visible.length) {
       const tr = elem('tr'); const cell = elem('td', 'muted', 'ไม่มีรหัสในตัวกรองนี้');
       cell.colSpan = 5; tr.append(cell); tbody.append(tr);
     }
     table.append(tbody); wrap.append(table); panel.append(wrap);
+    if (hasMore) {
+      const controls = elem('div', 'code-list-controls');
+      const expanded = expandedCodeCategories.has(category);
+      controls.append(elem('span', 'small muted', `แสดง ${visible.length}/${matched.length} รหัส`));
+      const toggle = elem('button', '', expanded
+        ? `ย่อเหลือ ${CODE_ROW_LIMIT} รหัส` : `ดูรหัสทั้งหมด (${matched.length})`);
+      toggle.type = 'button';
+      toggle.id = `code-toggle-${category}`;
+      toggle.setAttribute('aria-expanded', String(expandedCodeCategories.has(category)));
+      toggle.setAttribute('aria-controls', wrap.id);
+      toggle.addEventListener('click', () => {
+        if (expandedCodeCategories.has(category)) expandedCodeCategories.delete(category);
+        else expandedCodeCategories.add(category);
+        render();
+        document.getElementById(`code-toggle-${category}`)?.focus({ preventScroll: true });
+      });
+      controls.append(toggle);
+      panel.append(controls);
+    }
     $('categories').append(panel);
   }
   const notice = buildAnnouncement(cats, snapshot.business_date, snapshot.complete_scope,
@@ -205,6 +226,7 @@ async function load() {
     if (!Array.isArray(payload.available_groups) || !Array.isArray(payload.selected_group_ids) ||
         !Array.isArray(payload.scope) || !Array.isArray(payload.rows)) throw Error('INVALID_REPORT_SCOPE');
     snapshot = payload;
+    expandedCodeCategories.clear();
     availableGroups = payload.available_groups;
     selectedGroupIds = payload.selected_group_ids.length === availableGroups.length
       ? null : payload.selected_group_ids;
@@ -234,7 +256,7 @@ $('selectAllGroups').addEventListener('click', () => {
   renderGroupSelector();
   load();
 });
-$('filter').addEventListener('change', render);
+$('filter').addEventListener('change', () => { expandedCodeCategories.clear(); render(); });
 $('reset').addEventListener('click', () => {
   if (!snapshot) return;
   preferences = {}; sessionStorage.removeItem(preferencesKey()); render();
@@ -242,6 +264,7 @@ $('reset').addEventListener('click', () => {
 });
 $('logout').addEventListener('click', () => {
   activeRequest++; accessKey = ''; snapshot = null; selectedGroupIds = null; availableGroups = [];
+  expandedCodeCategories.clear();
   sessionStorage.removeItem(STORAGE_KEY); $('key').value = '';
   $('workspace').classList.add('hidden'); $('login').classList.remove('hidden');
   $('groupOptions').replaceChildren();
