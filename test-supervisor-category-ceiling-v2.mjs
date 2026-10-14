@@ -62,7 +62,7 @@ assert.match(api,/canReadSupervisorCategoryCeiling/);
 assert.match(api,/error:'FORBIDDEN'/);
 assert.doesNotMatch(api,/SUPERVISOR_READONLY_KEY|x-supervisor-key/);
 assert.match(api,/settlement_point_profiles/);
-assert.match(api,/supervisor_category_ceiling_report_v2/);
+assert.match(api,/supervisor_category_ceiling_report_v3/);
 assert.doesNotMatch(api,/\.insert\(|\.update\(|\.delete\(|\.upsert\(/);
 const sql = fs.readFileSync('supabase/migrations/20261013150000_supervisor_category_ceiling_report_v2.sql','utf8');
 assert.match(sql,/accounting_effective_order_items_rounds\(/);

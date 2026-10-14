@@ -9,6 +9,8 @@ const PREF_KEY_PREFIX = 'locSupervisorCategoryCeilingPreferencesV2:';
 let accessKey = sessionStorage.getItem(STORAGE_KEY) || '';
 let snapshot = null;
 let preferences = {};
+let selectedGroupIds = null; // null = all enabled groups; [] = none
+let availableGroups = [];
 function status(text) { $('status').textContent = text; }
 function elem(tag, cls = '', text) {
   const el = document.createElement(tag);
@@ -16,9 +18,17 @@ function elem(tag, cls = '', text) {
   if (text !== undefined) el.textContent = String(text);
   return el;
 }
-function preferencesKey() { return PREF_KEY_PREFIX + snapshot.business_date; }
+function preferencesKey() {
+  const ids = (snapshot?.selected_group_ids || []).slice().sort();
+  return PREF_KEY_PREFIX + snapshot.business_date + ':' + ids.join(',');
+}
 function restorePreferences() {
-  try { preferences = JSON.parse(sessionStorage.getItem(preferencesKey()) || '{}'); }
+  let stored = sessionStorage.getItem(preferencesKey());
+  // Preserve existing V2 per-day manual limits for the default ALL scope only.
+  if (!stored && snapshot.selected_group_ids.length === snapshot.available_groups.length) {
+    stored = sessionStorage.getItem(PREF_KEY_PREFIX + snapshot.business_date);
+  }
+  try { preferences = JSON.parse(stored || '{}'); }
   catch { preferences = {}; }
 }
 function savePreferences() { sessionStorage.setItem(preferencesKey(), JSON.stringify(preferences)); }
@@ -30,13 +40,48 @@ function categoryPreferences(category) {
   return preferences[category];
 }
 function money(value) { return formatQty(value); }
+function clearReport(message) {
+  snapshot = null;
+  $('categories').replaceChildren();
+  $('copy').disabled = true;
+  $('announcement').textContent = message;
+  $('coverage').textContent = '';
+  $('warning').classList.add('hidden');
+  $('warning').textContent = '';
+}
+function renderGroupSelector() {
+  const container = $('groupOptions');
+  container.replaceChildren();
+  const selected = new Set(selectedGroupIds === null
+    ? availableGroups.map(g => g.id) : selectedGroupIds);
+  for (const group of availableGroups) {
+    const label = elem('label', 'group-option');
+    const checkbox = elem('input'); checkbox.type = 'checkbox';
+    checkbox.checked = selected.has(group.id);
+    checkbox.addEventListener('change', () => {
+      const next = new Set(selectedGroupIds === null
+        ? availableGroups.map(g => g.id) : selectedGroupIds);
+      if (checkbox.checked) next.add(group.id); else next.delete(group.id);
+      const ids = availableGroups.map(g => g.id).filter(id => next.has(id));
+      selectedGroupIds = ids.length === availableGroups.length ? null : ids;
+      renderGroupSelector();
+      load();
+    });
+    label.append(checkbox, document.createTextNode(
+      group.name === group.id ? group.id : `${group.id} · ${group.name}`));
+    container.append(label);
+  }
+  $('groupSelectionCount').textContent =
+    `เลือก ${selected.size}/${availableGroups.length} กลุ่มสรุป`;
+  $('selectAllGroups').disabled = selected.size === availableGroups.length;
+}
 function render() {
   if (!snapshot) return;
   const cats = buildCeilingReport(snapshot.rows, snapshot.profiles, preferences);
   $('day').textContent = `ข้อมูลวันที่ ${snapshot.business_date}`;
   $('freshness').textContent = `อ่านข้อมูลล่าสุดเมื่อ ${new Date(snapshot.fetched_at).toLocaleString('th-TH')}`;
   const included = snapshot.scope.filter(r => r.included);
-  $('coverage').textContent = `ข้อมูลครบ ${included.length}/${snapshot.scope.length} กลุ่มสรุป · ` +
+  $('coverage').textContent = `ข้อมูลครบ ${included.length}/${snapshot.scope.length} กลุ่มสรุปที่เลือก · ` +
     `ครอบคลุม: ${included.map(r => r.id).join(', ') || 'ไม่มี'}`;
   const missingGroups = snapshot.scope.filter(r => !r.included).map(r => r.id);
   const unsetCategories = cats.filter(c => c.records.some(r => r.total > 0 && r.cap === null));
@@ -50,7 +95,7 @@ function render() {
     const category = c.category;
     const pref = categoryPreferences(category);
     const panel = elem('section', 'panel');
-    panel.append(elem('h2', '', `หมวด ${category} · รวมทุกกลุ่มสรุป`));
+    panel.append(elem('h2', '', `หมวด ${category} · จาก ${snapshot.selected_group_ids.length} กลุ่มสรุปที่เลือก`));
     const metrics = elem('div', 'metrics');
     for (const [label, value] of [
       ['ยอดออเดอร์รวม', money(c.orderTotal)],
@@ -122,44 +167,73 @@ function render() {
     table.append(tbody); wrap.append(table); panel.append(wrap);
     $('categories').append(panel);
   }
-  const notice = buildAnnouncement(cats, snapshot.business_date, snapshot.complete_scope);
+  const notice = buildAnnouncement(cats, snapshot.business_date, snapshot.complete_scope,
+    snapshot.selected_group_ids,
+    snapshot.selected_group_ids.length === snapshot.available_groups.length);
   $('announcement').textContent = notice || 'ไม่มีรหัสถึงเพดาน หรือข้อมูล/เพดานยังไม่ครบ';
   $('copy').disabled = !notice;
 }
 
+let activeRequest = 0;
 async function load() {
   if (!accessKey) return;
+  const requestId = ++activeRequest;
+  const previousKey = snapshot ? preferencesKey() : null;
+  clearReport('กำลังโหลดข้อมูลใหม่ตามกลุ่มสรุปที่เลือก...');
+  if (selectedGroupIds !== null && selectedGroupIds.length === 0) {
+    $('warning').classList.remove('hidden');
+    $('warning').textContent = 'ต้องเลือกอย่างน้อยหนึ่งกลุ่มสรุป — ไม่สามารถคำนวณหรือคัดลอกประกาศได้';
+    status('ยังไม่ได้เลือกกลุ่มสรุป');
+    $('refresh').disabled = false;
+    return;
+  }
   $('refresh').disabled = true;
   status('กำลังโหลดข้อมูลล่าสุด...');
   try {
-    const response = await fetch('/api/supervisor-category-ceiling', {
+    const params = new URLSearchParams();
+    if (selectedGroupIds !== null) {
+      for (const id of selectedGroupIds) params.append('group', id);
+    }
+    const endpoint = '/api/supervisor-category-ceiling' +
+      (params.size ? '?' + params.toString() : '');
+    const response = await fetch(endpoint, {
       method: 'GET', headers: { 'x-dashboard-key': accessKey, 'x-staff-key': accessKey }, cache: 'no-store',
     });
     const payload = await response.json();
+    if (requestId !== activeRequest) return;
     if (!response.ok || !payload.ok) throw Error(payload.error || `HTTP_${response.status}`);
-    const previousDate = snapshot?.business_date;
+    if (!Array.isArray(payload.available_groups) || !Array.isArray(payload.selected_group_ids) ||
+        !Array.isArray(payload.scope) || !Array.isArray(payload.rows)) throw Error('INVALID_REPORT_SCOPE');
     snapshot = payload;
-    if (previousDate !== snapshot.business_date) restorePreferences();
+    availableGroups = payload.available_groups;
+    selectedGroupIds = payload.selected_group_ids.length === availableGroups.length
+      ? null : payload.selected_group_ids;
+    if (previousKey !== preferencesKey()) restorePreferences();
     $('login').classList.add('hidden'); $('workspace').classList.remove('hidden');
-    render(); status('อ่านข้อมูลสำเร็จ · ไม่มีการแก้ไขข้อมูล Production');
+    renderGroupSelector(); render();
+    status('อ่านข้อมูลสำเร็จ · รายงานเฉพาะกลุ่มที่เลือก · ไม่มีการแก้ไขข้อมูล Production');
   } catch (error) {
+    if (requestId !== activeRequest) return;
+    clearReport('ไม่สามารถยืนยันยอดล่าสุดได้');
     status('อ่านข้อมูลไม่สำเร็จ: ' + error.message);
-    // Never leave a stale display actionable after a failed refresh.
-    snapshot = null;
-    $('categories').replaceChildren(); $('copy').disabled = true;
-    $('announcement').textContent = 'ไม่สามารถยืนยันยอดล่าสุดได้';
     if (error.message === 'UNAUTHORIZED') {
       accessKey = ''; sessionStorage.removeItem(STORAGE_KEY);
       $('login').classList.remove('hidden'); $('workspace').classList.add('hidden');
     }
-  } finally { $('refresh').disabled = false; }
+  } finally {
+    if (requestId === activeRequest) $('refresh').disabled = false;
+  }
 }
-
 $('loginForm').addEventListener('submit', event => {
   event.preventDefault(); accessKey = $('key').value.trim();
   sessionStorage.setItem(STORAGE_KEY, accessKey); load();
 });
 $('refresh').addEventListener('click', load);
+$('selectAllGroups').addEventListener('click', () => {
+  selectedGroupIds = null;
+  renderGroupSelector();
+  load();
+});
 $('filter').addEventListener('change', render);
 $('reset').addEventListener('click', () => {
   if (!snapshot) return;
@@ -167,9 +241,10 @@ $('reset').addEventListener('click', () => {
   status('ล้างเพดานที่กำหนดเองแล้ว (เฉพาะเบราว์เซอร์นี้)');
 });
 $('logout').addEventListener('click', () => {
-  accessKey = ''; snapshot = null;
+  activeRequest++; accessKey = ''; snapshot = null; selectedGroupIds = null; availableGroups = [];
   sessionStorage.removeItem(STORAGE_KEY); $('key').value = '';
   $('workspace').classList.add('hidden'); $('login').classList.remove('hidden');
+  $('groupOptions').replaceChildren();
   status('ออกจากหน้ารายงานแล้ว');
 });
 $('copy').addEventListener('click', async () => {

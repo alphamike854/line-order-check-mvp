@@ -26,16 +26,23 @@ tr.over{background:#fff1ed}tr.near{background:#fffaf0}.over-text{color:#ba3f34;f
 .notice{white-space:pre-wrap;background:#f5f7fa;border:1px solid #dbe3ec;border-radius:8px;padding:15px;line-height:1.7;margin-top:10px}
 .hidden{display:none!important}.cap-form{display:flex;flex-wrap:wrap;gap:10px;align-items:end;padding:12px;background:#f8fafc;border:1px solid #e3e9f0;border-radius:10px}
 #status{margin-top:12px}a{color:#15528b}
+.group-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-top:12px}.group-option{display:flex;flex-direction:row;align-items:center;gap:8px;font-weight:500;background:#f8fafc;padding:9px;border-radius:8px}.group-option input{min-width:auto}
 @media(max-width:760px){.grid,.metrics{grid-template-columns:1fr}.shell{padding:14px 10px 40px}.panel{padding:12px}}
 </style>
 </head>
 <body><main class="shell">
-<header><div><small>LINE ORDER CHECK · เฉพาะหัวหน้าสายงาน</small><h1>เฝ้าระวังเพดานออเดอร์</h1><small>รวมทุกกลุ่มสรุป · คำนวณยอดสุทธิแยก A / B / E / F · ไม่มีการหยุดรับอัตโนมัติ</small></div><a href="/">หน้าหลัก</a></header>
+<header><div><small>LINE ORDER CHECK · เฉพาะหัวหน้าสายงาน</small><h1>เฝ้าระวังเพดานออเดอร์</h1><small>เลือกกลุ่มสรุปที่นำมาคำนวณ · ยอดสุทธิแยก A / B / E / F · ไม่มีการหยุดรับอัตโนมัติ</small></div><a href="/">หน้าหลัก</a></header>
 <section id="login" class="panel">
 <h2>เข้าสู่หน้ารายงาน</h2><p class="muted">ใช้ Access Key เดียวกับหน้าหลัก · อนุญาตเฉพาะ Admin / Supervisor</p>
 <form id="loginForm" class="controls"><label>Access Key<input id="key" type="password" autocomplete="current-password" required /></label><button type="submit" class="primary">ดูรายงาน</button></form>
 </section>
 <div id="workspace" class="hidden">
+<section class="panel" aria-label="กลุ่มสรุปที่ใช้คำนวณ">
+  <div class="row"><h2>เลือกกลุ่มสรุปที่นำมาคำนวณ</h2><button id="selectAllGroups" type="button">เลือกทุกกลุ่ม</button></div>
+  <div id="groupOptions" class="group-options"></div>
+  <p id="groupSelectionCount" class="small muted" role="status">ค่าเริ่มต้น: ทุกกลุ่มสรุป</p>
+  <small>การเลือกมีผลเฉพาะรายงานนี้ ไม่เปลี่ยนยอดออเดอร์หรือการตัดยอดในระบบหลัก</small>
+</section>
 <section class="panel"><div class="row"><div><strong id="day">—</strong><div id="freshness" class="muted small">—</div></div><div class="controls"><button id="refresh" class="primary" type="button">อัปเดตยอดล่าสุด</button><button id="reset" type="button">ล้างเพดานที่กำหนดเอง</button><button id="logout" type="button">ออกจากหน้านี้</button></div></div>
 <div class="controls" style="margin-top:15px"><label>แสดงรายการ<select id="filter"><option value="all">ทุกรหัสที่มียอด</option><option value="over">ถึงหรือเกินเพดาน</option><option value="near">ใกล้หรือถึงเพดาน</option></select></label></div>
 <div id="coverage" class="muted small" style="margin-top:10px"></div><div id="warning" class="warn hidden" role="alert"></div>

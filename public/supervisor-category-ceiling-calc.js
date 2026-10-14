@@ -56,14 +56,15 @@ export function buildCeilingReport(rows = [], profiles = {}, preferences = {}) {
   });
 }
 
-export function buildAnnouncement(categories, date, completeScope) {
+export function buildAnnouncement(categories, date, completeScope, groupIds = [], allGroupsSelected = true) {
   if (!completeScope) return null;
   // A missing effective cap for any category with orders blocks the collective notice.
   if (categories.some(c => c.records.some(r => r.total > 0 && r.cap === null))) return null;
   const reached = categories.flatMap(c => c.reached.map(r => ({ ...r, category:c.category })));
   if (!reached.length) return null;
   return [
-    'ประกาศหยุดรับออเดอร์ (รวมทุกกลุ่มสรุป)',
+    allGroupsSelected ? 'ประกาศหยุดรับออเดอร์ (รวมทุกกลุ่มสรุป)' :
+      `ประกาศหยุดรับออเดอร์ (เฉพาะกลุ่มสรุป: ${groupIds.join(', ')})`,
     `วันที่ ${date}`, '',
     ...reached.map(r => `${r.category}${r.code} ยอดรวม ${formatQty(r.total)} ` +
       `(เพดาน ${formatQty(r.cap)}${r.delta > 0 ? ', เกิน +' + formatQty(r.delta) : ', ถึงเพดาน'})`),

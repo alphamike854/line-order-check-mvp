@@ -31,18 +31,29 @@ async function query(signal, makeQuery) {
   return result.data || [];
 }
 
-async function readReport(date) {
+async function readReport(date, requestedIds) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), READ_TIMEOUT_MS);
   try {
     // Three bounded metadata reads / one category aggregate RPC on explicit page refresh.
-    const [groups, cursors, rawCodes] = await Promise.all([
-      query(controller.signal, () => supabase.from('summary_groups')
-        .select('id,name').eq('enabled', true).order('id')),
+    const availableGroups = await query(controller.signal, () => supabase.from('summary_groups')
+      .select('id,name').eq('enabled', true).order('id'));
+    const validIds = new Set(availableGroups.map(g => g.id));
+    if (requestedIds !== null && (!requestedIds.length || requestedIds.some(id => !validIds.has(id)))) {
+      const error = new Error('INVALID_SUMMARY_GROUP_SELECTION');
+      error.httpStatus = 400;
+      throw error;
+    }
+    const selectedSet = new Set(requestedIds === null
+      ? availableGroups.map(g => g.id) : requestedIds);
+    const groups = availableGroups.filter(g => selectedSet.has(g.id));
+    const selectedIds = groups.map(g => g.id);
+    const [cursors, rawCodes] = await Promise.all([
       query(controller.signal, () => supabase.from('summary_group_round_runtime_state')
         .select('summary_group_id,latest_round_id,latest_business_date')),
       query(controller.signal, () => supabase.rpc(
-        'supervisor_category_ceiling_report_v2', { p_business_date: date }
+        'supervisor_category_ceiling_report_v3',
+        { p_business_date: date, p_summary_group_ids: selectedIds }
       )),
     ]);
     const latest = new Map(cursors.map(row => [row.summary_group_id, row]));
@@ -91,6 +102,8 @@ async function readReport(date) {
       ok: true,
       business_date: date,
       fetched_at: new Date().toISOString(),
+      available_groups: availableGroups,
+      selected_group_ids: selectedIds,
       scope,
       complete_scope: scope.length > 0 && scope.every(row => row.included),
       profiles: profileMap,
@@ -122,8 +135,15 @@ export default async function handler(req) {
     if (!canReadSupervisorCategoryCeiling(auth.actor)) {
       return json({ ok:false, error:'FORBIDDEN' }, 403);
     }
-    return json(await readReport(bangkokToday()));
+    const queryParams = new URL(req.url).searchParams;
+    const requested = queryParams.getAll('group');
+    if (requested.length > 64 || requested.some(id => !/^[A-Z0-9_-]{1,64}$/.test(id)) ||
+        new Set(requested).size !== requested.length) {
+      return json({ ok:false, error:'INVALID_SUMMARY_GROUP_SELECTION' }, 400);
+    }
+    return json(await readReport(bangkokToday(), requested.length ? requested : null));
   } catch (error) {
+    if (error?.httpStatus === 400) return json({ok:false,error:'INVALID_SUMMARY_GROUP_SELECTION'},400);
     console.error('supervisor category ceiling report failed', error?.message || error);
     return json({ ok:false, error:'SUPERVISOR_CATEGORY_REPORT_UNAVAILABLE' }, 503);
   }

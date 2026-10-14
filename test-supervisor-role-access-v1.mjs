@@ -13,7 +13,7 @@ const page=readFileSync(new URL('./public/supervisor-category-ceiling.js', impor
 assert.match(api, /authenticateWorkbenchActor/);
 assert.match(api, /canReadSupervisorCategoryCeiling\(auth\.actor\)/);
 assert.match(api, /error:'FORBIDDEN' \}, 403/);
-assert.ok(api.indexOf('authenticateWorkbenchActor(req') < api.indexOf('readReport(bangkokToday())'));
+assert.ok(api.indexOf('authenticateWorkbenchActor(req') < api.indexOf('readReport(bangkokToday(),'));
 assert.doesNotMatch(api, /SUPERVISOR_READONLY_KEY/);
 assert.doesNotMatch(api, /req\.headers\.get\('x-supervisor-key'\)/);
 assert.doesNotMatch(page, /'x-supervisor-key': accessKey/);
