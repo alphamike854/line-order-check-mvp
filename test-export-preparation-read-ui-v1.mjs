@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { exportPreparationReadGate, exportPreparationReadConflict } from "./public/export-preparation-round-gate.js";
 import fs from "node:fs";
 
 const html = fs.readFileSync("public/index.html", "utf8");
@@ -579,5 +580,32 @@ console.log(
 console.log(
   "PASS EXP2F2A-21: top 20 per category with collapsed remainder"
 );
+
+// Export Preparation 409: fail closed using the already-fetched Dashboard current_rounds.
+assert.ok(app.includes('exportPreparationReadGate(state.dashboard, groupId)'));
+assert.ok(app.includes('exportPreparationReadConflict(code)'));
+const exportRound = (status, session = 'SESSION-1', group = 'EAST') => ({
+  summary_group_id: group, status, settlement_session_id: session,
+});
+const exportDashboard = rounds => ({
+  settlement_session: { id: 'SESSION-1' },
+  selected_summary_group: 'EAST', current_rounds: rounds,
+});
+assert.equal(exportPreparationReadGate(exportDashboard([exportRound('CLOSED')]), 'EAST').request, false);
+assert.equal(exportPreparationReadGate(exportDashboard([exportRound('CLOSED')]), 'EAST').status, 'ปิดรอบแล้ว');
+assert.equal(exportPreparationReadGate(exportDashboard([exportRound('OPEN')]), 'EAST').request, true);
+assert.equal(exportPreparationReadGate(exportDashboard([exportRound('OPEN', 'OLD')]), 'EAST').request, false);
+assert.equal(exportPreparationReadGate(exportDashboard([]), 'EAST').request, false);
+assert.equal(exportPreparationReadGate({ ...exportDashboard([exportRound('OPEN')]), incident_mode: true }, 'EAST').request, false);
+assert.equal(exportPreparationReadGate({ ...exportDashboard([exportRound('OPEN')]), current_rounds: null }, 'EAST').request, false);
+assert.equal(exportPreparationReadGate({ ...exportDashboard([exportRound('OPEN')]), settlement_session: null }, 'EAST').request, false);
+assert.equal(exportPreparationReadGate(exportDashboard([exportRound('OPEN')]), 'ALL').request, false);
+// A newly opened Round resumes on the next successful Dashboard refresh.
+assert.equal(exportPreparationReadGate(exportDashboard([exportRound('CLOSED')]), 'EAST').request, false);
+assert.equal(exportPreparationReadGate(exportDashboard([exportRound('OPEN')]), 'EAST').request, true);
+assert.equal(exportPreparationReadConflict('SUMMARY_GROUP_ROUND_NOT_OPEN').status, 'ปิดรอบแล้ว');
+assert.ok(exportPreparationReadConflict('SETTLEMENT_NOT_OPEN'));
+assert.equal(exportPreparationReadConflict('RISK_SNAPSHOT_INVALID'), null);
+console.log('PASS EXP2F2A-22: CLOSED suppression, OPEN/reopen, session scope and 409 race');
 
 console.log("PASS: Export Preparation Read-only UI v1");

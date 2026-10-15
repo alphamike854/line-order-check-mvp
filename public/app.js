@@ -1,3 +1,4 @@
+import { exportPreparationReadGate, exportPreparationReadConflict } from "./export-preparation-round-gate.js";
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 
@@ -20576,11 +20577,11 @@ async function loadExportPreparationReadOnly() {
   const generation =
     ++exportPreparationReadGeneration;
 
-  if (!groupId || groupId === "ALL") {
-    clearExportPreparationReadOnly(
-      "เลือกกลุ่มสรุป",
-      "เลือกกลุ่มสรุปด้านบนเพื่อดูยอดเตรียมส่งออก",
-    );
+  // A normal Dashboard payload already contains the current Round truth.
+  // Do not GET Export Preparation when the selected Round is CLOSED.
+  const roundGate = exportPreparationReadGate(state.dashboard, groupId);
+  if (!roundGate.request) {
+    clearExportPreparationReadOnly(roundGate.status, roundGate.message);
     return;
   }
 
@@ -20625,6 +20626,13 @@ async function loadExportPreparationReadOnly() {
     }
 
     const code = String(error?.message || "");
+
+    // The Round can close between Dashboard refresh and the GET request.
+    const roundConflict = exportPreparationReadConflict(code);
+    if (roundConflict) {
+      clearExportPreparationReadOnly(roundConflict.status, roundConflict.message);
+      return;
+    }
 
     const noOpenRound =
       code.includes("ROUND_NOT_FOUND")
