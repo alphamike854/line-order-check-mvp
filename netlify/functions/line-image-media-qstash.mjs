@@ -1,5 +1,6 @@
 "use strict";
 
+import { startImageMediaTiming, logImageMediaTiming } from "../../src/lib/image-media-perf.mjs";
 import {
   Receiver,
 } from "@upstash/qstash";
@@ -178,6 +179,10 @@ export default async (req) => {
   const processingAttempt =
     retried + 1;
 
+  const imagePerf = startImageMediaTiming();
+  let timedResult = null;
+  let timedFailed = false;
+
   try {
     const result =
       await processImageMediaJob({
@@ -186,7 +191,9 @@ export default async (req) => {
         messageId,
         summaryGroupRoundId,
         processingAttempt,
+        perf: imagePerf,
       });
+    timedResult = result;
 
     return json({
       ok: true,
@@ -195,6 +202,7 @@ export default async (req) => {
       result,
     });
   } catch (error) {
+    timedFailed = true;
     console.error(
       "Image media QStash processing failed",
       event.webhookEventId,
@@ -211,6 +219,8 @@ export default async (req) => {
       },
       500,
     );
+  } finally {
+    logImageMediaTiming(imagePerf, timedResult, timedFailed);
   }
 };
 

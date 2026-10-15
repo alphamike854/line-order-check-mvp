@@ -1,4 +1,5 @@
 import { Client } from "@upstash/qstash";
+import { timeImageMediaStep, imageMediaTimingMeta } from "../../src/lib/image-media-perf.mjs";
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
@@ -1679,6 +1680,7 @@ export async function processImageMediaJob({
   messageId,
   summaryGroupRoundId,
   processingAttempt = 1,
+  perf = null,
 }) {
   if (
     !destination
@@ -1707,9 +1709,9 @@ export async function processImageMediaJob({
   }
 
   const message =
-    await findMessageByWebhookEvent(
+    await timeImageMediaStep(perf, "message_lookup_ms", () => findMessageByWebhookEvent(
       event.webhookEventId,
-    );
+    ));
 
   if (!message) {
     if (
@@ -1792,6 +1794,7 @@ export async function processImageMediaJob({
     processingAttempt,
     null,
     true,
+    perf,
   );
 }
 
@@ -1850,6 +1853,7 @@ async function handleImageMessage(
   processingAttempt = 1,
   mediaQueueUrl = null,
   mediaWorker = false,
+  perf = null,
 ) {
   const message =
     existingMessage
@@ -2029,9 +2033,11 @@ async function handleImageMessage(
 
   if (mediaWorker) {
     ocrCheckpoint =
-      await loadImageOcrCheckpoint(
-        message.id,
-      );
+      await timeImageMediaStep(perf, "checkpoint_read_ms", async () => {
+        return await loadImageOcrCheckpoint(
+          message.id,
+        );
+      });
 
     if (ocrCheckpoint) {
       ocr = {
@@ -2048,21 +2054,27 @@ async function handleImageMessage(
     }
   }
 
+  imageMediaTimingMeta(perf, "checkpoint_reused", Boolean(ocrCheckpoint));
+
   // Only LINE image download / Gemini transcription errors belong to
   // IMAGE_OCR_FAILED. Parser or database persistence failures must escape
   // to processEvent so the webhook claim is released and LINE receives 500.
   if (!ocr) {
     try {
-    image = await downloadLineImage(
-      event.message.id,
-      LINE_CHANNEL_ACCESS_TOKEN,
-    );
+    await timeImageMediaStep(perf, "line_download_ms", async () => {
+      image = await downloadLineImage(
+        event.message.id,
+        LINE_CHANNEL_ACCESS_TOKEN,
+      );
+    });
 
-    ocr = await transcribeOrderImage({
-      bytes: image.bytes,
-      mimeType: image.mimeType,
-      apiKey: GEMINI_API_KEY,
-      model: GEMINI_MODEL,
+    await timeImageMediaStep(perf, "gemini_ocr_ms", async () => {
+      ocr = await transcribeOrderImage({
+        bytes: image.bytes,
+        mimeType: image.mimeType,
+        apiKey: GEMINI_API_KEY,
+        model: GEMINI_MODEL,
+      });
     });
   } catch (error) {
     const detail = error?.message ?? String(error);
@@ -2140,6 +2152,8 @@ async function handleImageMessage(
 
   }
 
+  imageMediaTimingMeta(perf, "gemini_attempts", ocr?.attempts);
+
   const baseUpdate = {
     ocr_text:
       ocr.text,
@@ -2163,6 +2177,8 @@ async function handleImageMessage(
       ?? null,
   };
 
+  imageMediaTimingMeta(perf, "image_bytes", baseUpdate.image_size_bytes);
+
   /*
    * Q2C durable OCR checkpoint:
    *
@@ -2175,7 +2191,7 @@ async function handleImageMessage(
   if (!ocrCheckpoint) {
     const {
       error: checkpointError,
-    } = await supabase
+    } = await timeImageMediaStep(perf, "checkpoint_write_ms", () => supabase
       .from("messages")
       .update(
         baseUpdate,
@@ -2183,7 +2199,7 @@ async function handleImageMessage(
       .eq(
         "id",
         message.id,
-      );
+      ));
 
     if (checkpointError) {
       throw checkpointError;
@@ -2208,17 +2224,18 @@ async function handleImageMessage(
 
   if (!imageEvidenceStored) {
     if (!image) {
-      image =
-        await downloadLineImage(
+      await timeImageMediaStep(perf, "line_download_ms", async () => {
+        image = await downloadLineImage(
           event.message.id,
           LINE_CHANNEL_ACCESS_TOKEN,
         );
+      });
     }
 
-    await storeImageReviewEvidence(
+    await timeImageMediaStep(perf, "evidence_store_ms", () => storeImageReviewEvidence(
       message,
       image,
-    );
+    ));
   }
 
 
@@ -2250,8 +2267,14 @@ async function handleImageMessage(
     };
   }
 
-  const config = await loadParserConfig();
-  const result = parseOrder(ocr.text, config);
+  const config = await timeImageMediaStep(perf, "parser_config_ms", async () => {
+    const config = await loadParserConfig();
+    return config;
+  });
+  const result = await timeImageMediaStep(perf, "parse_ms", () => {
+    const result = parseOrder(ocr.text, config);
+    return result;
+  });
 
   const ocrParseNeedsHumanReview =
     shouldReviewOcrParseResult(
@@ -2280,7 +2303,8 @@ async function handleImageMessage(
   // Intentionally outside the OCR try/catch:
   // persistence failures must propagate to processEvent -> markWebhookFailed
   // -> HTTP 500 -> safe redelivery/resume.
-  return persistParsedResult(
+  return timeImageMediaStep(perf, "persist_ms", () => {
+    return persistParsedResult(
     message,
     effectiveGroup,
     effectiveResult,
@@ -2289,7 +2313,8 @@ async function handleImageMessage(
       first_order_code:
         firstLedgerCode(effectiveResult.items, ocr.text) || null,
     },
-  );
+    );
+  });
 
 }
 
