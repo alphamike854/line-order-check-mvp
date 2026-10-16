@@ -1,5 +1,4 @@
 import {
-  fetchOpenReviews,
   fetchOpenSettlementSession,
   json,
   normalizeSummaryGroup,
@@ -9,6 +8,7 @@ import {
 import {
   loadDashboardRoundContext,
 } from "../../src/lib/dashboard-round-context.mjs";
+import { fetchOpenReviewsReviewFirst } from "../../src/lib/review-first.mjs";
 
 const REVIEW_IMAGE_BUCKET =
   "review-images";
@@ -141,11 +141,13 @@ export default async function handler(req) {
       });
 
     const items =
-      await fetchOpenReviews(
-        roundContext.roundIds,
-        group,
-        session.id,
-      );
+      await fetchOpenReviewsReviewFirst({
+        client: supabase,
+        settlementSessionId: session.id,
+        summaryGroupId: group,
+        roundIds: roundContext.roundIds,
+        rounds: roundContext.rounds,
+      });
 
     const publicItems =
       await addReviewImageEvidence(items);
