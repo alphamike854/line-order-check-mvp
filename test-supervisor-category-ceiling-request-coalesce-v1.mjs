@@ -10,6 +10,6 @@ assert.match(ui, /signal: controller\.signal/);
 assert.match(ui, /renderGroupSelector\(\);\s+queueGroupReload\(\);/);
 assert.match(ui, /if \(reportRequestController === controller\) reportRequestController = null/);
 assert.match(ui, /if \(requestId !== activeRequest\) return/);
-assert.match(api, /supervisor_category_ceiling_report_v4/);
+assert.match(api, /supervisor_category_ceiling_report_v5/);
 assert.match(api, /READ_TIMEOUT_MS = 9000/); // no server timeout modification
 console.log('PASS: UI coalescing/abort guard, V4 RPC intact, no server timeout changes');

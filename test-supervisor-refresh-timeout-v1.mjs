@@ -18,7 +18,7 @@ assert.match(ui, /\$\('copy'\)\.disabled = snapshotStale \|\| !notice/);
 assert.match(ui, /if \(preservePrevious\) \{\s+\/\/ Keep last successfully fetched totals visible/);
 assert.match(ui, /\$\('refresh'\)\.addEventListener\('click', \(\) => load\(true\)\)/);
 assert.match(ui, /reportRequestController\.abort\(\)/); // Existing coalescing unaffected.
-assert.match(api, /supervisor_category_ceiling_report_v4/); // Accounting unchanged.
+assert.match(api, /supervisor_category_ceiling_report_v5/); // candidate passed live parity // Accounting unchanged.
 assert.doesNotMatch(api, /\.insert\(|\.update\(|\.delete\(|\.upsert\(/);
 console.log('PASS: only manual refresh has 20s deadline; all group reads remain 9s');
 console.log('PASS: named stage timing / stale totals preserved / stale copy blocked');

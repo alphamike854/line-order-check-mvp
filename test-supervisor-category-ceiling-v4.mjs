@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 const api = readFileSync(new URL('./netlify/functions/supervisor-category-ceiling.mjs', import.meta.url), 'utf8');
 const sql = readFileSync(new URL('./supabase/migrations/20261016080000_supervisor_category_ceiling_latest_round_v4.sql', import.meta.url), 'utf8');
 const ui = readFileSync(new URL('./public/supervisor-category-ceiling.js', import.meta.url), 'utf8');
-assert.match(api, /supervisor_category_ceiling_report_v4/);
+assert.match(api, /supervisor_category_ceiling_report_v5/); // V4 SQL fixture retained; API now V5.
 assert.match(api, /\{ p_summary_group_ids: selectedIds \}/);
 assert.doesNotMatch(api, /\{ p_business_date: date, p_summary_group_ids: selectedIds \}/);
 assert.match(api, /cursor\.latest_business_date === round\.business_date/);

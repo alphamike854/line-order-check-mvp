@@ -63,7 +63,7 @@ async function readReport(date, requestedIds, readTimeoutMs = READ_TIMEOUT_MS) {
       query(controller.signal, () => supabase.from('summary_group_round_runtime_state')
         .select('summary_group_id,latest_round_id,latest_business_date'), 'round_cursors'),
       query(controller.signal, () => supabase.rpc(
-        'supervisor_category_ceiling_report_v4',
+        'supervisor_category_ceiling_report_v5',
         { p_summary_group_ids: selectedIds }
       ), 'accounting_rpc'),
     ]);
