@@ -20755,6 +20755,7 @@ async function loadAbAdvisoryPreviewReadOnly() {
 async function loadDashboard({
   silent = false,
   preserveReviewWorkbench = false,
+  refreshSettlementFirst = true,
 } = {}) {
   if (!preserveReviewWorkbench) {
     hideReviewBadgeUntilLoaded();
@@ -20780,6 +20781,22 @@ async function loadDashboard({
     refreshButton.textContent = "กำลังอัปเดต...";
   }
   try {
+    // Operational Round identity is authoritative and must not depend on
+    // Dashboard Risk/Advisory queries completing successfully.
+    if (refreshSettlementFirst && state.authMode === "DASHBOARD") {
+      try {
+        await loadSettlement();
+      } catch (roundError) {
+        console.error("dashboard round-status read failed", roundError);
+        if (!state.settlement) {
+          $("#settlementStatus").textContent = "โหลดสถานะรอบไม่สำเร็จ";
+          $("#settlementMeta").textContent = "ยังไม่สามารถยืนยันรอบล่าสุดได้ กรุณาอัปเดตอีกครั้ง";
+          businessDateInput.value = "";
+          businessDateInput.disabled = true;
+        }
+      }
+    }
+
     const payload = await api(`/api/dashboard?${selectedQuery()}`);
 
     if (payload.selection_required === true) {
@@ -20832,13 +20849,17 @@ async function loadDashboard({
       return await loadDashboard({
         silent,
         preserveReviewWorkbench,
+        refreshSettlementFirst: false,
       });
     }
 
     state.dashboard = payload;
     state.freshnessVersion = payload.freshness?.version ?? null;
     setDashboardStale(false);
-    if (!businessDateInput.value) businessDateInput.value = payload.business_date || todayBangkok();
+    // Never invent today's date for an active multi-date Round scope.
+    if (state.settlement && !state.settlement.open_session && !businessDateInput.value) {
+      businessDateInput.value = payload.business_date || todayBangkok();
+    }
     if (!state.groupsLoaded) {
       const current = summaryGroupSelect.value;
       summaryGroupSelect.innerHTML = "";
@@ -20861,6 +20882,9 @@ async function loadDashboard({
       }
       state.groupsLoaded = true;
     }
+    // A metadata-only bootstrap may have selected a real group after the
+    // Round read; recompute its reference date from the same trusted payload.
+    if (state.settlement?.open_session) renderSettlementStatus(state.settlement);
     renderMetrics(payload.metrics);
 
     dashboardMetricsRendered =
@@ -20872,7 +20896,6 @@ async function loadDashboard({
 
     await loadAbAdvisoryPreviewReadOnly();
     renderAfterCut();
-    await loadSettlement();
     const activeTab = $(".tab.active")?.dataset.tab;
     if (activeTab === "allocation") await loadAllocationHistory();
     if (activeTab === "postcut") await loadAllocationHistory({ silent });
