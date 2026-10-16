@@ -88,7 +88,13 @@ function render() {
   const missingGroups = snapshot.scope.filter(r => !r.included).map(r => r.id);
   const unsetCategories = cats.filter(c => c.records.some(r => r.total > 0 && r.cap === null));
   const warnings = [];
-  if (!snapshot.complete_scope) warnings.push(`ข้อมูลกลุ่มสรุปไม่ครบ: ${missingGroups.join(', ') || 'ไม่มี Round วันนี้'}`);
+  const roundDates = [...new Set((snapshot.scope || [])
+      .filter(row => row.included && row.business_date)
+      .map(row => row.business_date))].sort();
+    if (roundDates.length > 1) warnings.push(
+      `คำเตือน: รายงานรวมหลาย Business Date (${roundDates.join(', ')}) — ตรวจสอบวันที่ของแต่ละกลุ่มก่อนใช้ยอดรวม`
+    );
+    if (!snapshot.complete_scope) warnings.push(`ข้อมูลกลุ่มสรุปไม่ครบ: ${missingGroups.join(', ') || 'ไม่พบรอบล่าสุดที่เข้าเงื่อนไข'}`);
   if (unsetCategories.length) warnings.push('มีรหัสที่ไม่มีเพดานคำนวณได้: ' + unsetCategories.map(c => c.category).join(', '));
   $('warning').classList.toggle('hidden', warnings.length === 0);
   $('warning').textContent = warnings.join(' · ') + (warnings.length ? ' — ปิดการคัดลอกประกาศรวมเพื่อป้องกันประกาศผิด' : '');

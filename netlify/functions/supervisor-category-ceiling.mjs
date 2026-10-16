@@ -52,8 +52,8 @@ async function readReport(date, requestedIds) {
       query(controller.signal, () => supabase.from('summary_group_round_runtime_state')
         .select('summary_group_id,latest_round_id,latest_business_date')),
       query(controller.signal, () => supabase.rpc(
-        'supervisor_category_ceiling_report_v3',
-        { p_business_date: date, p_summary_group_ids: selectedIds }
+        'supervisor_category_ceiling_report_v4',
+        { p_summary_group_ids: selectedIds }
       )),
     ]);
     const latest = new Map(cursors.map(row => [row.summary_group_id, row]));
@@ -69,8 +69,9 @@ async function readReport(date, requestedIds) {
       return {
         id: g.id, name: g.name,
         round_status: round?.status || null,
-        included: Boolean(cursor && round && cursor.latest_business_date === date &&
-          round.business_date === date && round.summary_group_id === g.id &&
+        business_date: round?.business_date || null,
+        included: Boolean(cursor && round && cursor.latest_business_date === round.business_date &&
+          round.summary_group_id === g.id &&
           ['OPEN', 'CLOSED'].includes(round.status)),
       };
     });
@@ -98,9 +99,13 @@ async function readReport(date, requestedIds) {
         max_special_codes: good ? Number(found[0].max_special_codes) : null,
       };
     }
+    const selectedDates = [...new Set(scope.filter(s => s.included && s.business_date)
+      .map(s => s.business_date))].sort();
     return {
       ok: true,
-      business_date: date,
+      business_date: selectedDates.length === 1 ? selectedDates[0] : date,
+      business_dates: selectedDates,
+      mixed_business_dates: selectedDates.length > 1,
       fetched_at: new Date().toISOString(),
       available_groups: availableGroups,
       selected_group_ids: selectedIds,
