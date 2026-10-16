@@ -18500,6 +18500,59 @@ function settlementRoundBusinessDateLabel(
 }
 
 
+
+// Restore operational group navigation independently of Dashboard Risk.
+// The current Summary Group Round owns the business date, not the calendar.
+function syncSettlementSummaryGroupOptions(payload) {
+  if (!payload?.open_session || !Array.isArray(payload.summary_group_states)) return;
+  const seen = new Set();
+  const groups = payload.summary_group_states
+    .filter(group => {
+      const id = String(group?.summary_group_id || "").trim();
+      if (!id || seen.has(id)) return false;
+      if (group.summary_group_enabled === false && !group.has_previous_round) return false;
+      seen.add(id);
+      return true;
+    })
+    .map(group => ({
+      id: String(group.summary_group_id).trim(),
+      name: String(group.summary_group_name || group.summary_group_id),
+    }));
+  if (!groups.length) return;
+  const previous = summaryGroupSelect.value;
+  const current = Array.from(summaryGroupSelect.options, option => [option.value, option.textContent]);
+  const needsUpdate = current.length !== groups.length || groups.some((group, i) =>
+    current[i]?.[0] !== group.id || current[i]?.[1] !== group.name);
+  if (needsUpdate) {
+    const options = groups.map(group => {
+      const option = document.createElement("option");
+      option.value = group.id;
+      option.textContent = group.name;
+      return option;
+    });
+    summaryGroupSelect.replaceChildren(...options);
+  }
+  summaryGroupSelect.value = groups.some(group => group.id === previous)
+    ? previous : groups[0].id;
+  state.groupsLoaded = true;
+}
+
+// Date picker navigates only to a known latest Round date; it cannot assign
+// an arbitrary date to active order totals or mutate any Round identity.
+function selectSummaryGroupForReferenceDate(date) {
+  const requested = String(date || "").trim();
+  if (!requested) return false;
+  const available = new Set(Array.from(summaryGroupSelect.options, option => option.value));
+  const matching = (state.settlement?.summary_group_states || [])
+    .filter(group => String(group?.business_date || "") === requested &&
+      available.has(String(group.summary_group_id || "")));
+  if (!matching.length) return false;
+  if (!matching.some(group => group.summary_group_id === summaryGroupSelect.value)) {
+    summaryGroupSelect.value = matching[0].summary_group_id;
+  }
+  return true;
+}
+
 function renderSettlementStatus(payload) {
   state.settlement=payload;
   renderSettlementGroupControls(payload);
@@ -18521,7 +18574,8 @@ function renderSettlementStatus(payload) {
           ? roundBusinessDates[0]
           : ""
       );
-    businessDateInput.disabled=true;
+    businessDateInput.disabled=false;
+    businessDateInput.title="เลือกเฉพาะวันที่ของรอบล่าสุด ระบบจะเปลี่ยนกลุ่มสรุปให้ตรงกับวันที่";
     $("#settlementStatus").textContent="พร้อมรับยอดรายกลุ่ม";
     const roundDateMeta=
       roundBusinessDates.length
@@ -18620,7 +18674,9 @@ async function loadSettlement() {
     return payload;
   }
 
-  const payload=await api("/api/settlement");renderSettlementStatus(payload);
+  const payload=await api("/api/settlement");
+  syncSettlementSummaryGroupOptions(payload);
+  renderSettlementStatus(payload);
   const select=$("#reportSessionSelect");const previousSessionId=select.value;const sessions=[payload.open_session,...(payload.closed_sessions||[])].filter(Boolean);
   const currentOpenRoundDateLabel=
     settlementRoundBusinessDateLabel(
@@ -21062,7 +21118,20 @@ refreshButton.addEventListener(
 );
 $("#staleRefreshButton").addEventListener("click", loadDashboard);
 $("#reloadAllocationHistoryButton").addEventListener("click", loadAllocationHistory);
-businessDateInput.addEventListener("change", () => { if (!state.settlement?.open_session) renderSettlementStatus(state.settlement || {open_session:null,promotions:[],closed_sessions:[]}); });
+businessDateInput.addEventListener("change", () => {
+  if (!state.settlement?.open_session) {
+    renderSettlementStatus(state.settlement || {open_session:null,promotions:[],closed_sessions:[]});
+    return;
+  }
+  const before = summaryGroupSelect.value;
+  if (!selectSummaryGroupForReferenceDate(businessDateInput.value)) {
+    renderSettlementStatus(state.settlement);
+    toast("วันที่นี้ไม่มีรอบล่าสุดในกลุ่มสรุป กรุณาเลือกวันที่ตามรอบ", true);
+    return;
+  }
+  renderSettlementStatus(state.settlement);
+  if (summaryGroupSelect.value !== before) void loadDashboard();
+});
 summaryGroupSelect.addEventListener("change", async () => {
   if (
     state.authMode === "STAFF"
