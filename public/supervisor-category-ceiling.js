@@ -9,6 +9,7 @@ const STORAGE_KEY = 'locSupervisorCategoryCeilingKeyV2';
 const PREF_KEY_PREFIX = 'locSupervisorCategoryCeilingPreferencesV2:';
 let accessKey = sessionStorage.getItem(STORAGE_KEY) || '';
 let snapshot = null;
+let snapshotStale = false; // Last successful totals are not confirmed fresh after a failed refresh.
 let preferences = {};
 let selectedGroupIds = null; // null = all enabled groups; [] = none
 let availableGroups = [];
@@ -92,6 +93,7 @@ function render() {
   const missingGroups = snapshot.scope.filter(r => !r.included).map(r => r.id);
   const unsetCategories = cats.filter(c => c.records.some(r => r.total > 0 && r.cap === null));
   const warnings = [];
+  if (snapshotStale) warnings.push('อัปเดตยอดล่าสุดไม่สำเร็จ — ข้อมูลที่แสดงเป็นข้อมูลครั้งก่อน ห้ามนำไปประกาศ');
   const roundDates = [...new Set((snapshot.scope || [])
       .filter(row => row.included && row.business_date)
       .map(row => row.business_date))].sort();
@@ -202,7 +204,7 @@ function render() {
     snapshot.selected_group_ids,
     snapshot.selected_group_ids.length === snapshot.available_groups.length);
   $('announcement').textContent = notice || 'ไม่มีรหัสถึงเพดาน หรือข้อมูล/เพดานยังไม่ครบ';
-  $('copy').disabled = !notice;
+  $('copy').disabled = snapshotStale || !notice;
 }
 
 let activeRequest = 0;
@@ -218,7 +220,7 @@ function queueGroupReload() {
     load();
   }, GROUP_RELOAD_DEBOUNCE_MS);
 }
-async function load() {
+async function load(manualRefresh = false) {
   if (!accessKey) return;
   if (groupReloadTimer !== null) {
     clearTimeout(groupReloadTimer);
@@ -229,7 +231,15 @@ async function load() {
   reportRequestController = controller;
   const requestId = ++activeRequest;
   const previousKey = snapshot ? preferencesKey() : null;
-  clearReport('กำลังโหลดข้อมูลใหม่ตามกลุ่มสรุปที่เลือก...');
+  const preservePrevious = manualRefresh && Boolean(snapshot);
+  if (preservePrevious) {
+    snapshotStale = true;
+    $('copy').disabled = true;
+    status('กำลังตรวจสอบยอดล่าสุด — แสดงยอดก่อนหน้าชั่วคราว');
+  } else {
+    snapshotStale = false;
+    clearReport('กำลังโหลดข้อมูลใหม่ตามกลุ่มสรุปที่เลือก...');
+  }
   if (selectedGroupIds !== null && selectedGroupIds.length === 0) {
     $('warning').classList.remove('hidden');
     $('warning').textContent = 'ต้องเลือกอย่างน้อยหนึ่งกลุ่มสรุป — ไม่สามารถคำนวณหรือคัดลอกประกาศได้';
@@ -241,6 +251,7 @@ async function load() {
   status('กำลังโหลดข้อมูลล่าสุด...');
   try {
     const params = new URLSearchParams();
+    if (manualRefresh) params.set('refresh', '1');
     if (selectedGroupIds !== null) {
       for (const id of selectedGroupIds) params.append('group', id);
     }
@@ -256,6 +267,7 @@ async function load() {
     if (!Array.isArray(payload.available_groups) || !Array.isArray(payload.selected_group_ids) ||
         !Array.isArray(payload.scope) || !Array.isArray(payload.rows)) throw Error('INVALID_REPORT_SCOPE');
     snapshot = payload;
+    snapshotStale = false;
     expandedCodeCategories.clear();
     availableGroups = payload.available_groups;
     selectedGroupIds = payload.selected_group_ids.length === availableGroups.length
@@ -266,8 +278,15 @@ async function load() {
     status('อ่านข้อมูลสำเร็จ · รายงานเฉพาะกลุ่มที่เลือก · ไม่มีการแก้ไขข้อมูล Production');
   } catch (error) {
     if (requestId !== activeRequest) return;
-    clearReport('ไม่สามารถยืนยันยอดล่าสุดได้');
-    status('อ่านข้อมูลไม่สำเร็จ: ' + error.message);
+    if (preservePrevious) {
+      // Keep last successfully fetched totals visible, but never permit stale copying.
+      snapshotStale = true;
+      render();
+      status('อัปเดตไม่สำเร็จ: ' + error.message + ' · ยังแสดงยอดครั้งก่อน');
+    } else {
+      clearReport('ไม่สามารถยืนยันยอดล่าสุดได้');
+      status('อ่านข้อมูลไม่สำเร็จ: ' + error.message);
+    }
     if (error.message === 'UNAUTHORIZED') {
       accessKey = ''; sessionStorage.removeItem(STORAGE_KEY);
       $('login').classList.remove('hidden'); $('workspace').classList.add('hidden');
@@ -281,7 +300,7 @@ $('loginForm').addEventListener('submit', event => {
   event.preventDefault(); accessKey = $('key').value.trim();
   sessionStorage.setItem(STORAGE_KEY, accessKey); load();
 });
-$('refresh').addEventListener('click', load);
+$('refresh').addEventListener('click', () => load(true));
 $('selectAllGroups').addEventListener('click', () => {
   selectedGroupIds = null;
   renderGroupSelector();
@@ -298,7 +317,7 @@ $('logout').addEventListener('click', () => {
   groupReloadTimer = null;
   if (reportRequestController) reportRequestController.abort();
   reportRequestController = null;
-  activeRequest++; accessKey = ''; snapshot = null; selectedGroupIds = null; availableGroups = [];
+  activeRequest++; accessKey = ''; snapshot = null; snapshotStale = false; selectedGroupIds = null; availableGroups = [];
   expandedCodeCategories.clear();
   sessionStorage.removeItem(STORAGE_KEY); $('key').value = '';
   $('workspace').classList.add('hidden'); $('login').classList.remove('hidden');

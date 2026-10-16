@@ -6,6 +6,8 @@ import { json, supabase, bangkokToday } from '../../src/lib/dashboard-api.mjs';
 
 const CATEGORIES = ['A', 'B', 'E', 'F'];
 const READ_TIMEOUT_MS = 9000;
+// Longer deadline only for an explicit, authenticated manual refresh.
+const REFRESH_READ_TIMEOUT_MS = 20000;
 
 function safeEqual(provided, expected) {
   const left = Buffer.from(String(provided || ''));
@@ -25,19 +27,28 @@ function checkedMoney(raw) {
   return value;
 }
 
-async function query(signal, makeQuery) {
-  const result = await makeQuery().abortSignal(signal);
-  if (result.error) throw result.error;
-  return result.data || [];
+async function query(signal, makeQuery, stage = 'unknown') {
+  const started = Date.now();
+  try {
+    const result = await makeQuery().abortSignal(signal);
+    if (result.error) throw result.error;
+    const elapsedMs = Date.now() - started;
+    if (elapsedMs >= 5000) console.warn('supervisor category ceiling slow read', stage, `elapsed_ms=${elapsedMs}`);
+    return result.data || [];
+  } catch (error) {
+    console.error('supervisor category ceiling read failure', stage,
+      `elapsed_ms=${Date.now() - started}`, error?.name || 'Error', error?.message || '');
+    throw error;
+  }
 }
 
-async function readReport(date, requestedIds) {
+async function readReport(date, requestedIds, readTimeoutMs = READ_TIMEOUT_MS) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), READ_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), readTimeoutMs);
   try {
     // Three bounded metadata reads / one category aggregate RPC on explicit page refresh.
     const availableGroups = await query(controller.signal, () => supabase.from('summary_groups')
-      .select('id,name').eq('enabled', true).order('id'));
+      .select('id,name').eq('enabled', true).order('id'), 'enabled_groups');
     const validIds = new Set(availableGroups.map(g => g.id));
     if (requestedIds !== null && (!requestedIds.length || requestedIds.some(id => !validIds.has(id)))) {
       const error = new Error('INVALID_SUMMARY_GROUP_SELECTION');
@@ -50,18 +61,18 @@ async function readReport(date, requestedIds) {
     const selectedIds = groups.map(g => g.id);
     const [cursors, rawCodes] = await Promise.all([
       query(controller.signal, () => supabase.from('summary_group_round_runtime_state')
-        .select('summary_group_id,latest_round_id,latest_business_date')),
+        .select('summary_group_id,latest_round_id,latest_business_date'), 'round_cursors'),
       query(controller.signal, () => supabase.rpc(
         'supervisor_category_ceiling_report_v4',
         { p_summary_group_ids: selectedIds }
-      )),
+      ), 'accounting_rpc'),
     ]);
     const latest = new Map(cursors.map(row => [row.summary_group_id, row]));
     const ids = groups.map(g => latest.get(g.id)?.latest_round_id).filter(Boolean);
     const rounds = ids.length ? await query(controller.signal, () => supabase
       .from('settlement_summary_group_rounds')
       .select('id,summary_group_id,settlement_session_id,business_date,status')
-      .in('id', ids)) : [];
+      .in('id', ids), 'round_details') : [];
     const byId = new Map(rounds.map(row => [row.id, row]));
     const scope = groups.map(g => {
       const cursor = latest.get(g.id);
@@ -83,7 +94,7 @@ async function readReport(date, requestedIds) {
       .from('settlement_point_profiles')
       .select('settlement_session_id,category,special_multiplier,max_special_codes')
       .in('settlement_session_id', sessionIds)
-      .in('category', CATEGORIES)) : [];
+      .in('category', CATEGORIES), 'point_profiles') : [];
     const profileMap = {};
     for (const category of CATEGORIES) {
       const found = profiles.filter(p => p.category === category);
@@ -146,7 +157,11 @@ export default async function handler(req) {
         new Set(requested).size !== requested.length) {
       return json({ ok:false, error:'INVALID_SUMMARY_GROUP_SELECTION' }, 400);
     }
-    return json(await readReport(bangkokToday(), requested.length ? requested : null));
+    // Refresh is read-only and can take longer under transient DB contention.
+    // Unrecognized refresh values retain the existing short 9s deadline.
+    const readTimeoutMs = queryParams.get('refresh') === '1'
+      ? REFRESH_READ_TIMEOUT_MS : READ_TIMEOUT_MS;
+    return json(await readReport(bangkokToday(), requested.length ? requested : null, readTimeoutMs));
   } catch (error) {
     if (error?.httpStatus === 400) return json({ok:false,error:'INVALID_SUMMARY_GROUP_SELECTION'},400);
     console.error('supervisor category ceiling report failed', error?.message || error);
