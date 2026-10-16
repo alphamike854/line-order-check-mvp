@@ -13,6 +13,10 @@ let preferences = {};
 let selectedGroupIds = null; // null = all enabled groups; [] = none
 let availableGroups = [];
 const expandedCodeCategories = new Set();
+// Coalesce rapid group-checkbox changes instead of launching one SQL RPC per click.
+const GROUP_RELOAD_DEBOUNCE_MS = 700;
+let groupReloadTimer = null;
+let reportRequestController = null;
 function status(text) { $('status').textContent = text; }
 function elem(tag, cls = '', text) {
   const el = document.createElement(tag);
@@ -67,7 +71,7 @@ function renderGroupSelector() {
       const ids = availableGroups.map(g => g.id).filter(id => next.has(id));
       selectedGroupIds = ids.length === availableGroups.length ? null : ids;
       renderGroupSelector();
-      load();
+      queueGroupReload();
     });
     label.append(checkbox, document.createTextNode(
       group.name === group.id ? group.id : `${group.id} · ${group.name}`));
@@ -202,8 +206,27 @@ function render() {
 }
 
 let activeRequest = 0;
+function queueGroupReload() {
+  if (groupReloadTimer !== null) clearTimeout(groupReloadTimer);
+  // Cancellation prevents stale browser results; server-side queries may still finish.
+  if (reportRequestController) reportRequestController.abort();
+  ++activeRequest;
+  clearReport('กำลังรอเลือกกลุ่มสรุป...');
+  status('กำลังปรับกลุ่มสรุปที่เลือก...');
+  groupReloadTimer = setTimeout(() => {
+    groupReloadTimer = null;
+    load();
+  }, GROUP_RELOAD_DEBOUNCE_MS);
+}
 async function load() {
   if (!accessKey) return;
+  if (groupReloadTimer !== null) {
+    clearTimeout(groupReloadTimer);
+    groupReloadTimer = null;
+  }
+  if (reportRequestController) reportRequestController.abort();
+  const controller = new AbortController();
+  reportRequestController = controller;
   const requestId = ++activeRequest;
   const previousKey = snapshot ? preferencesKey() : null;
   clearReport('กำลังโหลดข้อมูลใหม่ตามกลุ่มสรุปที่เลือก...');
@@ -225,6 +248,7 @@ async function load() {
       (params.size ? '?' + params.toString() : '');
     const response = await fetch(endpoint, {
       method: 'GET', headers: { 'x-dashboard-key': accessKey, 'x-staff-key': accessKey }, cache: 'no-store',
+      signal: controller.signal,
     });
     const payload = await response.json();
     if (requestId !== activeRequest) return;
@@ -249,6 +273,7 @@ async function load() {
       $('login').classList.remove('hidden'); $('workspace').classList.add('hidden');
     }
   } finally {
+    if (reportRequestController === controller) reportRequestController = null;
     if (requestId === activeRequest) $('refresh').disabled = false;
   }
 }
@@ -260,7 +285,7 @@ $('refresh').addEventListener('click', load);
 $('selectAllGroups').addEventListener('click', () => {
   selectedGroupIds = null;
   renderGroupSelector();
-  load();
+  queueGroupReload();
 });
 $('filter').addEventListener('change', () => { expandedCodeCategories.clear(); render(); });
 $('reset').addEventListener('click', () => {
@@ -269,6 +294,10 @@ $('reset').addEventListener('click', () => {
   status('ล้างเพดานที่กำหนดเองแล้ว (เฉพาะเบราว์เซอร์นี้)');
 });
 $('logout').addEventListener('click', () => {
+  if (groupReloadTimer !== null) clearTimeout(groupReloadTimer);
+  groupReloadTimer = null;
+  if (reportRequestController) reportRequestController.abort();
+  reportRequestController = null;
   activeRequest++; accessKey = ''; snapshot = null; selectedGroupIds = null; availableGroups = [];
   expandedCodeCategories.clear();
   sessionStorage.removeItem(STORAGE_KEY); $('key').value = '';
