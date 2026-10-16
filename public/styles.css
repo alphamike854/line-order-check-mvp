@@ -4266,3 +4266,10 @@ td:first-child {
     justify-content: flex-start;
   }
 }
+
+/* Staff-only, opt-in Post-close queue recovery V1.
+ * Original V13 hide stays a historical guard; this more-specific
+ * rule applies only to the Staff-created child of #reviewList. */
+#reviewList #postCloseReviewQueue {
+  display: block !important;
+}

@@ -159,7 +159,7 @@ assert.match(
 
 assert.match(
   finalCss,
-  /#postCloseReviewQueue\s*\{[\s\S]*display:\s*none\s*!important/,
+  /#reviewList\s+#postCloseReviewQueue\s*\{[\s\S]*display:\s*block\s*!important/,
 );
 
 /*
@@ -204,7 +204,7 @@ console.log(
 );
 
 console.log(
-  "PASS UI13-05: post-close archive remains hidden",
+  "PASS UI13-05: Staff post-close archive queue is visible on explicit open",
 );
 
 console.log(

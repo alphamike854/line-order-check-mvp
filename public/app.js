@@ -11566,6 +11566,84 @@ function staffVerificationMountInlineWorkspaceRoot(
 
 
 
+
+/*
+ * Recover a missing Live Review card only when an operator selects it.
+ * Server independently rechecks OPEN Review + current Settlement/Round,
+ * LINE Group authorization and message identity. Failure remains closed.
+ */
+async function recoverMissingLiveReviewCard(
+  workbench,
+  messageRecordId,
+  reviewId,
+  summaryGroupId,
+) {
+  const key = String(messageRecordId || "");
+  const id = Number(reviewId);
+  if (!workbench || !key || !Number.isSafeInteger(id) || id < 1) return;
+
+  workbench._reviewExactAttempted ??= new Set();
+  if (workbench._reviewExactAttempted.has(key)) return;
+  workbench._reviewExactAttempted.add(key);
+
+  const requestedGroup = String(summaryGroupId || "");
+  const params = new URLSearchParams({
+    review_id: String(id),
+    message_record_id: key,
+    group: requestedGroup,
+  });
+
+  try {
+    const payload = await api(`/api/review-exact?${params.toString()}`);
+    const item = payload?.item;
+    if (!item
+      || String(item.id) !== String(id)
+      || String(item.message_record_id) !== key
+      || String(item.summary_group_id) !== requestedGroup) {
+      // Closed/archived/unauthorized Review: do not manufacture a card.
+      const node = workbench.querySelector(".verification-live-review-missing");
+      if (node && workbench._selectedMessageRecordId === key) {
+        node.textContent = "Review นี้ไม่อยู่ในคิว Live ที่อนุญาตแล้ว หากปิดรอบ ให้ตรวจจากงานย้อนหลังด้วยบัญชีเจ้าหน้าที่";
+      }
+      return;
+    }
+
+    // Do not let a response for SOUTH replace a newer SOUTHEAST selection.
+    if (!workbench.isConnected || summaryGroupSelect.value !== requestedGroup) return;
+    const list = workbench.closest("#reviewList");
+    if (!list) return;
+    let staging = list.querySelector("#staffLiveReviewQueue .staff-live-review-items");
+    if (!staging) {
+      const shell = document.createElement("div");
+      shell.id = "staffLiveReviewQueue";
+      shell.hidden = true;
+      shell.innerHTML = '<div class="staff-live-review-items"></div>';
+      list.append(shell);
+      staging = shell.querySelector(".staff-live-review-items");
+    }
+    const probe = document.createElement("div");
+    probe.innerHTML = liveReviewCardHtml(item);
+    const card = probe.querySelector(".review-card[data-review-id]");
+    if (!card || String(card.dataset.reviewId) !== String(id)) return;
+    card._reviewItem = item;
+    card._workbenchActor = payload.actor ?? workbench._verificationWorkbenchActor ?? null;
+    staging.append(card);
+    syncReviewCardClaimUi(card);
+    card.querySelector(".preview-review")?.addEventListener("click", previewReview);
+    card.querySelector(".ignore-review")?.addEventListener("click", ignoreReview);
+    card.querySelector(".review-editor")?.addEventListener("input", onReviewEditorInput);
+
+    // Keep the same selected message and re-enter the existing UI branch;
+    // this only mounts a server-authorized card, not a new mutation path.
+    if (workbench._selectedMessageRecordId === key) {
+      selectStaffVerificationWorkbenchItem(workbench, key, { scroll: false });
+    }
+  } catch (error) {
+    console.warn("Review exact-scope recovery unavailable", error?.message ?? error);
+    // Retain original fail-closed editor, never fall into Human Verification.
+  }
+}
+
 function selectStaffVerificationWorkbenchItem(
   workbench,
   messageRecordId,
@@ -11720,6 +11798,15 @@ function selectStaffVerificationWorkbenchItem(
     staffVerificationMountInlineWorkspaceRoot(
       workbench,
       messageRecordId,
+    );
+
+    // Review exact-scope recovery: never convert PARTIAL/Review into
+    // Human Verification when the first bounded Review page missed it.
+    void recoverMissingLiveReviewCard(
+      workbench,
+      messageRecordId,
+      item.review_id,
+      item.summary_group_id,
     );
 
     return;
@@ -14276,10 +14363,8 @@ async function loadStaffPostCloseReviewPage(
 async function appendStaffPostCloseReviewQueue(
   list,
 ) {
-  if (STAFF_INCIDENT_MINIMAL_MODE) {
-    return;
-  }
-
+  // Historical queue is an explicit, lazy operator action even in
+  // Staff minimal mode. Never auto-fetch an archive on first paint.
   if (
     state.authMode !== "STAFF"
   ) {
@@ -14346,13 +14431,18 @@ async function appendStaffPostCloseReviewQueue(
     root,
   );
 
-  await loadStaffPostCloseReviewPage(
-    root,
-    {
-      offset: 0,
-      append: false,
-    },
-  );
+  const details = root.querySelector("details.staff-history-details");
+  if (details) {
+    details.addEventListener("toggle", () => {
+      if (!details.open || root._postCloseLoadStarted) return;
+      if (state.authMode !== "STAFF" || !root.isConnected) return;
+      root._postCloseLoadStarted = true;
+      void loadStaffPostCloseReviewPage(root, {
+        offset: 0,
+        append: false,
+      });
+    });
+  }
 }
 
 
@@ -14678,6 +14768,148 @@ async function appendStaffVerificationQueueFailSoft(
   }
 }
 
+
+/* One authoritative Live Review card renderer, used by both the initial
+ * scoped page and single-review recovery. No synthetic Review rows. */
+function liveReviewCardHtml(item) {
+  return `
+        <article
+          class="review-card"
+          data-review-id="${escapeHtml(item.id)}"
+        >
+          <!-- Review Scanable Cards + Unified Split Review v4 -->
+          <section class="live-review-card-left">
+            <div class="live-review-card-pane-heading">
+              ข้อมูลเดิม
+            </div>
+
+            ${reviewImageEvidenceHtml(item)}
+
+          ${
+            staffVerificationFullSourceText(item)
+              ? `
+                <div class="reason live-review-source verification-inspector-source-first">
+                  <strong>
+                    ข้อความต้นฉบับ
+                  </strong>
+                  <div class="live-review-source-text">
+                    ${escapeHtml(staffVerificationFullSourceText(item))}
+                  </div>
+                </div>
+              `
+              : ""
+          }
+          <div class="review-meta">
+            <span>
+              <strong>
+                ${escapeHtml(
+                  item.line_group_name
+                  || "ไม่ระบุกลุ่ม",
+                )}
+              </strong>
+            </span>
+
+            <span>
+              ${escapeHtml(
+                formatBangkokTime(
+                  item.created_at,
+                ),
+              )}
+            </span>
+          </div>
+
+
+
+
+          <div class="reason live-review-reason">
+            <strong>
+              เหตุผลที่ต้องตรวจ
+            </strong>
+
+            <div class="live-review-reason-body">
+              ${reviewReasonsHtml(item)}
+            </div>
+          </div>
+
+          </section>
+
+          <section class="live-review-card-right">
+            <div class="live-review-card-pane-heading">
+              ตรวจ / แก้ไขรายการ
+            </div>
+
+            <!-- Review Inline Claim Control v10 -->
+            <div class="review-claim-state"></div>
+
+            <label class="editor-label live-review-editor-label">
+            ข้อความที่ต้องตรวจ
+
+            <textarea
+              class="review-editor"
+              rows="5"
+              placeholder="แก้หรือกรอกข้อความออเดอร์ที่ถูกต้อง"
+            >${escapeHtml(staffVerificationFullSourceText(item) || "")}</textarea>
+          </label>
+
+          <div class="review-actions">
+            <button
+              class="button primary small preview-review"
+            >
+              ตรวจผลที่แก้ไข
+            </button>
+
+            <button
+              class="button ghost small ignore-review"
+            >
+              ไม่ใช่ออเดอร์ / ข้าม
+            </button>
+          </div>
+
+          <div class="review-preview"></div>
+
+          <details class="live-review-technical">
+            <summary>
+              รายละเอียดระบบ
+            </summary>
+
+            <div class="muted small-text live-review-technical-body">
+              <div>
+                Review #${escapeHtml(item.id)}
+              </div>
+
+              <div>
+                สถานะ
+                ${escapeHtml(
+                  item.parse_status
+                  || "ไม่ระบุสถานะ",
+                )}
+              </div>
+
+              <div>
+                Parser เดิม ${escapeHtml(item.parser_version || "ไม่ระบุ")}
+              </div>
+
+              <div>
+                ประเภทข้อความ
+                ${escapeHtml(
+                  item.message_type
+                  || "ไม่ระบุ",
+                )}
+              </div>
+
+              <div>
+                ผู้ส่ง
+                ${escapeHtml(
+                  item.user_id
+                  || "ไม่ทราบผู้ส่ง",
+                )}
+              </div>
+            </div>
+          </details>
+          </section>
+        </article>
+`;
+}
 
 async function loadReviews() {
   const list = $("#reviewList");
