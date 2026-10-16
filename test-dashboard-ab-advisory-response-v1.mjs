@@ -141,8 +141,8 @@ console.log(
 
 /*
  * Dynamic MAIN loss tolerance integration.
- * Positive configured value is eligible.
- * Missing/zero remains fail-safe at 200000.
+ * Positive MAIN values are eligible.
+ * Missing MAIN falls back to 200000; explicitly configured zero is authoritative.
  */
 assert.match(
   dashboard,
@@ -218,8 +218,8 @@ const zeroNorth =
 assert.deepEqual(
   zeroNorth,
   {
-    shared_max_loss: 200000,
-    source: "FALLBACK_200000",
+    shared_max_loss: 0,
+    source: "MAIN_POINT_LOSS_TOLERANCE",
   }
 );
 

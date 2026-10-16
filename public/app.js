@@ -20727,27 +20727,37 @@ async function loadAbAdvisoryPreviewReadOnly() {
   }
 
   /*
-   * While a Settlement is OPEN, the normal Dashboard
-   * advisory remains authoritative.
+   * Emergency A/B live Round duplicate-RPC relief v1.
    *
-   * When no Settlement is OPEN, use the independent
-   * GET-only calculator for the latest OPEN/CLOSED
-   * Summary-Group Round.
+   * Settlement is authoritative even if an INCIDENT dashboard
+   * returns HTTP 200 with settlement_session:null and
+   * ab_advisory:null. Do not call /api/ab-advisory-preview
+   * for an OPEN Settlement: it reruns dashboard_risk_snapshot.
+   *
+   * Missing advisory is unavailable, never an empty/zero plan.
+   * Only the no-open-Settlement historical preview may fetch.
    */
   if (
-    state.dashboard
-      ?.settlement_session
-    && state.dashboard
-      ?.ab_advisory
+    state.settlement?.open_session
+    || state.dashboard?.settlement_session
   ) {
+    const visibleDashboard =
+      state.dashboard?.ab_advisory
+        ? state.dashboard
+        : {
+            ...(state.dashboard || {}),
+            ab_advisory: {
+              calculation_status: "ERROR",
+              calculation_error: "LIVE_AB_ADVISORY_UNAVAILABLE",
+              summary_groups: [],
+              line_groups: [],
+            },
+          };
+
     renderAbAdvisoryPreview({
-      dashboard:
-        state.dashboard,
-
-      selectedSummaryGroup:
-        groupId,
+      dashboard: visibleDashboard,
+      selectedSummaryGroup: groupId,
     });
-
     return;
   }
 
