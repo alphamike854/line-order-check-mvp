@@ -21,6 +21,9 @@ import {
   DEFAULT_AB_SHARED_MAX_LOSS,
   resolveAbSharedMaxLoss,
 } from "../../src/lib/ab-advisory-loss-setting.mjs";
+import {
+  buildIncidentAbAdvisory,
+} from "../../src/lib/incident-ab-advisory.mjs";
 
 function sum(rows, key) { return rows.reduce((total, row) => total + Number(row[key] ?? 0), 0); }
 const RISK_POOL_CATEGORIES = Object.freeze({ MAIN:new Set(["A","B","E","F","G"]), H:new Set(["H"]), L:new Set(["L"]) });
@@ -289,6 +292,57 @@ export default async (req) => {
     const lineGroupRiskCodes =
       snapshot.line_group_risk_codes;
 
+    // Restore A/B Preview without a second dashboard_risk_snapshot RPC.
+    // Read only the selected group's tiny, authoritative MAIN setting.
+    // Missing setting != failed setting read; explicit MAIN = 0 is valid.
+    // This path never enables operational transfer/distribution controls.
+    let incidentAbAdvisory = null;
+    if (summaryGroupId) {
+      const abBudgetResult =
+        await incidentRead(
+          (signal) =>
+            supabase
+              .from("summary_group_risk_pool_settings")
+              .select("summary_group_id,risk_pool,point_loss_tolerance")
+              .eq("summary_group_id", summaryGroupId)
+              .eq("risk_pool", "MAIN")
+              .limit(1)
+              .abortSignal(signal),
+          1200,
+        );
+
+      if (
+        abBudgetResult.error
+        || !Array.isArray(abBudgetResult.data)
+      ) {
+        incidentAbAdvisory = {
+          calculation_status: "ERROR",
+          calculation_error: "AB_LOSS_SETTING_READ_FAILED",
+          summary_groups: [],
+          line_groups: [],
+        };
+      } else {
+        try {
+          incidentAbAdvisory = buildIncidentAbAdvisory({
+            snapshot,
+            summaryGroupId,
+            riskBudgetRows: abBudgetResult.data,
+          });
+        } catch (error) {
+          console.warn("incident A/B advisory calculation failed", {
+            summary_group_id: summaryGroupId,
+            error: error?.message ?? String(error),
+          });
+          incidentAbAdvisory = {
+            calculation_status: "ERROR",
+            calculation_error: error?.message ?? "AB_INCIDENT_CALCULATION_FAILED",
+            summary_groups: [],
+            line_groups: [],
+          };
+        }
+      }
+    }
+
     const total = (key) =>
       overallRisk.reduce(
         (value, row) =>
@@ -511,7 +565,7 @@ export default async (req) => {
           ?? null,
       },
 
-      ab_advisory: null,
+      ab_advisory: incidentAbAdvisory,
 
       risk_codes:
         riskCodes,
