@@ -21054,6 +21054,7 @@ async function loadDashboard({
   silent = false,
   preserveReviewWorkbench = false,
   refreshSettlementFirst = true,
+  deferActiveReportLoad = false,
 } = {}) {
   if (!preserveReviewWorkbench) {
     hideReviewBadgeUntilLoaded();
@@ -21148,6 +21149,7 @@ async function loadDashboard({
         silent,
         preserveReviewWorkbench,
         refreshSettlementFirst: false,
+        deferActiveReportLoad,
       });
     }
 
@@ -21206,7 +21208,7 @@ async function loadDashboard({
     if (activeTab === "unsend") await loadUnsends();
     if (activeTab === "settings") await loadSettings();
     if (activeTab === "points") await loadSpecialPoints();
-    if (activeTab === "report") await loadReport();
+    if (activeTab === "report" && !deferActiveReportLoad) await loadReport();
   } catch (error) {
     if (error.message !== "UNAUTHORIZED") {
       if (
@@ -21381,7 +21383,8 @@ summaryGroupSelect.addEventListener("change", async () => {
     return;
   }
 
-  await loadDashboard();
+  // This handler owns the Report request even if the Dashboard read fails.
+  await loadDashboard({ deferActiveReportLoad: true });
   const activeTab = $(".tab.active")?.dataset.tab;
   if (activeTab === "report") await loadReport();
   if (activeTab === "points") await loadSpecialPoints();
