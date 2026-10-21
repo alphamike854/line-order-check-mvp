@@ -93,7 +93,7 @@ const settlementLoad =
 
 const reportLoad =
   dashboardBlock.indexOf(
-    'if (activeTab === "report") await loadReport();'
+    'if (activeTab === "report" && !deferActiveReportLoad) await loadReport();'
   );
 
 assert.ok(
