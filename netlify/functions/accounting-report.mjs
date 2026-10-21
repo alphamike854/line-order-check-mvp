@@ -87,6 +87,60 @@ async function fetchAllPages(makeQuery, streamName = null, trace = null) {
 }
 
 
+// Full-ledger ITEMS only: issue at most 3 read-only pages concurrently.
+// Results are concatenated in offset order; the existing messages pagination
+// and all accounting/UNSEND/truth calculations remain unchanged.
+async function fetchAllPagesConcurrent(makeQuery, streamName = null, trace = null) {
+  const rows = [];
+  const concurrency = 3;
+  const stride = REPORT_PAGE_SIZE * concurrency;
+  for (let base = 0; ; base += stride) {
+    const results = await Promise.all(
+      Array.from({ length: concurrency }, async (_, offset) => {
+        const from = base + offset * REPORT_PAGE_SIZE;
+        const pageNumber = from / REPORT_PAGE_SIZE + 1;
+        const startedAt = Date.now();
+        const sampled = Boolean(trace) &&
+          (pageNumber <= 3 || pageNumber % 10 === 0);
+        if (sampled) trace(`${streamName}_page_start`, { page: pageNumber });
+        const { data, error } = await makeQuery().range(
+          from, from + REPORT_PAGE_SIZE - 1,
+        );
+        if (error) throw error;
+        const page = data ?? [];
+        if (!Array.isArray(page) || page.length > REPORT_PAGE_SIZE) {
+          throw new Error("ACCOUNTING_ITEMS_PAGE_INVALID");
+        }
+        return { page, pageNumber, pageMs: Date.now() - startedAt, sampled };
+      }),
+    );
+    let terminalSeen = false;
+    for (const { page, pageNumber, pageMs, sampled } of results) {
+      if (terminalSeen) {
+        // A nonempty higher-offset page after a short page indicates an
+        // inconsistent changing result set; never return a partial ledger.
+        if (page.length !== 0) {
+          throw new Error("ACCOUNTING_ITEMS_PAGINATION_INCONSISTENT");
+        }
+        continue;
+      }
+      rows.push(...page);
+      if (trace && (sampled || pageMs >= 1000 ||
+          page.length < REPORT_PAGE_SIZE)) {
+        trace(`${streamName}_page_end`, {
+          page: pageNumber,
+          page_ms: pageMs,
+          page_rows: page.length,
+          total_rows: rows.length,
+        });
+      }
+      if (page.length < REPORT_PAGE_SIZE) terminalSeen = true;
+    }
+    if (terminalSeen) break;
+  }
+  return rows;
+}
+
 async function resolveSession(url) {
   const explicit =
     url.searchParams.get(
@@ -1308,7 +1362,7 @@ export default async (req) => {
           __locReportTrace,
         ),
 
-        fetchAllPages(
+        fetchAllPagesConcurrent(
           () =>
             supabase
               .rpc(
