@@ -33,7 +33,7 @@ import {
 const REPORT_PAGE_SIZE = 500;
 
 
-async function fetchAllPages(makeQuery) {
+async function fetchAllPages(makeQuery, streamName = null, trace = null) {
   const rows = [];
 
   for (
@@ -41,6 +41,19 @@ async function fetchAllPages(makeQuery) {
     ;
     from += REPORT_PAGE_SIZE
   ) {
+    const pageNumber =
+      from / REPORT_PAGE_SIZE + 1;
+    const pageStartedAt = Date.now();
+
+    const sampledPage = Boolean(trace) && (
+      pageNumber <= 3 || pageNumber % 10 === 0
+    );
+    if (sampledPage) {
+      trace(`${streamName}_page_start`, {
+        page: pageNumber,
+      });
+    }
+
     const { data, error } =
       await makeQuery().range(
         from,
@@ -52,6 +65,18 @@ async function fetchAllPages(makeQuery) {
     const page = data ?? [];
 
     rows.push(...page);
+
+    const pageMs = Date.now() - pageStartedAt;
+    if (trace && (
+      sampledPage || pageMs >= 1000 || page.length < REPORT_PAGE_SIZE
+    )) {
+      trace(`${streamName}_page_end`, {
+        page: pageNumber,
+        page_ms: pageMs,
+        page_rows: page.length,
+        total_rows: rows.length,
+      });
+    }
 
     if (page.length < REPORT_PAGE_SIZE) {
       break;
@@ -306,6 +331,24 @@ export default async (req) => {
     );
   }
 
+  // Temporary source-only performance trace for high-volume reports.
+  // No request headers, tokens, message text, IDs or payloads are logged.
+  const __locReportTraceId =
+    `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const __locReportTraceStartedAt = Date.now();
+  const __locReportTraceEnabled =
+    process.env.LOC_ACCOUNTING_TRACE === "1";
+  const __locReportTrace = (stage, details = {}) => {
+    if (!__locReportTraceEnabled) return;
+    console.info("LOC_REPORT_STAGE_V1", JSON.stringify({
+      trace_id: __locReportTraceId,
+      stage,
+      total_ms: Date.now() - __locReportTraceStartedAt,
+      ...details,
+    }));
+  };
+  __locReportTrace("request_start");
+
   try {
     const __reportDiagTimings = {};
     const __reportDiagTotalStartedAt = Date.now();
@@ -380,6 +423,12 @@ export default async (req) => {
 
     const staffMode =
       auth.actor?.kind === "STAFF";
+
+    __locReportTrace("scope_selected", {
+      actor_kind: staffMode ? "STAFF" : "DASHBOARD",
+      summary_group: selectedSummary ?? "ALL",
+      line_selected: Boolean(selectedLine),
+    });
 
     const __reportDiagStaffScopeStartedAt =
       Date.now();
@@ -507,6 +556,10 @@ export default async (req) => {
     __reportDiagTimings.round_config_ms =
       Date.now()
       - __reportDiagRoundConfigStartedAt;
+    __locReportTrace("round_config_primary_done", {
+      ms: __reportDiagTimings.round_config_ms,
+      rows: (configRows ?? []).length,
+    });
 
     __reportDiagTimings.legacy_config_ms =
       0;
@@ -552,6 +605,10 @@ export default async (req) => {
       __reportDiagTimings.legacy_config_ms =
         Date.now()
         - __reportDiagLegacyConfigStartedAt;
+      __locReportTrace("round_config_legacy_done", {
+        ms: __reportDiagTimings.legacy_config_ms,
+        rows: (configRows ?? []).length,
+      });
 
       if (configError) {
         throw configError;
@@ -635,6 +692,12 @@ export default async (req) => {
     const roundIds =
       roundContext.roundIds;
 
+    __locReportTrace("round_scope_done", {
+      ms: __reportDiagTimings.round_context_ms,
+      round_count: roundIds.length,
+      summary_group_count: configuredSummaryIds.length,
+    });
+
 
     if (
       roundIds.length === 0
@@ -709,6 +772,10 @@ export default async (req) => {
 
     const __reportDiagPointParallelStartedAt =
       Date.now();
+    __locReportTrace("point_pair_start", {
+      round_count: roundIds.length,
+      line_config_count: configs.length,
+    });
 
     let __reportDiagPointContextRpcMs =
       null;
@@ -738,6 +805,9 @@ export default async (req) => {
           __reportDiagPointContextRpcMs =
             Date.now()
             - startedAt;
+          __locReportTrace("point_context_done", {
+            ms: __reportDiagPointContextRpcMs,
+          });
         }
       })(),
 
@@ -759,6 +829,9 @@ export default async (req) => {
           __reportDiagPointStatusRpcMs =
             Date.now()
             - startedAt;
+          __locReportTrace("point_status_done", {
+            ms: __reportDiagPointStatusRpcMs,
+          });
         }
       })(),
     ]);
@@ -772,6 +845,9 @@ export default async (req) => {
     __reportDiagTimings.point_parallel_total_ms =
       Date.now()
       - __reportDiagPointParallelStartedAt;
+    __locReportTrace("point_pair_done", {
+      ms: __reportDiagTimings.point_parallel_total_ms,
+    });
 
 
     if (
@@ -1189,6 +1265,12 @@ export default async (req) => {
     }
 
 
+    __locReportTrace("detail_fetch_start", {
+      line_count: lineIds.length,
+      round_count: roundIds.length,
+    });
+    const __locReportDetailFetchStartedAt = Date.now();
+
     const [messages,items] =
       await Promise.all([
         fetchAllPages(
@@ -1222,6 +1304,8 @@ export default async (req) => {
                   ascending: true,
                 },
               ),
+          "messages",
+          __locReportTrace,
         ),
 
         fetchAllPages(
@@ -1258,10 +1342,18 @@ export default async (req) => {
                   ascending: true,
                 },
               ),
+          "items",
+          __locReportTrace,
         ),
       ]);
 
+    __locReportTrace("detail_fetch_done", {
+      ms: Date.now() - __locReportDetailFetchStartedAt,
+      message_rows: messages.length,
+      item_rows: items.length,
+    });
 
+    const __locReportLedgerStartedAt = Date.now();
     const itemsByMessage =
       new Map();
 
@@ -1656,6 +1748,11 @@ export default async (req) => {
       );
 
 
+    __locReportTrace("ledger_done", {
+      ms: Date.now() - __locReportLedgerStartedAt,
+      group_count: groups.length,
+    });
+
     await revalidateRoundContext({
       initialContext:
         roundContext,
@@ -1665,7 +1762,7 @@ export default async (req) => {
         roundScopeSummaryGroup,
     });
 
-
+    __locReportTrace("response_start");
     return json({
       ok: true,
       summary_only: false,
@@ -1694,6 +1791,9 @@ export default async (req) => {
     });
 
   } catch (error) {
+    __locReportTrace("request_error", {
+      error_code: String(error?.code ?? error?.name ?? "UNKNOWN").slice(0, 48),
+    });
     console.error(
       "accounting-report failed",
       error,
