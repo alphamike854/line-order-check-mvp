@@ -139,7 +139,7 @@ export default async function handler(
     }
 
     if (
-      !auth.actor.staff_id
+      auth.actor.kind !== "STAFF" || !auth.actor.staff_id
     ) {
       return json(
         {

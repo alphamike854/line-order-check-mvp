@@ -4616,11 +4616,17 @@ function reviewClaimFields(
   };
 }
 
+function reviewActorCanWrite(actor) {
+  return state.authMode === "STAFF"
+    && actor?.kind === "STAFF"
+    && Boolean(actor?.staff_id);
+}
+
 function reviewClaimStatusHtml(
   item,
   actor,
 ) {
-  if (!actor?.staff_id) {
+  if (!reviewActorCanWrite(actor)) {
     return "";
   }
 
@@ -4739,9 +4745,14 @@ function reviewCardCanMutate(
   const actor =
     card?._workbenchActor;
 
-  // Shared/Admin legacy path remains compatible.
-  if (!actor?.staff_id) {
-    return true;
+  if (!reviewActorCanWrite(actor)) {
+    if (notify) {
+      toast(
+        "ต้องเข้าสู่ระบบด้วย Staff Key ส่วนบุคคลเพื่อแก้ไขหรือข้ามรายการ",
+        true,
+      );
+    }
+    return false;
   }
 
   if (
@@ -4856,18 +4867,16 @@ function syncReviewCardClaimUi(
     delete card.dataset.leaseVersion;
   }
 
-  const requiresClaim =
-    Boolean(
-      actor?.staff_id,
-    );
+  const staffCanWrite =
+    reviewActorCanWrite(actor);
 
   const ownsClaim =
     item?.claim_state
     === "MINE";
 
   const locked =
-    requiresClaim
-    && !ownsClaim;
+    !staffCanWrite
+    || !ownsClaim;
 
   const editor =
     card.querySelector(
@@ -4988,7 +4997,7 @@ async function mutateReviewClaim(
 
   if (
     !card
-    || !actor?.staff_id
+    || !reviewActorCanWrite(actor)
   ) {
     return;
   }
@@ -5144,8 +5153,7 @@ async function releaseReviewClaimAfterCompletion(
   card,
 ) {
   if (
-    !card?._workbenchActor
-      ?.staff_id
+    !reviewActorCanWrite(card?._workbenchActor)
     || card?._reviewItem
       ?.claim_state !== "MINE"
     || !card?._reviewItem
@@ -5513,11 +5521,8 @@ function withReviewResolutionLease(
   card,
   body,
 ) {
-  if (
-    !card?._workbenchActor
-      ?.staff_id
-  ) {
-    return body;
+  if (!reviewActorCanWrite(card?._workbenchActor)) {
+    throw new Error("STAFF_IDENTITY_REQUIRED");
   }
 
   const leaseVersion =
@@ -14841,6 +14846,14 @@ function liveReviewCardHtml(item) {
             <!-- Review Inline Claim Control v10 -->
             <div class="review-claim-state"></div>
 
+            ${
+              state.authMode === "DASHBOARD"
+                ? `<div class="muted small-text" role="note" data-review-readonly-note="true">
+                    ต้องเข้าสู่ระบบด้วย Staff Key ส่วนบุคคลเพื่อแก้ไขหรือข้ามรายการ
+                  </div>`
+                : ""
+            }
+
             <label class="editor-label live-review-editor-label">
             ข้อความที่ต้องตรวจ
 
@@ -15053,10 +15066,7 @@ async function loadReviews() {
       );
 
     const realStaff =
-      Boolean(
-        workbenchPayload.actor
-          ?.staff_id,
-      );
+      reviewActorCanWrite(workbenchPayload.actor);
 
     let items =
       (
@@ -15262,6 +15272,14 @@ async function loadReviews() {
 
             <!-- Review Inline Claim Control v10 -->
             <div class="review-claim-state"></div>
+
+            ${
+              state.authMode === "DASHBOARD"
+                ? `<div class="muted small-text" role="note" data-review-readonly-note="true">
+                    ต้องเข้าสู่ระบบด้วย Staff Key ส่วนบุคคลเพื่อแก้ไขหรือข้ามรายการ
+                  </div>`
+                : ""
+            }
 
             <label class="editor-label live-review-editor-label">
             ข้อความที่ต้องตรวจ

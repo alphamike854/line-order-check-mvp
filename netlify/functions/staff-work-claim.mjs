@@ -59,7 +59,7 @@ export default async function handler(req) {
     // read-only for Staff ownership.
     //
     // A real Staff account is required for auditable claims.
-    if (!auth.actor.staff_id) {
+    if (auth.actor.kind !== "STAFF" || !auth.actor.staff_id) {
       return json(
         {
           ok: false,

@@ -16,7 +16,6 @@ import {
   fetchOpenSettlementSession,
   json,
   loadParserConfig,
-  requireDashboardAccess,
   supabase,
 } from "../../src/lib/dashboard-api.mjs";
 
@@ -318,7 +317,7 @@ export default async (
       }
 
       if (
-        !auth.actor.staff_id
+        auth.actor.kind !== "STAFF" || !auth.actor.staff_id
       ) {
         return json(
           {
@@ -360,14 +359,13 @@ export default async (
         lineGroupIds,
       };
     } else {
-      const denied =
-        requireDashboardAccess(
-          req,
-        );
-
-      if (denied) {
-        return denied;
-      }
+      return json(
+        {
+          ok: false,
+          error: "STAFF_IDENTITY_REQUIRED",
+        },
+        403,
+      );
     }
 
 

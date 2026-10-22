@@ -58,7 +58,7 @@ export default async function handler(
     //
     // Shared Dashboard credentials cannot own
     // post-close work.
-    if (!auth.actor.staff_id) {
+    if (auth.actor.kind !== "STAFF" || !auth.actor.staff_id) {
       return json(
         {
           ok: false,
