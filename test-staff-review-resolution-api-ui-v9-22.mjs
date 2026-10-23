@@ -30,10 +30,16 @@ assert.match(
   "R2D2C2-02 Staff identity is authenticated server-side",
 );
 
-assert.match(
+assert.doesNotMatch(
   endpoint,
   /requireDashboardAccess/,
-  "R2D2C2-03 legacy Dashboard auth remains",
+  "R2D2C2-03 Dashboard credential cannot authorize Review writes",
+);
+
+assert.match(
+  endpoint,
+  /auth\.actor\.kind !== "STAFF" \|\| !auth\.actor\.staff_id/,
+  "R2D2C2-03b Review mutation requires real Staff identity",
 );
 
 assert.match(

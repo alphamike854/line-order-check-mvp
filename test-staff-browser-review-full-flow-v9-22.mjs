@@ -149,9 +149,9 @@ const canMutate =
 
 assert.ok(
   canMutate.includes(
-    "staff_id",
+    "reviewActorCanWrite(actor)",
   ),
-  "claim mutation guard must distinguish real Staff",
+  "claim mutation guard must require personal Staff identity",
 );
 
 assert.ok(
@@ -459,6 +459,12 @@ assert.ok(
   "existing Dashboard settlement contract must remain intact",
 );
 
+
+assert.match(
+  app,
+  /function reviewActorCanWrite\(actor\)\s*\{\s*return state\.authMode === "STAFF"\s*&& actor\?\.kind === "STAFF"\s*&& Boolean\(actor\?\.staff_id\);/,
+  "personal Staff authentication, actor kind and staff ID are all required",
+);
 
 console.log(
   "PASS: R2D2D-4 Staff Browser Review Full Flow",

@@ -15,7 +15,7 @@ assert.doesNotMatch(app, /await loadReport\(\{ silent: true \}\)/);
 assert.match(app, /setDashboardStale\(true\)/);
 assert.match(
   app,
-  /async function loadDashboard\(\{\s*silent = false,\s*preserveReviewWorkbench = false,\s*\} = \{\}\)/
+  /async function loadDashboard\(\{\s*silent = false,\s*preserveReviewWorkbench = false,\s*refreshSettlementFirst = true,\s*deferActiveReportLoad = false,\s*\} = \{\}\)/
 );
 assert.match(app, /if \(silent\) console\.warn\("silent dashboard refresh failed"/);
 assert.match(app, /ล่าสุด \$\{formatBangkokClock\(metrics\.last_event_at\)\}/);

@@ -95,7 +95,7 @@ assert.match(
 
 assert.match(
   loadReviewsBlock,
-  /Boolean\([\s\S]*?workbenchPayload[\s\S]*?actor[\s\S]*?staff_id/,
+  /reviewActorCanWrite\(workbenchPayload\.actor\)/,
   "R2D2B2-06 real Staff mode is detected from trusted Workbench actor",
 );
 
@@ -437,6 +437,12 @@ assert.doesNotMatch(
   "R2D2B2-46 API never accepts browser-selected Settlement identity",
 );
 
+
+assert.match(
+  app,
+  /function reviewActorCanWrite\(actor\)\s*\{\s*return state\.authMode === "STAFF"\s*&& actor\?\.kind === "STAFF"\s*&& Boolean\(actor\?\.staff_id\);/,
+  "personal Staff authentication, actor kind and staff ID are all required",
+);
 
 console.log(
   "PASS: R2D2B Claim/Renew/Release Review Workbench Integration",

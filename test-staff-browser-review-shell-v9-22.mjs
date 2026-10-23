@@ -402,7 +402,7 @@ const groupReturnPos =
 
 const groupDashboardPos =
   groupChange.indexOf(
-    "loadDashboard();",
+    "loadDashboard({ deferActiveReportLoad: true });",
     groupReturnPos,
   );
 

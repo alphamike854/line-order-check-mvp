@@ -209,7 +209,7 @@ assert.match(
 
 assert.match(
   api,
-  /if \(!auth\.actor\.staff_id\)/,
+  /auth\.actor\.kind !== "STAFF" \|\| !auth\.actor\.staff_id/,
   "R2D2A-27 shared dashboard actor cannot impersonate Staff",
 );
 
