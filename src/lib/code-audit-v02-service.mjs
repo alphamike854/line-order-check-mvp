@@ -4,9 +4,9 @@ import { authenticateWorkbenchActor, loadWorkbenchActorLineGroups } from './staf
 import { supabase } from './dashboard-api.mjs';
 import { createCodeAuditReadHandler } from './code-audit-v02-core.mjs';
 
-async function queryRpc(functionName, params) {
+async function queryRpc(functionName, params, deadlineMs = 8500) {
   const abort = new AbortController();
-  const timeout = setTimeout(()=>abort.abort(), 8500);
+  const timeout = setTimeout(()=>abort.abort(), deadlineMs);
   try {
     const {data,error} = await supabase.rpc(functionName,params).abortSignal(abort.signal);
     if (error) throw error;
@@ -19,7 +19,7 @@ export const codeAuditRead = createCodeAuditReadHandler({
   getLineGroups: actor => loadWorkbenchActorLineGroups(supabase,actor),
   getSummary: ({groups,lines}) => queryRpc('code_audit_v02_summary',{
     p_summary_group_ids:groups, p_line_group_ids:lines,
-  }),
+  }, 20000),
   getDetail: ({groups,lines,category,code,cursor,pageSize}) => queryRpc('code_audit_v02_detail',{
     p_summary_group_ids:groups, p_line_group_ids:lines, p_category:category, p_code:code,
     p_page_size:pageSize,

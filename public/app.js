@@ -19506,6 +19506,43 @@ async function openCodeAuditReviewTarget() {
   if (!valid || state.authMode !== "STAFF" ||
       !["ADMIN", "SUPERVISOR"].includes(String(state.actor?.role || "").toUpperCase())) return;
 
+  // Classification-only login deliberately returns no LINE groups.
+  // Resolve fresh, server-authorized personal Staff scope for this one-shot
+  // handoff rather than interpreting classification metadata as an ACL.
+  let permittedLines;
+  try {
+    const response = await fetch("/api/staff-me", {
+      method: "GET",
+      headers: { "x-staff-key": state.accessKey },
+      cache: "no-store",
+    });
+    if (!response.ok) throw new Error("STAFF_SCOPE_UNAVAILABLE");
+    const payload = await response.json();
+    if (payload?.ok !== true ||
+        payload.actor?.kind !== "STAFF" ||
+        !state.actor?.staff_id ||
+        payload.actor.staff_id !== state.actor.staff_id ||
+        !["ADMIN", "SUPERVISOR"].includes(String(payload.actor.role || "").toUpperCase()) ||
+        !Array.isArray(payload.line_groups)) {
+      throw new Error("STAFF_SCOPE_INVALID");
+    }
+    permittedLines = payload.line_groups;
+  } catch {
+    toast("ตรวจสิทธิ์ LINE Group ล่าสุดไม่สำเร็จ", true);
+    return;
+  }
+
+  if (!permittedLines.some(group =>
+      String(group?.line_group_id || "") === target.line_group_id &&
+      String(group?.summary_group_id || "") === target.summary_group_id)) {
+    toast("ไม่สามารถเปิดรายการนี้ได้: ไม่มีสิทธิ์เข้าถึง LINE Group", true);
+    return;
+  }
+
+  // Populate only the existing Staff Report selector, using verified scope.
+  // The existing exact-message API still independently enforces the current
+  // OPEN settlement and matching LINE Group before permitting any Review.
+  configureStaffReportScope(permittedLines);
   const select = $("#reportLineGroupSelect");
   if (!select || ![...select.options].some(option => option.value === target.line_group_id)) {
     toast("ไม่สามารถเปิดรายการนี้ได้: ไม่มีสิทธิ์เข้าถึง LINE Group", true);
