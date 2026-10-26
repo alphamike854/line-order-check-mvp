@@ -36,7 +36,42 @@ function makeButton(title,fn){const b=el('button',title);b.type='button';b.addEv
 function renderSummary(){
   const root=$('summarySections');root.replaceChildren();
   const rows=state.summary.rows;
-  for(const cat of CATEGORIES){const panel=el('section',undefined,'panel');panel.append(el('h2','หมวด '+cat));const {wrap,tbody}=makeTable([['ลำดับ'],['รหัส'],['รวมออเดอร์',true],['ตรวจ']]);const list=rows.filter(x=>x.category===cat);list.forEach((r,i)=>{const tr=document.createElement('tr');tr.append(el('td',i+1),el('td',r.code),el('td',formatTotal(r.order_total),'num'));const action=document.createElement('td');action.append(makeButton('ตรวจ',()=>loadBreakdown(cat,r.code,r.order_total)));tr.append(action);tbody.append(tr);});if(!list.length){const tr=document.createElement('tr'),td=el('td','ไม่มีรายการ');td.colSpan=4;tr.append(td);tbody.append(tr);}panel.append(wrap);root.append(panel);}
+  const previewLimit = 20;
+  for(const cat of CATEGORIES){
+    const panel=el('section',undefined,'panel');
+    panel.append(el('h2','หมวด '+cat));
+    const {wrap,tbody}=makeTable([['ลำดับ'],['รหัส'],['รวมออเดอร์',true],['ตรวจ']]);
+    const list=rows.filter(x=>x.category===cat);
+    const showRows=limit=>{
+      tbody.replaceChildren();
+      list.slice(0,limit).forEach((r,i)=>{
+        const tr=document.createElement('tr');
+        tr.append(el('td',i+1),el('td',r.code),el('td',formatTotal(r.order_total),'num'));
+        const action=document.createElement('td');
+        action.append(makeButton('ตรวจ',()=>loadBreakdown(cat,r.code,r.order_total)));
+        tr.append(action);tbody.append(tr);
+      });
+      if(!list.length){
+        const tr=document.createElement('tr'),td=el('td','ไม่มีรายการ');
+        td.colSpan=4;tr.append(td);tbody.append(tr);
+      }
+    };
+    showRows(previewLimit);
+    panel.append(wrap);
+    if(list.length>previewLimit){
+      let expanded=false;
+      const button=makeButton(`แสดงเพิ่มเติมอีก ${list.length-previewLimit} รหัส`,()=>{
+        expanded=!expanded;
+        showRows(expanded?list.length:previewLimit);
+        button.textContent=expanded
+          ?'ยุบรายการ — แสดง 20 แถวแรก'
+          :`แสดงเพิ่มเติมอีก ${list.length-previewLimit} รหัส`;
+      });
+      button.style.marginTop='8px';
+      panel.append(button);
+    }
+    root.append(panel);
+  }
   $('summaryMeta').textContent=`${rows.length} รหัส · กลุ่มสรุป ${selectedGroups().join(', ')} · ${state.summary.fetchedAt?new Date(state.summary.fetchedAt).toLocaleString('th-TH',{timeZone:'Asia/Bangkok'}):'ไม่ทราบเวลา'}`;
 }
 async function loadSummary(){
