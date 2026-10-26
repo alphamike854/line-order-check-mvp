@@ -589,6 +589,14 @@ function configureAppForAuthMode(
       role !== "ADMIN" && role !== "SUPERVISOR",
     );
   }
+  const codeAuditLink = $("#codeAuditLink");
+  if (codeAuditLink) {
+    const role = String(state.actor?.role ?? "").toUpperCase();
+    codeAuditLink.classList.toggle(
+      "hidden",
+      !(mode === "STAFF" && state.actor?.staff_id && ["ADMIN", "SUPERVISOR"].includes(role)),
+    );
+  }
 
   /*
    * Review/Unsend badges are populated by Dashboard-oriented
@@ -738,6 +746,10 @@ async function enterStaffSession(
 
   try {
     await loadReviews();
+
+    // Optional one-shot Code Audit -> existing Review bridge.
+    // Server-side exact-message and current OPEN-session guards still apply.
+    await openCodeAuditReviewTarget();
 
     if (freshness) {
       freshness.textContent =
@@ -19474,6 +19486,39 @@ function restoreReportReturnContext() {
   });
 
   return true;
+}
+
+async function openCodeAuditReviewTarget() {
+  const key = "locCodeAuditReviewTargetV1";
+  const raw = sessionStorage.getItem(key);
+  if (!raw) return;
+  sessionStorage.removeItem(key); // one-shot; no replay
+  let target;
+  try { target = JSON.parse(raw); } catch { return; }
+  const valid = target
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(target.message_record_id || ""))
+    && /^[A-Z0-9_-]{1,64}$/.test(String(target.summary_group_id || ""))
+    && typeof target.line_group_id === "string"
+    && target.line_group_id.length > 0
+    && Number.isSafeInteger(target.created_at)
+    && target.created_at <= Date.now()
+    && Date.now() - target.created_at <= 5 * 60 * 1000;
+  if (!valid || state.authMode !== "STAFF" ||
+      !["ADMIN", "SUPERVISOR"].includes(String(state.actor?.role || "").toUpperCase())) return;
+
+  const select = $("#reportLineGroupSelect");
+  if (!select || ![...select.options].some(option => option.value === target.line_group_id)) {
+    toast("ไม่สามารถเปิดรายการนี้ได้: ไม่มีสิทธิ์เข้าถึง LINE Group", true);
+    return;
+  }
+  select.value = target.line_group_id;
+  // Load exactly the authorized LINE Group in the current settlement.
+  await loadReport();
+  if (!state.reportPayload) {
+    toast("ไม่พบรอบปัจจุบันสำหรับรายการที่จะตรวจ", true);
+    return;
+  }
+  await openReportMessageInReview(target.message_record_id, target.summary_group_id);
 }
 
 async function openReportMessageInReview(
