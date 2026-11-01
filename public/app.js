@@ -21401,7 +21401,21 @@ function activateTab(name, options = {}) {
           },
         );
     } else {
-      loadReport();
+      // Refresh Report scope from the server's enabled-only master +
+      // active-settlement route list, not a cached Dashboard snapshot.
+      // LINE OA membership is deliberately not a visibility criterion.
+      api("/api/staff-report-sessions")
+        .then((payload) => {
+          syncReportLineGroupOptionsFromDashboard(payload.line_groups);
+          return loadReport();
+        })
+        .catch((error) => {
+          // Never retain stale choices if the authoritative read fails.
+          syncReportLineGroupOptionsFromDashboard([]);
+          void loadReport();
+          console.error("report line group scope refresh failed", error);
+          toast("โหลดกลุ่ม LINE ที่เปิดใช้งานไม่สำเร็จ", true);
+        });
     }
   }
 }
