@@ -210,11 +210,34 @@ export default async function handler(req) {
             ),
         );
 
+    // Report UI shows the current OPEN session, otherwise the latest CLOSED.
+    // Route enabled state is read for exactly that session; older history and
+    // immutable round-owned data remain untouched and available to the API.
+    const activeReportSession =
+      openSession ?? closedSessions[0] ?? null;
+    let visibleLineGroups = [];
+
+    if (activeReportSession) {
+      const { data: routes, error: routeError } = await supabase
+        .from("settlement_line_group_config")
+        .select("line_group_id")
+        .eq("settlement_session_id", activeReportSession.id)
+        .eq("enabled", true);
+
+      if (routeError) throw routeError;
+      const enabledRouteIds = new Set(
+        (routes ?? []).map(row => row.line_group_id),
+      );
+      visibleLineGroups = (lineGroups ?? []).filter(
+        row => enabledRouteIds.has(row.line_group_id),
+      );
+    }
+
     return json({
       ok: true,
       open_session: openSession,
       closed_sessions: closedSessions,
-      line_groups: lineGroups ?? [],
+      line_groups: visibleLineGroups,
     });
   } catch (error) {
     console.error(

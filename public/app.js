@@ -18884,6 +18884,7 @@ async function loadSettlement() {
       payload.open_session,
       ...(payload.closed_sessions || []),
     ].filter(Boolean);
+    sessions.splice(1);
 
     select.innerHTML =
       sessions
@@ -18920,6 +18921,7 @@ async function loadSettlement() {
 
     const lineSelect =
       $("#reportLineGroupSelect");
+    const previousLineGroupId = lineSelect.value;
 
     lineSelect.innerHTML =
       `<option value="ALL">ทุก LINE Group</option>`
@@ -18932,6 +18934,9 @@ async function loadSettlement() {
             `<option value="${escapeHtml(group.line_group_id)}">${escapeHtml(group.line_group_name)}</option>`,
         )
         .join("");
+    lineSelect.value = [...lineSelect.options].some(
+      (option) => option.value === previousLineGroupId,
+    ) ? previousLineGroupId : "ALL";
 
     return payload;
   }
@@ -18939,7 +18944,7 @@ async function loadSettlement() {
   const payload=await api("/api/settlement");
   syncSettlementSummaryGroupOptions(payload);
   renderSettlementStatus(payload);
-  const select=$("#reportSessionSelect");const previousSessionId=select.value;const sessions=[payload.open_session,...(payload.closed_sessions||[])].filter(Boolean);
+  const select=$("#reportSessionSelect");const previousSessionId=select.value;const sessions=[payload.open_session,...(payload.closed_sessions||[])].filter(Boolean);sessions.splice(1);
   const currentOpenRoundDateLabel=
     settlementRoundBusinessDateLabel(
       payload,
@@ -18981,8 +18986,9 @@ async function loadSettlement() {
       : payload.open_session?.id || payload.closed_sessions?.[0]?.id || "";
 
   if(reportSessionId)select.value=reportSessionId;
-  const lineSelect=$("#reportLineGroupSelect");const lines=state.dashboard?.line_groups||[];
+  const lineSelect=$("#reportLineGroupSelect");const previousLineGroupId=lineSelect.value;const lines=state.dashboard?.line_groups||[];
   lineSelect.innerHTML=`<option value="ALL">ทุก LINE Group</option>`+lines.map(g=>`<option value="${escapeHtml(g.line_group_id)}">${escapeHtml(g.line_group_name)}</option>`).join("");
+  lineSelect.value=[...lineSelect.options].some(o=>o.value===previousLineGroupId)?previousLineGroupId:"ALL";
   renderProfileStrip("#openingPointProfiles",payload.company_point_profiles||payload.point_profiles||[]);
   return payload;
 }
