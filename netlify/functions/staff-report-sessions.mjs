@@ -220,17 +220,23 @@ export default async function handler(req) {
     if (activeReportSession) {
       const { data: routes, error: routeError } = await supabase
         .from("settlement_line_group_config")
-        .select("line_group_id")
+        .select("line_group_id,summary_group_id")
         .eq("settlement_session_id", activeReportSession.id)
         .eq("enabled", true);
 
       if (routeError) throw routeError;
-      const enabledRouteIds = new Set(
-        (routes ?? []).map(row => row.line_group_id),
+      const enabledRouteSummaryById = new Map(
+        (routes ?? [])
+          .filter(row => row.line_group_id && row.summary_group_id)
+          .map(row => [row.line_group_id, row.summary_group_id]),
       );
-      visibleLineGroups = (lineGroups ?? []).filter(
-        row => enabledRouteIds.has(row.line_group_id),
-      );
+      visibleLineGroups = (lineGroups ?? [])
+        .filter(row => enabledRouteSummaryById.has(row.line_group_id))
+        .map(row => ({
+          ...row,
+          // Use the active settlement's mapping, not LINE OA membership.
+          summary_group_id: enabledRouteSummaryById.get(row.line_group_id),
+        }));
     }
 
     return json({

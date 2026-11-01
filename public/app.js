@@ -21153,12 +21153,18 @@ async function loadAbAdvisoryPreviewReadOnly() {
 }
 
 
-function syncReportLineGroupOptionsFromDashboard(lineGroups) {
+let reportAllowedLineGroups = [];
+
+function syncReportLineGroupOptionsFromServer(lineGroups) {
   const select = $("#reportLineGroupSelect");
   if (!select) return;
 
   const previousLineGroupId = select.value;
-  const enabledGroups = Array.isArray(lineGroups) ? lineGroups : [];
+  const summaryGroupId = summaryGroupSelect.value || "ALL";
+  const enabledGroups = (Array.isArray(lineGroups) ? lineGroups : [])
+    .filter(group =>
+      summaryGroupId === "ALL" || group.summary_group_id === summaryGroupId,
+    );
 
   select.innerHTML = `<option value="ALL">ทุก LINE Group</option>`
     + enabledGroups.map(group =>
@@ -21402,12 +21408,15 @@ function activateTab(name, options = {}) {
       // LINE OA membership is deliberately not a visibility criterion.
       api("/api/staff-report-sessions")
         .then((payload) => {
-          syncReportLineGroupOptionsFromDashboard(payload.line_groups);
+          reportAllowedLineGroups = Array.isArray(payload.line_groups)
+            ? payload.line_groups : [];
+          syncReportLineGroupOptionsFromServer(reportAllowedLineGroups);
           return loadReport();
         })
         .catch((error) => {
           // Never retain stale choices if the authoritative read fails.
-          syncReportLineGroupOptionsFromDashboard([]);
+          reportAllowedLineGroups = [];
+          syncReportLineGroupOptionsFromServer([]);
           void loadReport();
           console.error("report line group scope refresh failed", error);
           toast("โหลดกลุ่ม LINE ที่เปิดใช้งานไม่สำเร็จ", true);
@@ -21522,7 +21531,10 @@ summaryGroupSelect.addEventListener("change", async () => {
   // This handler owns the Report request even if the Dashboard read fails.
   await loadDashboard({ deferActiveReportLoad: true });
   const activeTab = $(".tab.active")?.dataset.tab;
-  if (activeTab === "report") await loadReport();
+  if (activeTab === "report") {
+    syncReportLineGroupOptionsFromServer(reportAllowedLineGroups);
+    await loadReport();
+  }
   if (activeTab === "points") await loadSpecialPoints();
 });
 $$(".tab").forEach((tab) => tab.addEventListener("click", () => activateTab(tab.dataset.tab)));
