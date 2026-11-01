@@ -21156,6 +21156,23 @@ async function loadAbAdvisoryPreviewReadOnly() {
 }
 
 
+function syncReportLineGroupOptionsFromDashboard(lineGroups) {
+  const select = $("#reportLineGroupSelect");
+  if (!select) return;
+
+  const previousLineGroupId = select.value;
+  const enabledGroups = Array.isArray(lineGroups) ? lineGroups : [];
+
+  select.innerHTML = `<option value="ALL">ทุก LINE Group</option>`
+    + enabledGroups.map(group =>
+      `<option value="${escapeHtml(group.line_group_id)}">${escapeHtml(group.line_group_name)}</option>`,
+    ).join("");
+
+  select.value = [...select.options].some(option =>
+    option.value === previousLineGroupId,
+  ) ? previousLineGroupId : "ALL";
+}
+
 async function loadDashboard({
   silent = false,
   preserveReviewWorkbench = false,
@@ -21260,6 +21277,9 @@ async function loadDashboard({
     }
 
     state.dashboard = payload;
+    // Rebuild Report options from the freshly loaded, enabled-only master list.
+    // The earlier loadSettlement() call can use a stale Dashboard snapshot.
+    syncReportLineGroupOptionsFromDashboard(payload.line_groups);
     state.freshnessVersion = payload.freshness?.version ?? null;
     setDashboardStale(false);
     // Never invent today's date for an active multi-date Round scope.
