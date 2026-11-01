@@ -18986,9 +18986,6 @@ async function loadSettlement() {
       : payload.open_session?.id || payload.closed_sessions?.[0]?.id || "";
 
   if(reportSessionId)select.value=reportSessionId;
-  const lineSelect=$("#reportLineGroupSelect");const previousLineGroupId=lineSelect.value;const lines=state.dashboard?.line_groups||[];
-  lineSelect.innerHTML=`<option value="ALL">ทุก LINE Group</option>`+lines.map(g=>`<option value="${escapeHtml(g.line_group_id)}">${escapeHtml(g.line_group_name)}</option>`).join("");
-  lineSelect.value=[...lineSelect.options].some(o=>o.value===previousLineGroupId)?previousLineGroupId:"ALL";
   renderProfileStrip("#openingPointProfiles",payload.company_point_profiles||payload.point_profiles||[]);
   return payload;
 }
@@ -21277,9 +21274,8 @@ async function loadDashboard({
     }
 
     state.dashboard = payload;
-    // Rebuild Report options from the freshly loaded, enabled-only master list.
-    // The earlier loadSettlement() call can use a stale Dashboard snapshot.
-    syncReportLineGroupOptionsFromDashboard(payload.line_groups);
+    // Report LINE Group options are owned by /api/staff-report-sessions only.
+    // Incident Dashboard risk snapshots may include inactive historical groups.
     state.freshnessVersion = payload.freshness?.version ?? null;
     setDashboardStale(false);
     // Never invent today's date for an active multi-date Round scope.
