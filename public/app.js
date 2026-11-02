@@ -10737,11 +10737,10 @@ function staffVerificationTimelineItemHtml(
 
         <div class="verification-timeline-bottom">
           <div class="verification-queue-item-meta">
-            <span>
-              ${isHighTotal
-                ? `ยอดต่อรหัสสูงสุด <strong>${escapeHtml(highCode.category + highCode.code)} = ${formatNumber(highCode.total)}</strong>`
-                : `ยอดรวมในระบบ <strong>${formatNumber(total)}</strong>`}
-            </span>
+            ${isHighTotal
+              ? `<span>ยอดต่อรหัสสูงสุด <strong>${escapeHtml(highCode.category + highCode.code)} = ${formatNumber(highCode.total)}</strong></span>`
+              : ""}
+            <span>ยอดรวมในระบบ <strong>${formatNumber(total)}</strong></span>
           </div>
 
           <button
