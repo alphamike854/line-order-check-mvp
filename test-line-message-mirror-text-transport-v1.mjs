@@ -36,6 +36,13 @@ function makeSupabase(
 
       if (
         source === undefined
+        && name === "mirror_destination_is_not_left"
+      ) {
+        source = true;
+      }
+
+      if (
+        source === undefined
         && name
           === "get_line_message_mirror_prepared_request"
       ) {
@@ -1553,3 +1560,73 @@ console.log(
 console.log(
   "PASS MIR2C-C-B1-R1-03: expired lease is reacquired before send",
 );
+
+
+// LOC Mirror LEFT isolated regressions: ALL network calls are mocked.
+{
+  const supabase = makeSupabase({
+    claim_line_message_mirror_destination_batch: [
+      textClaim({batch: "batch-left"}), {state: "EMPTY"},
+    ],
+    renew_line_message_mirror_destination_worker: true,
+    begin_line_message_mirror_batch_attempt: {ok: true},
+    mirror_destination_is_not_left: false,
+    cancel_line_message_mirror_batch: true,
+    release_line_message_mirror_destination_worker: true,
+  });
+  let sends = 0;
+  const result = await runLineMirrorDestinationWorker({
+    supabase, destinationLineGroupId: "DEST", leaseToken: "lease",
+    lineChannelAccessToken: "fake-test-token", logger,
+    retryDelaysMs: [],
+    fetchImpl: async () => { sends++; throw new Error("FORBIDDEN_SEND"); },
+  });
+  assert.equal(result.status, "DRAINED");
+  assert.equal(sends, 0);
+  assert.equal(supabase.calls.some(x => x.name === "cancel_line_message_mirror_batch" && x.args.p_reason === "MIRROR_DESTINATION_LEFT"), true);
+  console.log("PASS MIRROR_LEFT_01: terminal cancel before first push");
+}
+
+{
+  const supabase = makeSupabase({
+    claim_line_message_mirror_destination_batch: [
+      textClaim({batch: "batch-left-retry"}), {state: "EMPTY"},
+    ],
+    renew_line_message_mirror_destination_worker: true,
+    begin_line_message_mirror_batch_attempt: {ok: true},
+    mirror_destination_is_not_left: [true, false],
+    fail_line_message_mirror_batch: true,
+    cancel_line_message_mirror_batch: true,
+    release_line_message_mirror_destination_worker: true,
+  });
+  let sends = 0;
+  const result = await runLineMirrorDestinationWorker({
+    supabase, destinationLineGroupId: "DEST", leaseToken: "lease",
+    lineChannelAccessToken: "fake-test-token", logger,
+    retryDelaysMs: [0], sleepImpl: async () => {},
+    fetchImpl: async () => { sends++; return new Response("unavailable", {status:503}); },
+  });
+  assert.equal(result.status, "DRAINED");
+  assert.equal(sends, 1);
+  assert.equal(supabase.calls.filter(x => x.name === "mirror_destination_is_not_left").length, 2);
+  console.log("PASS MIRROR_LEFT_02: retry rechecks LEFT, never sends twice");
+}
+
+{
+  const supabase = makeSupabase({
+    claim_line_message_mirror_destination_batch: [textClaim({batch: "batch-read-error"})],
+    renew_line_message_mirror_destination_worker: true,
+    begin_line_message_mirror_batch_attempt: {ok: true},
+    mirror_destination_is_not_left: {__error: "MEMBERSHIP_DB_UNAVAILABLE"},
+    release_line_message_mirror_destination_worker: true,
+  });
+  let sends = 0;
+  await assert.rejects(() => runLineMirrorDestinationWorker({
+    supabase, destinationLineGroupId: "DEST", leaseToken: "lease",
+    lineChannelAccessToken: "fake-test-token", logger,
+    retryDelaysMs: [],
+    fetchImpl: async () => { sends++; throw new Error("FORBIDDEN_SEND"); },
+  }), /MIRROR_RPC_mirror_destination_is_not_left/);
+  assert.equal(sends, 0);
+  console.log("PASS MIRROR_LEFT_03: DB read failure fails closed");
+}

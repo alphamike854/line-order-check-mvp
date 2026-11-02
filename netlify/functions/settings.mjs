@@ -232,6 +232,33 @@ async function saveMirrorRoute(values) {
     ]);
 
   if (row.enabled) {
+    // Group discovery records can outlive LINE membership.
+    // Refuse enabling a route whose last observed event was leave.
+    const {
+      data: observedDestination,
+      error: observedDestinationError,
+    } = await supabase
+      .from("observed_line_groups")
+      .select("last_event_type")
+      .eq(
+        "line_group_id",
+        row.destination_line_group_id,
+      )
+      .maybeSingle();
+
+    if (observedDestinationError) {
+      throw observedDestinationError;
+    }
+
+    if (
+      observedDestination?.last_event_type
+      === "leave"
+    ) {
+      throw new Error(
+        "MIRROR_DESTINATION_LEFT",
+      );
+    }
+
     if (!source.enabled) {
       throw new Error(
         "MIRROR_SOURCE_DISABLED",

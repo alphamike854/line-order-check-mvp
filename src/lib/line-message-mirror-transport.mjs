@@ -1719,6 +1719,43 @@ export async function runLineMirrorDestinationWorker({
 
         let response;
 
+        // Recheck on EVERY attempt, including retries of frozen requests.
+        // A database read failure fails closed (no LINE Push).
+        const destinationAllowed =
+          await callMirrorRpc(
+            supabase,
+            "mirror_destination_is_not_left",
+            {
+              p_destination_line_group_id:
+                destination,
+            },
+          );
+
+        if (destinationAllowed !== true) {
+          const cancelled =
+            await callMirrorRpc(
+              supabase,
+              "cancel_line_message_mirror_batch",
+              {
+                p_batch_id:
+                  batchId,
+                p_lease_token:
+                  currentLeaseToken,
+                p_reason:
+                  "MIRROR_DESTINATION_LEFT",
+              },
+            );
+
+          if (cancelled !== true) {
+            throw new Error(
+              "MIRROR_LEFT_CANCEL_TRANSITION_REJECTED",
+            );
+          }
+
+          terminal = true;
+          break;
+        }
+
         try {
           response =
             await fetchImpl(
