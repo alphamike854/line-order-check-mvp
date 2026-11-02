@@ -16251,8 +16251,14 @@ function renderSettings() {
   $("#summaryGroupsList").innerHTML = s.summary_groups.map((row) => `
     <div class="settings-row"><span><strong>${escapeHtml(row.name)}</strong><small>${escapeHtml(row.id)}</small></span><span>${row.enabled ? "ใช้งาน" : "ปิด"}</span><button class="button ghost small edit-summary" data-id="${escapeHtml(row.id)}">แก้ไข</button></div>`).join("");
 
-  $("#lineGroupsList").innerHTML =
-    s.line_groups.map(
+  // Configured order LINE Groups: disabled entries stay editable but are not
+  // mixed into the active list. No data is deleted and Mirror is unchanged.
+  const configuredLineGroups = s.line_groups || [];
+  const activeLineGroups = configuredLineGroups.filter((row) => row.enabled);
+  const disabledLineGroups = configuredLineGroups.filter((row) => !row.enabled);
+
+  const renderConfiguredLineGroupRows = (rows) =>
+    rows.map(
       (row) => {
         const displayName =
           row.observed_group_name
@@ -16292,6 +16298,18 @@ function renderSettings() {
         `;
       },
     ).join("");
+
+  $("#lineGroupsList").innerHTML = `
+    ${activeLineGroups.length
+      ? renderConfiguredLineGroupRows(activeLineGroups)
+      : `<div class="muted">ไม่มีกลุ่ม LINE ที่เปิดใช้งาน</div>`}
+    ${disabledLineGroups.length
+      ? `<details class="disabled-line-group-history">
+          <summary>กลุ่ม LINE ที่ปิดใช้งาน (${disabledLineGroups.length}) — แสดง / แก้ไข</summary>
+          ${renderConfiguredLineGroupRows(disabledLineGroups)}
+        </details>`
+      : ""}
+  `;
 
   $("#mirrorRoutesList").innerHTML =
     (s.mirror_routes || []).length
