@@ -10518,13 +10518,10 @@ function staffVerificationTimelineItemHtml(
       ?? 0,
     );
 
-  const isHighTotal =
-    workbench
-      ?._verificationHighTotalIds
-      ?.has(
-        messageRecordId,
-      )
-    === true;
+  // High order means ANY canonical category+code >= 500 in this message.
+  // The message aggregate may be 0/missing and must not drive this badge.
+  const highCode = staffVerificationPerCodeHighTotal(item);
+  const isHighTotal = highCode.total >= 500;
 
   const messageType =
     staffVerificationTimelineMessageType(
@@ -10741,10 +10738,9 @@ function staffVerificationTimelineItemHtml(
         <div class="verification-timeline-bottom">
           <div class="verification-queue-item-meta">
             <span>
-              ยอด
-              <strong>
-                ${formatNumber(total)}
-              </strong>
+              ${isHighTotal
+                ? `ยอดต่อรหัสสูงสุด <strong>${escapeHtml(highCode.category + highCode.code)} = ${formatNumber(highCode.total)}</strong>`
+                : `ยอดรวมในระบบ <strong>${formatNumber(total)}</strong>`}
             </span>
           </div>
 
@@ -10870,99 +10866,25 @@ function staffVerificationTimelineMatchesFilters(
   item,
   workbench,
 ) {
-  const filters =
-    workbench
-      ?._verificationTimelineFilters
-    ?? new Set();
+  const filter = workbench
+    ?._verificationTimelineFilters
+    ?.values()
+    .next()
+    .value
+    ?? "ALL";
 
-  if (!filters.size) {
-    return true;
+  if (filter === "ALL") return true;
+  if (filter === "TEXT" || filter === "IMAGE") {
+    return staffVerificationTimelineMessageType(item) === filter;
   }
-
-  const activeStatusFilters =
-    [
-      ...filters,
-    ].filter(
-      (filter) =>
-        STAFF_VERIFICATION_STATUS_FILTERS
-          .has(filter),
-    );
-
-  if (
-    activeStatusFilters.length
-    && !activeStatusFilters.includes(
-      staffVerificationTimelineStatus(
-        item,
-      ),
-    )
-  ) {
-    return false;
+  if (filter === "NEEDS_FIX") {
+    return item?.needs_interpretation === true;
   }
-
-  const key =
-    String(
-      item?.message_record_id
-      ?? "",
-    );
-
-  for (const filter of filters) {
-    if (
-      STAFF_VERIFICATION_STATUS_FILTERS
-        .has(filter)
-    ) {
-      continue;
-    }
-
-    if (
-      filter === "NEEDS_FIX"
-      && item?.needs_interpretation
-        !== true
-    ) {
-      return false;
-    }
-
-    if (
-      filter === "HIGH_TOTAL"
-      && !workbench
-        ?._verificationHighTotalIds
-        ?.has(key)
-    ) {
-      return false;
-    }
-
-    if (
-      filter === "AUTO"
-      && !staffVerificationTimelineIsAuto(
-        item,
-      )
-    ) {
-      return false;
-    }
-
-    if (
-      filter === "TEXT"
-      && staffVerificationTimelineMessageType(
-        item,
-      )
-        !== "TEXT"
-    ) {
-      return false;
-    }
-
-    if (
-      filter === "IMAGE"
-      && staffVerificationTimelineMessageType(
-        item,
-      )
-        !== "IMAGE"
-    ) {
-      return false;
-    }
+  if (filter === "HIGH_TOTAL") {
+    return staffVerificationPerCodeHighTotal(item).total >= 500;
   }
-
-  return true;
+  return false;
 }
-
 
 function staffVerificationTimelineSortedItems(
   workbench,
@@ -11103,11 +11025,7 @@ function staffVerificationTimelineCounts(
       needsFix += 1;
     }
 
-    if (
-      workbench
-        ?._verificationHighTotalIds
-        ?.has(key)
-    ) {
+    if (staffVerificationPerCodeHighTotal(item).total >= 500) {
       highTotal += 1;
     }
 
@@ -11169,16 +11087,30 @@ function staffVerificationTimelineFooterHtml(
       ?.has_more
     === true;
 
+  const isHighFilter = workbench
+    ?._verificationTimelineFilters
+    ?.has("HIGH_TOTAL") === true;
+  const isFixFilter = workbench
+    ?._verificationTimelineFilters
+    ?.has("NEEDS_FIX") === true;
+  const hasMorePriority = workbench
+    ?._attentionPagination
+    ?.has_more === true;
+  const hasMoreForFilter = isHighFilter
+    ? hasMoreHigh
+    : isFixFilter
+      ? hasMorePriority
+      : hasMoreRecent;
+
   return `
     <div class="muted small-text">
       โหลดแล้ว
       ${formatNumber(loaded)}
-      รายการ
+      รายการ · ตัวกรองนับจากรายการที่โหลดแล้ว
     </div>
 
     ${
-      hasMoreRecent
-      || hasMoreHigh
+      hasMoreForFilter
         ? `
           <button
             type="button"
@@ -11283,11 +11215,13 @@ function staffVerificationUpdateTimelineControls(
           );
 
         if (count) {
-          count.textContent =
-            formatNumber(
-              countByFilter[filter]
-              ?? 0,
-            );
+          const feedNotLoaded =
+            (filter === "HIGH_TOTAL" && !workbench._highTotalLoaded)
+            || (filter === "NEEDS_FIX" && !workbench._attentionLoaded);
+          const loadedCount = countByFilter[filter] ?? 0;
+          count.textContent = feedNotLoaded && loadedCount === 0
+            ? "…"
+            : formatNumber(loadedCount);
         }
       },
     );
@@ -12001,7 +11935,9 @@ async function loadMoreStaffVerificationTimeline(
       ),
     );
   } else if (
-    workbench
+    !filters.has("HIGH_TOTAL")
+    && !filters.has("NEEDS_FIX")
+    && workbench
       ?._verificationPagination
       ?.has_more
   ) {
@@ -12129,22 +12065,10 @@ function bindStaffVerificationWorkbench(
           }
         }
 
-        if (filter === "ALL") {
-          workbench
-            ._verificationTimelineFilters
-            .clear();
-        } else if (
-          workbench
-            ._verificationTimelineFilters
-            .has(filter)
-        ) {
-          workbench
-            ._verificationTimelineFilters
-            .delete(filter);
-        } else if (filter) {
-          workbench
-            ._verificationTimelineFilters
-            .add(filter);
+        // Exclusive navigation filters: select one category at a time.
+        workbench._verificationTimelineFilters.clear();
+        if (filter && filter !== "ALL") {
+          workbench._verificationTimelineFilters.add(filter);
         }
 
         staffVerificationRenderTimeline(
@@ -12335,130 +12259,36 @@ function appendStaffVerificationQueue(
                 เก่าสุดก่อน
               </option>
               <option value="HIGHEST">
-                ยอดสูงสุด
+                ยอดต่อรหัสสูงสุด
               </option>
             </select>
           </label>
         </div>
 
-        <div class="verification-timeline-filters">
-          <button
-            type="button"
-            class="verification-filter-chip active"
-            data-verification-filter="ALL"
-            aria-pressed="true"
-          >
-            ทั้งหมด
-            <span data-filter-count>0</span>
+        <div class="verification-timeline-filters" aria-label="ตัวกรองรายการตรวจ">
+          <button type="button" class="verification-filter-chip active"
+            data-verification-filter="ALL" aria-pressed="true">
+            ทั้งหมด <span data-filter-count>0</span>
           </button>
-
-          <button
-            type="button"
-            class="verification-filter-chip"
-            data-verification-filter="PENDING"
-            aria-pressed="false"
-          >
-            ยังไม่ได้ตรวจ
-            <span data-filter-count>0</span>
+          <button type="button" class="verification-filter-chip"
+            data-verification-filter="TEXT" aria-pressed="false">
+            💬 ข้อความ <span data-filter-count>0</span>
           </button>
-
-          <button
-            type="button"
-            class="verification-filter-chip"
-            data-verification-filter="HUMAN_VERIFIED"
-            aria-pressed="false"
-          >
-            ตรวจแล้ว
-            <span data-filter-count>0</span>
+          <button type="button" class="verification-filter-chip"
+            data-verification-filter="IMAGE" aria-pressed="false">
+            🖼 รูปภาพ <span data-filter-count>0</span>
           </button>
-
-          <button
-            type="button"
-            class="verification-filter-chip"
-            data-verification-filter="HUMAN_CORRECTED"
-            aria-pressed="false"
-          >
-            แก้ไขโดยคน
-            <span data-filter-count>0</span>
+          <button type="button" class="verification-filter-chip"
+            data-verification-filter="NEEDS_FIX" aria-pressed="false">
+            🔴 ต้องแก้ไข <span data-filter-count>0</span>
           </button>
-
-          <button
-            type="button"
-            class="verification-filter-chip"
-            data-verification-filter="HUMAN_IGNORED"
-            aria-pressed="false"
-          >
-            ข้าม
-            <span data-filter-count>0</span>
+          <button type="button" class="verification-filter-chip"
+            data-verification-filter="HIGH_TOTAL" aria-pressed="false">
+            🟠 ยอดสูง ≥500/รหัส <span data-filter-count>0</span>
           </button>
-
-          <button
-            type="button"
-            class="verification-filter-chip"
-            data-verification-filter="UNSENT"
-            aria-pressed="false"
-          >
-            ยกเลิก
-            <span data-filter-count>0</span>
-          </button>
-
-          <button
-            type="button"
-            class="verification-filter-chip"
-            data-verification-filter="NEEDS_FIX"
-            aria-pressed="false"
-          >
-            ต้องแก้ไข
-            <span data-filter-count>0</span>
-          </button>
-
-          <button
-            type="button"
-            class="verification-filter-chip"
-            data-verification-filter="HIGH_TOTAL"
-            aria-pressed="false"
-          >
-            ยอดสูง
-            <span data-filter-count>0</span>
-          </button>
-
-          <button
-            type="button"
-            class="verification-filter-chip"
-            data-verification-filter="AUTO"
-            aria-pressed="false"
-          >
-            ระบบ Auto
-            <span data-filter-count>0</span>
-          </button>
-
-          <button
-            type="button"
-            class="verification-filter-chip"
-            data-verification-filter="TEXT"
-            aria-pressed="false"
-          >
-            💬 ข้อความ
-            <span data-filter-count>0</span>
-          </button>
-
-          <button
-            type="button"
-            class="verification-filter-chip"
-            data-verification-filter="IMAGE"
-            aria-pressed="false"
-          >
-            🖼 รูปภาพ
-            <span data-filter-count>0</span>
-          </button>
-
-          <button
-            type="button"
-            class="button ghost small clear-verification-timeline-filters"
-            hidden
-          >
-            ล้างตัวกรอง
-          </button>
+        </div>
+        <div class="muted small-text">
+          ตัวเลขบนตัวกรองนับจากรายการที่โหลดแล้ว · ยอดสูงพิจารณาอย่างน้อยหนึ่งรหัส ≥500
         </div>
 
         <div class="verification-split-view">
