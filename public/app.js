@@ -2043,6 +2043,23 @@ function lineGroupAllocationBlockReason(
   }
 
 
+  // A missing/incomplete plan is not evidence of zero required cuts.
+  // Incident Dashboard intentionally omits all these plan rows.
+  if (
+    plans.length !== 3
+    || plans.some(
+      (plan) =>
+        plan.transfer_required_total == null
+        || !Number.isFinite(
+          Number(plan.transfer_required_total)
+        )
+        || Number(plan.transfer_required_total) < 0
+    )
+  ) {
+    return "RISK_PLAN_UNAVAILABLE";
+  }
+
+
   return null;
 }
 
@@ -2244,6 +2261,9 @@ function updateBulkDistributionSummary(
 
       LINE_GROUP_NOT_READY:
         "ยังไม่มีข้อมูล LINE Group",
+
+      RISK_PLAN_UNAVAILABLE:
+        "รอข้อมูลแผนตัดยอด",
     }[blockReason] || blockReason;
 
 
@@ -3052,6 +3072,11 @@ function renderAllocation() {
       lineGroupId
     );
 
+  const allocationBlockReason =
+    lineGroupAllocationBlockReason(
+      lineGroupId
+    );
+
   const operationalRiskTone =
     (
       risk.risk_status === "DATA_INTEGRITY_ERROR"
@@ -3062,18 +3087,24 @@ function renderAllocation() {
       ? "integrity"
       : risk.calculation_status === "WAITING_FIRST_BAND"
         ? "waiting"
-        : operationalRequired > 0
-          ? "required"
-          : "safe";
+        : allocationBlockReason
+          ? "waiting"
+          : operationalRequired > 0
+            ? "required"
+            : "safe";
 
   const operationalRiskLabel =
     operationalRiskTone === "integrity"
       ? "ต้องตรวจสอบ"
-      : operationalRiskTone === "waiting"
+      : risk.calculation_status === "WAITING_FIRST_BAND"
         ? "รอครบ Band แรก"
-        : operationalRiskTone === "required"
-          ? "ต้องตัดยอด"
-          : "อยู่ในเกณฑ์";
+        : allocationBlockReason === "RISK_PLAN_UNAVAILABLE"
+          ? "ยังยืนยันสถานะตัดยอดไม่ได้"
+          : allocationBlockReason
+            ? "ยังไม่พร้อมตัดยอด"
+            : operationalRiskTone === "required"
+              ? "ต้องตัดยอด"
+              : "อยู่ในเกณฑ์";
 
   riskSummary.innerHTML = `
     <section class="line-group-risk-hero ${operationalRiskTone}">
@@ -3138,11 +3169,13 @@ function renderAllocation() {
         <div class="risk-hero-required">
           <span>ต้องตัดเพิ่ม</span>
           <strong>
-            ${formatNumber(
-              risk.recommended_cut_total
-              || operationalRequired
-              || 0
-            )}
+            ${allocationBlockReason === "RISK_PLAN_UNAVAILABLE"
+              ? "—"
+              : formatNumber(
+                  risk.recommended_cut_total
+                  || operationalRequired
+                  || 0
+                )}
           </strong>
         </div>
 
@@ -3434,6 +3467,9 @@ function renderAllocation() {
 
       LINE_GROUP_NOT_READY:
         "ยังไม่มีข้อมูล LINE Group",
+
+      RISK_PLAN_UNAVAILABLE:
+        "ยังยืนยันสถานะตัดยอดไม่ได้ · ระบบไม่ได้ส่งแผนตัดยอดที่พร้อมตรวจสอบ",
     }[blockReason] || blockReason;
 
 
@@ -3576,6 +3612,9 @@ async function runBulkDistribution() {
 
       LINE_GROUP_NOT_READY:
         "ยังไม่มีข้อมูล LINE Group",
+
+      RISK_PLAN_UNAVAILABLE:
+        "ยังไม่มีแผนตัดยอดที่ตรวจสอบได้",
     }[blockReason] || blockReason;
 
 
