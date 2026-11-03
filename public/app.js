@@ -2101,11 +2101,16 @@ function savedWarehouseSelection(warehouses) {
   return valid.length ? new Set(valid) : new Set((warehouses || []).map((row) => row.destination));
 }
 
-function renderWarehouseChoices(warehouses) {
+function renderWarehouseChoices(
+  warehouses,
+  { showMissingWarning = true } = {},
+) {
   const root = $("#warehouseChoices");
   if (!root) return;
   if (!warehouses.length) {
-    root.innerHTML = `<div class="risk-notice">ยังไม่ได้ตั้งค่าคลังปลายทาง ไปที่ <strong>ตั้งค่า → ลิมิตคลังต่อรอบ</strong></div>`;
+    root.innerHTML = showMissingWarning
+      ? `<div class="risk-notice">ยังไม่มีคลังปลายทางที่เปิดใช้งาน ไปที่ <strong>ตั้งค่า → ลิมิตคลังต่อรอบ</strong></div>`
+      : "";
     return;
   }
   const selected = savedWarehouseSelection(warehouses);
@@ -3182,7 +3187,15 @@ function renderAllocation() {
 
 
   renderWarehouseChoices(
-    warehouses
+    warehouses,
+    {
+      showMissingWarning:
+        operationalRequired > 0
+        && risk.calculation_status === "READY"
+        && !lineGroupAllocationBlockReason(
+          lineGroupId
+        ),
+    }
   );
 
 
