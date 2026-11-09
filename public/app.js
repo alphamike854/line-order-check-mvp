@@ -4629,6 +4629,240 @@ function reviewWorkbenchQuery() {
   return params.toString();
 }
 
+
+/* Supervisor Review primary queue pagination: bounded, anchor-checked. */
+function staffReviewPageQuery(offset, limit = 200) {
+  const params = new URLSearchParams(reviewWorkbenchQuery());
+  params.set("limit", String(limit));
+  params.set("offset", String(offset));
+  return params.toString();
+}
+
+function decideStaffReviewBoundaryPage({
+  payload,
+  requestedOffset,
+  expectedLastId,
+  knownIds,
+  expectedStaffId,
+  expectedSessionId,
+}) {
+  const rows = payload?.items;
+  const pagination = payload?.pagination;
+  if (
+    !Array.isArray(rows)
+    || !pagination
+    || !Number.isInteger(requestedOffset)
+    || requestedOffset < 0
+    || Number(pagination.offset) !== requestedOffset
+    || Number(pagination.limit) !== 200
+    || Number(pagination.returned) !== rows.length
+    || typeof pagination.has_more !== "boolean"
+    || String(payload?.actor?.staff_id ?? "") !== String(expectedStaffId)
+    || String(payload?.settlement_session?.id ?? "") !== String(expectedSessionId)
+  ) {
+    return { ok: false, error: "PAGE_CONTRACT_CHANGED" };
+  }
+
+  const ids = rows.map((row) => String(row?.id ?? ""));
+  if (!ids.length || !expectedLastId || ids[0] !== expectedLastId) {
+    return { ok: false, error: "PAGE_BOUNDARY_CHANGED" };
+  }
+
+  const addedIds = ids.slice(1);
+  const seen = new Set(knownIds);
+  for (const id of addedIds) {
+    if (!id || seen.has(id)) {
+      return { ok: false, error: "PAGE_DUPLICATE_OR_INVALID" };
+    }
+    seen.add(id);
+  }
+
+  if (pagination.has_more && rows.length !== 200) {
+    return { ok: false, error: "PAGE_CONTRACT_CHANGED" };
+  }
+
+  return {
+    ok: true,
+    items: rows.slice(1),
+    lastId: ids[ids.length - 1],
+    nextOffset: requestedOffset + rows.length,
+    hasMore: pagination.has_more,
+  };
+}
+
+function staffLiveReviewPaginationHtml(pagerState) {
+  const loaded = formatNumber(pagerState.knownIds.size);
+  const notice = pagerState.invalidated
+    ? "รายการตรวจอาจเปลี่ยนระหว่างโหลด · กรุณาอัปเดตจากหน้าแรกเพื่อไม่ให้ข้ามรายการ"
+    : pagerState.error
+      ? "โหลดหน้าถัดไปไม่สำเร็จ · สามารถลองโหลดอีกครั้ง"
+      : pagerState.hasMore
+        ? "ยังอาจมีรายการเพิ่มเติม · จำนวนที่แสดงไม่ใช่ยอดทั้งหมด"
+        : "ถึงหน้าสุดท้ายตามข้อมูลที่อ่านล่าสุด";
+
+  return `
+    <div class="risk-notice" role="status">
+      <div><strong>Review ที่โหลดแล้ว ${loaded} รายการ</strong></div>
+      <div class="muted small-text">${notice}</div>
+      ${pagerState.invalidated
+        ? `<button type="button" class="button ghost small refresh-staff-live-reviews">อัปเดตรายการจากหน้าแรก</button>`
+        : pagerState.hasMore
+          ? `<button type="button" class="button ghost small load-more-staff-live-reviews">โหลดรายการเพิ่มเติม</button>`
+          : ""}
+    </div>
+  `;
+}
+
+function mountStaffLiveReviewPagination({
+  list,
+  items,
+  reviewPayload,
+  generation,
+}) {
+  if (state.authMode !== "STAFF" || !list || !items?.length) return;
+  const details = list.querySelector("#staffLiveReviewQueue");
+  const itemsRoot = details?.querySelector(".staff-live-review-items");
+  if (!details || !itemsRoot) return;
+
+  const pagination = reviewPayload?.pagination ?? {};
+  const pager = document.createElement("div");
+  pager.id = "staffLiveReviewPagination";
+  details.insertAdjacentElement("beforebegin", pager);
+
+  const pagerState = {
+    knownIds: new Set(items.map((item) => String(item.id))),
+    lastId: String(items[items.length - 1]?.id ?? ""),
+    nextOffset: Number(pagination.offset ?? 0) + Number(pagination.returned ?? items.length),
+    hasMore: pagination.has_more === true,
+    invalidated: false,
+    error: false,
+    staffId: String(reviewPayload?.actor?.staff_id ?? ""),
+    sessionId: String(reviewPayload?.settlement_session?.id ?? ""),
+  };
+
+  if (
+    pagerState.hasMore
+    && (
+      pagerState.nextOffset !== items.length
+      || pagerState.nextOffset !== 200
+      || !pagerState.lastId
+      || !pagerState.staffId
+      || !pagerState.sessionId
+    )
+  ) {
+    pagerState.invalidated = true;
+    pagerState.hasMore = false;
+  }
+
+  const renderPager = () => {
+    pager.innerHTML = staffLiveReviewPaginationHtml(pagerState);
+    const count = details.querySelector(".review-secondary-summary-count");
+    if (count) count.textContent = `${formatNumber(pagerState.knownIds.size)} รายการที่โหลดแล้ว`;
+  };
+  renderPager();
+
+  pager._invalidateAfterResolution = () => {
+    if (!pager.isConnected) return;
+    pagerState.knownIds = new Set(
+      [...itemsRoot.querySelectorAll(".review-card")]
+        .map((card) => String(card.dataset.reviewId ?? ""))
+        .filter(Boolean),
+    );
+    pagerState.invalidated = true;
+    pagerState.hasMore = false;
+    renderPager();
+  };
+
+  pager.addEventListener("click", async (event) => {
+    if (event.target.closest(".refresh-staff-live-reviews")) {
+      await loadReviews();
+      return;
+    }
+    const button = event.target.closest(".load-more-staff-live-reviews");
+    if (!button || pagerState.invalidated || !pagerState.hasMore || button.disabled) return;
+
+    const requestedOffset = pagerState.nextOffset - 1;
+    button.disabled = true;
+    pagerState.error = false;
+    let wroteDom = false;
+    try {
+      const payload = await api(
+        `/api/staff-reviews?${staffReviewPageQuery(requestedOffset, 200)}`,
+      );
+
+      // A subsequent Review refresh / new Staff session owns the UI now.
+      if (
+        state.authMode !== "STAFF"
+        || list._staffVerificationSecondaryGeneration !== generation
+        || list.querySelector("#staffLiveReviewPagination") !== pager
+        || !pager.isConnected
+      ) return;
+
+      const decision = decideStaffReviewBoundaryPage({
+        payload,
+        requestedOffset,
+        expectedLastId: pagerState.lastId,
+        knownIds: pagerState.knownIds,
+        expectedStaffId: pagerState.staffId,
+        expectedSessionId: pagerState.sessionId,
+      });
+
+      if (!decision.ok) {
+        pagerState.invalidated = true;
+        pagerState.hasMore = false;
+        renderPager();
+        return;
+      }
+
+      const newItems = decision.items;
+      const byId = new Map(newItems.map((item) => [String(item.id), item]));
+      const newIds = new Set(byId.keys());
+      if (newItems.length) {
+        itemsRoot.insertAdjacentHTML(
+          "beforeend",
+          newItems.map(liveReviewCardHtml).join(""),
+        );
+        wroteDom = true;
+
+        for (const card of itemsRoot.querySelectorAll(".review-card")) {
+          const id = String(card.dataset.reviewId ?? "");
+          if (!newIds.has(id)) continue;
+          const item = byId.get(id);
+          card._reviewItem = { ...item, ...reviewClaimFields(item) };
+          card._workbenchActor = payload.actor;
+          syncReviewCardClaimUi(card);
+          card.querySelector(".preview-review")?.addEventListener("click", previewReview);
+          card.querySelector(".ignore-review")?.addEventListener("click", ignoreReview);
+          card.querySelector(".review-editor")?.addEventListener("input", onReviewEditorInput);
+        }
+        details.open = true;
+      }
+
+      for (const id of newIds) pagerState.knownIds.add(id);
+      pagerState.lastId = decision.lastId;
+      pagerState.nextOffset = decision.nextOffset;
+      pagerState.hasMore = decision.hasMore;
+      renderPager();
+    } catch (error) {
+      if (
+        state.authMode === "STAFF"
+        && list._staffVerificationSecondaryGeneration === generation
+        && list.querySelector("#staffLiveReviewPagination") === pager
+      ) {
+        if (wroteDom) {
+          pagerState.invalidated = true;
+          pagerState.hasMore = false;
+        } else {
+          pagerState.error = true;
+        }
+        renderPager();
+      }
+    } finally {
+      if (button.isConnected) button.disabled = false;
+    }
+  });
+}
+
 function reviewClaimFields(
   workItem,
 ) {
@@ -5462,6 +5696,10 @@ function completeReviewResolutionLocally(
   );
 
   card?.remove?.();
+
+  // A successful resolution may shift the server's offset pagination.
+  document.querySelector("#staffLiveReviewPagination")
+    ?._invalidateAfterResolution?.();
 
   if (!workbench) {
     return;
@@ -15357,6 +15595,13 @@ async function loadReviews() {
           ),
       );
     if (realStaff) {
+        mountStaffLiveReviewPagination({
+          list,
+          items,
+          reviewPayload,
+          generation: staffVerificationSecondaryGeneration,
+        });
+
         appendStaffVerificationQueue(
           list,
           workbenchPayload,
