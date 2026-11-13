@@ -9,7 +9,7 @@ export default async function handler(req) {
     const auth=await authenticateWorkbenchActor(req,{client:supabase,dashboardReviewerStaffCode:''});
     if(!auth.ok)return json({ok:false,error:auth.error},auth.status);
     const actor=auth.actor;
-    if(actor?.kind!=='STAFF'||!actor.staff_id||!['ADMIN','SUPERVISOR'].includes(String(actor.role).toUpperCase()))return json({ok:false,error:'FORBIDDEN'},403);
+    if(actor?.kind!=='STAFF'||!actor.staff_id||!['ADMIN','SUPERVISOR','STAFF'].includes(String(actor.role).toUpperCase()))return json({ok:false,error:'FORBIDDEN'},403);
     const q=new URL(req.url).searchParams;
     const supplied=q.getAll('group');
     const category=q.get('category'), code=q.get('code');

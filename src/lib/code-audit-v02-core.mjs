@@ -37,7 +37,7 @@ export function createCodeAuditReadHandler({authenticate, getLineGroups, getSumm
       if (!auth?.ok) return bad('UNAUTHORIZED',auth?.status === 403 ? 403 : 401);
       if (auth.actor?.kind !== 'STAFF' ||
           !auth.actor?.staff_id ||
-          !['ADMIN','SUPERVISOR'].includes(String(auth.actor?.role).toUpperCase())) return bad('FORBIDDEN',403);
+          !['ADMIN','SUPERVISOR','STAFF'].includes(String(auth.actor?.role).toUpperCase())) return bad('FORBIDDEN',403);
       const assignments = await getLineGroups(auth.actor);
       if (!Array.isArray(assignments)) throw Error('INVALID_SCOPE');
       const eligible = assignments.filter(x=>GROUP_RE.test(String(x.summary_group_id||'')) && LINE_RE.test(String(x.line_group_id||'')));

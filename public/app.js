@@ -594,7 +594,7 @@ function configureAppForAuthMode(
     const role = String(state.actor?.role ?? "").toUpperCase();
     codeAuditLink.classList.toggle(
       "hidden",
-      !(mode === "STAFF" && state.actor?.staff_id && ["ADMIN", "SUPERVISOR"].includes(role)),
+      !(mode === "STAFF" && state.actor?.staff_id && ["ADMIN", "SUPERVISOR", "STAFF"].includes(role)),
     );
   }
 
@@ -19651,7 +19651,7 @@ async function openCodeAuditReviewTarget() {
     && target.created_at <= Date.now()
     && Date.now() - target.created_at <= 5 * 60 * 1000;
   if (!valid || state.authMode !== "STAFF" ||
-      !["ADMIN", "SUPERVISOR"].includes(String(state.actor?.role || "").toUpperCase())) return;
+      !["ADMIN", "SUPERVISOR", "STAFF"].includes(String(state.actor?.role || "").toUpperCase())) return;
 
   // Classification-only login deliberately returns no LINE groups.
   // Resolve fresh, server-authorized personal Staff scope for this one-shot
@@ -19669,7 +19669,7 @@ async function openCodeAuditReviewTarget() {
         payload.actor?.kind !== "STAFF" ||
         !state.actor?.staff_id ||
         payload.actor.staff_id !== state.actor.staff_id ||
-        !["ADMIN", "SUPERVISOR"].includes(String(payload.actor.role || "").toUpperCase()) ||
+        !["ADMIN", "SUPERVISOR", "STAFF"].includes(String(payload.actor.role || "").toUpperCase()) ||
         !Array.isArray(payload.line_groups)) {
       throw new Error("STAFF_SCOPE_INVALID");
     }

@@ -13,7 +13,7 @@ export function checkedInt(value, label = 'INVALID_NUMBER') {
 export function formatTotal(v) { return new Intl.NumberFormat('th-TH').format(checkedInt(v)); }
 export function personalActor(p) {
   const a = p?.actor;
-  if (p?.ok !== true || a?.kind !== 'STAFF' || !UUID.test(String(a?.staff_id || '')) || !['ADMIN','SUPERVISOR'].includes(a?.role)) fail('PERSONAL_ADMIN_OR_SUPERVISOR_REQUIRED');
+  if (p?.ok !== true || a?.kind !== 'STAFF' || !UUID.test(String(a?.staff_id || '')) || !['ADMIN','SUPERVISOR','STAFF'].includes(a?.role)) fail('PERSONAL_STAFF_REQUIRED');
   if (!Array.isArray(p.line_groups)) fail('GROUP_SCOPE_UNAVAILABLE');
   const groups = p.line_groups.map(x => ({
     summary_group_id: String(x.summary_group_id || ''),
