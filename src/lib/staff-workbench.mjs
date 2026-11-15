@@ -127,6 +127,10 @@ export async function loadActorSessionLineGroupIds(
       .eq(
         "settlement_session_id",
         settlementSessionId,
+      )
+      .eq(
+        "enabled",
+        true,
       );
 
     if (error) {
@@ -182,6 +186,10 @@ export async function loadActorSessionLineGroupIds(
       .eq(
         "settlement_session_id",
         settlementSessionId,
+      )
+      .eq(
+        "enabled",
+        true,
       ),
   ]);
 
