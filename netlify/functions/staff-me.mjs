@@ -60,6 +60,41 @@ export default async function handler(req) {
             auth.actor,
           );
 
+    // Optional Code Audit label metadata, restricted to authorized LINE Groups.
+    // Other staff-me consumers keep their original query and response path.
+    const includeCodeAuditGroupNames =
+      !classificationOnly
+      && auth.actor.kind === "STAFF"
+      && req.headers.get("x-code-audit-group-names") === "1";
+
+    const summaryGroupNames = {};
+    if (includeCodeAuditGroupNames) {
+      const authorizedGroupIds = [
+        ...new Set(
+          lineGroups
+            .map((row) => row.summary_group_id)
+            .filter(Boolean),
+        ),
+      ];
+
+      if (authorizedGroupIds.length) {
+        const { data: summaryGroups, error: nameError } =
+          await supabase
+            .from("summary_groups")
+            .select("id,name")
+            .in("id", authorizedGroupIds);
+        if (nameError) throw nameError;
+        for (const group of summaryGroups ?? []) {
+          if (
+            authorizedGroupIds.includes(group.id)
+            && typeof group.name === "string"
+          ) {
+            summaryGroupNames[group.id] = group.name;
+          }
+        }
+      }
+    }
+
     return json({
       ok: true,
 
@@ -81,6 +116,10 @@ export default async function handler(req) {
 
       line_groups:
         lineGroups,
+
+      ...(includeCodeAuditGroupNames
+        ? { summary_group_names: summaryGroupNames }
+        : {}),
     });
   } catch (error) {
     console.error(

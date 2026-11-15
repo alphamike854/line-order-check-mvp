@@ -21,7 +21,16 @@ async function loadWithGuard(path,consume){
 function selectedGroups(){return [...state.selected].sort();}
 function scopedQuery(){const p=new URLSearchParams();for(const id of selectedGroups())p.append('group',id);return p;}
 function currentLineIds(){return state.identity.lineGroups.filter(x=>state.selected.has(x.summary_group_id)).map(x=>x.line_group_id);}
-function showGroups(){const root=$('groups');root.replaceChildren();for(const id of state.identity.summaryGroups){const label=el('label',undefined,'pill');const cb=document.createElement('input');cb.type='checkbox';cb.checked=state.selected.has(id);cb.addEventListener('change',()=>{if(cb.checked)state.selected.add(id);else state.selected.delete(id);clearBelow(2);loadSummary();});label.append(cb,document.createTextNode(id));root.append(label);}}
+function groupDisplayLabel(id){
+  const saved=String(state.identity?.summaryGroupNames?.[id]??'').trim();
+  if(saved&&saved!==id)return `${saved} (${id})`;
+  const match=/^(SOUTHEAST|SOUTHWEST|NORTH|SOUTH|EAST|WEST)(?:-([A-Z0-9]+))?$/.exec(id);
+  const directions={SOUTHEAST:'ตะวันออกเฉียงใต้',SOUTHWEST:'ตะวันตกเฉียงใต้',NORTH:'เหนือ',SOUTH:'ใต้',EAST:'ตะวันออก',WEST:'ตะวันตก'};
+  return match
+    ? `กลุ่ม${directions[match[1]]}${match[2]?' '+match[2]:''} (${id})`
+    : `กลุ่มสรุป (${id})`;
+}
+function showGroups(){const root=$('groups');root.replaceChildren();for(const id of state.identity.summaryGroups){const label=el('label',undefined,'pill');const cb=document.createElement('input');cb.type='checkbox';cb.checked=state.selected.has(id);cb.addEventListener('change',()=>{if(cb.checked)state.selected.add(id);else state.selected.delete(id);clearBelow(2);loadSummary();});label.append(cb,document.createTextNode(groupDisplayLabel(id)));root.append(label);}}
 function showCoverage(result){
   const isAdmin=state.identity.actor.role==='ADMIN';
   const notes=[];
@@ -128,8 +137,15 @@ $('loginForm').addEventListener('submit',async ev=>{
   ev.preventDefault();const key=$('accessKey').value.trim();if(!key)return;
   cancelRequest();status('กำลังตรวจสิทธิ์...');
   try {
-    const resp=await fetch('/api/staff-me',{headers:{'x-staff-key':key},cache:'no-store'});const p=await resp.json();if(!resp.ok)throw Error('UNAUTHORIZED');
+    const resp=await fetch('/api/staff-me',{headers:{'x-staff-key':key,'x-code-audit-group-names':'1'},cache:'no-store'});const p=await resp.json();if(!resp.ok)throw Error('UNAUTHORIZED');
     const identity=personalActor(p);if(!identity.summaryGroups.length)throw Error('NO_ASSIGNED_LINE_GROUP');
+    // Never let display metadata expand the authorized Summary Group set.
+    const labels=p?.summary_group_names;
+    identity.summaryGroupNames=Object.fromEntries(
+      identity.summaryGroups
+        .filter(id=>labels&&typeof labels==='object'&&!Array.isArray(labels)&&typeof labels[id]==='string')
+        .map(id=>[id,labels[id].trim().slice(0,120)]),
+    );
     state.key=key;state.identity=identity;state.selected=new Set(identity.summaryGroups);sessionStorage.setItem('lineOrderAccessKey',key);
     $('accessKey').value='';$('loginPanel').classList.add('hidden');$('workspace').classList.remove('hidden');showGroups();await loadSummary();
   }catch(err){status(`เข้าสู่ระบบไม่ได้: ${err.message}`,true);}
