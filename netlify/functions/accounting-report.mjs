@@ -32,6 +32,28 @@ import {
 
 const REPORT_PAGE_SIZE = 500;
 
+// Current-open-session Report: one LINE Group has one CURRENT route.
+// Historical attribution remains immutable and is available through an
+// explicitly selected Summary Group / historical settlement session.
+function reportConfigsForCurrentRoute(configs, lineGroupId, currentSummaryId) {
+  if (!currentSummaryId) return [];
+  return (configs ?? []).filter(
+    (config) => config.line_group_id === lineGroupId
+      && config.summary_group_id === currentSummaryId,
+  );
+}
+
+// The effective-item RPC is round-scoped but its message-metadata RPC
+// doesn't return round_id. Join by the immutable Summary Group identity
+// *as well as* LINE Group, never LINE Group ID alone after a remap.
+function reportItemsForConfig(message, config, itemsByMessage) {
+  if (message.line_group_id !== config.line_group_id) return [];
+  return (itemsByMessage.get(message.id) ?? []).filter(
+    (item) => item.line_group_id === config.line_group_id
+      && item.summary_group_id === config.summary_group_id,
+  );
+}
+
 
 async function fetchAllPages(makeQuery, streamName = null, trace = null) {
   const rows = [];
@@ -669,6 +691,28 @@ export default async (req) => {
       }
     }
 
+
+    // For an unqualified LINE Group detail report in the OPEN settlement,
+    // do not carry its older CLOSED Summary Group into the current view.
+    // Explicit group/history selection is not rewritten by this boundary.
+    if (
+      selectedLine
+      && !selectedSummary
+      && session.status === "OPEN"
+    ) {
+      const { data: currentRoute, error: currentRouteError } = await supabase
+        .from("settlement_line_group_config")
+        .select("summary_group_id")
+        .eq("settlement_session_id", session.id)
+        .eq("line_group_id", selectedLine)
+        .maybeSingle();
+      if (currentRouteError) throw currentRouteError;
+      configRows = reportConfigsForCurrentRoute(
+        configRows,
+        selectedLine,
+        currentRoute?.summary_group_id,
+      );
+    }
 
     const configuredSummaryIds =
       [
@@ -1447,11 +1491,11 @@ export default async (req) => {
             (messages ?? [])
               .filter(
                 (message) =>
-                  message.line_group_id
-                    === cfg.line_group_id
-                  && itemsByMessage.has(
-                    message.id,
-                  ),
+                  reportItemsForConfig(
+                    message,
+                    cfg,
+                    itemsByMessage,
+                  ).length > 0,
               );
 
 
@@ -1469,10 +1513,11 @@ export default async (req) => {
                 index,
               ) => {
                 const msgItems =
-                  itemsByMessage.get(
-                    message.id,
-                  )
-                  ?? [];
+                  reportItemsForConfig(
+                    message,
+                    cfg,
+                    itemsByMessage,
+                  );
 
 
                 const qty =
