@@ -11636,6 +11636,9 @@ function staffVerificationRestoreLiveReviewInspectorCard(
     );
 
   if (stagingRoot) {
+    card.querySelector(
+      ".live-review-card-right > .live-review-card-pane-heading",
+    )?.classList.remove("hidden");
     card.classList.remove(
       "verification-inspector-live-review-card",
     );
@@ -11871,7 +11874,7 @@ async function recoverMissingLiveReviewCard(
     const card = probe.querySelector(".review-card[data-review-id]");
     if (!card || String(card.dataset.reviewId) !== String(id)) return;
     card._reviewItem = item;
-    card._workbenchActor = payload.actor ?? workbench._verificationWorkbenchActor ?? null;
+    card._workbenchActor = workbench._verificationWorkbenchActor ?? payload.actor ?? null;
     staging.append(card);
     syncReviewCardClaimUi(card);
     card.querySelector(".preview-review")?.addEventListener("click", previewReview);
@@ -11988,6 +11991,11 @@ function selectStaffVerificationWorkbenchItem(
       itemsRoot.replaceChildren(
         legacyCard,
       );
+
+      // The Inspector already has this heading; keep it in the legacy queue.
+      legacyCard.querySelector(
+        ".live-review-card-right > .live-review-card-pane-heading",
+      )?.classList.add("hidden");
 
       workbench
         ._verificationInspectorLiveReviewCard =
