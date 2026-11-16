@@ -11849,7 +11849,12 @@ async function recoverMissingLiveReviewCard(
     }
 
     // Do not let a response for SOUTH replace a newer SOUTHEAST selection.
-    if (!workbench.isConnected || summaryGroupSelect.value !== requestedGroup) return;
+    const activeGroup = String(summaryGroupSelect.value ?? "");
+    if (
+      !workbench.isConnected
+      || workbench._selectedMessageRecordId !== key
+      || (activeGroup !== "ALL" && activeGroup !== "" && activeGroup !== requestedGroup)
+    ) return;
     const list = workbench.closest("#reviewList");
     if (!list) return;
     let staging = list.querySelector("#staffLiveReviewQueue .staff-live-review-items");
