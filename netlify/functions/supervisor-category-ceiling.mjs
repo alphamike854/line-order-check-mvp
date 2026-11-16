@@ -42,6 +42,54 @@ async function query(signal, makeQuery, stage = 'unknown') {
   }
 }
 
+// A table-valued RPC is subject to the Supabase Data API row cap (usually 1,000).
+// Page with a deterministic order and an exact total; never publish partial ceilings.
+const CEILING_RPC_PAGE_SIZE = 1000;
+const CEILING_RPC_MAX_PAGES = 16;
+async function readAllCeilingRows(signal, selectedIds) {
+  const allRows = [];
+  const seen = new Set();
+  let totalRows = null;
+  for (let page = 0; page < CEILING_RPC_MAX_PAGES; page += 1) {
+    const from = page * CEILING_RPC_PAGE_SIZE;
+    const result = await supabase.rpc(
+      'supervisor_category_ceiling_report_v5',
+      { p_summary_group_ids: selectedIds },
+      page === 0 ? { count: 'exact' } : {}
+    )
+      .order('category', { ascending: true })
+      .order('order_total', { ascending: false })
+      .order('code', { ascending: true })
+      .range(from, from + CEILING_RPC_PAGE_SIZE - 1)
+      .abortSignal(signal);
+    if (result.error) throw result.error;
+    if (page === 0) {
+      totalRows = result.count;
+      if (!Number.isSafeInteger(totalRows) || totalRows < 0) {
+        throw Error('CEILING_RPC_TOTAL_COUNT_UNAVAILABLE');
+      }
+      if (totalRows > CEILING_RPC_PAGE_SIZE * CEILING_RPC_MAX_PAGES) {
+        throw Error('CEILING_RPC_ROW_CAPACITY_EXCEEDED');
+      }
+    }
+    const batch = result.data;
+    if (!Array.isArray(batch) || batch.length > CEILING_RPC_PAGE_SIZE) {
+      throw Error('CEILING_RPC_INVALID_PAGE');
+    }
+    for (const row of batch) {
+      const key = `${row.category}\u0000${row.code}`;
+      if (seen.has(key)) throw Error('CEILING_RPC_DUPLICATE_OR_MOVING_PAGE');
+      seen.add(key);
+      allRows.push(row);
+    }
+    if (allRows.length === totalRows) return allRows;
+    if (allRows.length > totalRows || batch.length < CEILING_RPC_PAGE_SIZE) {
+      throw Error('CEILING_RPC_INCOMPLETE_PAGE');
+    }
+  }
+  throw Error('CEILING_RPC_INCOMPLETE_RESULT');
+}
+
 async function readReport(date, requestedIds, readTimeoutMs = READ_TIMEOUT_MS) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), readTimeoutMs);
@@ -62,10 +110,7 @@ async function readReport(date, requestedIds, readTimeoutMs = READ_TIMEOUT_MS) {
     const [cursors, rawCodes] = await Promise.all([
       query(controller.signal, () => supabase.from('summary_group_round_runtime_state')
         .select('summary_group_id,latest_round_id,latest_business_date'), 'round_cursors'),
-      query(controller.signal, () => supabase.rpc(
-        'supervisor_category_ceiling_report_v5',
-        { p_summary_group_ids: selectedIds }
-      ), 'accounting_rpc'),
+      readAllCeilingRows(controller.signal, selectedIds),
     ]);
     const latest = new Map(cursors.map(row => [row.summary_group_id, row]));
     const ids = groups.map(g => latest.get(g.id)?.latest_round_id).filter(Boolean);
