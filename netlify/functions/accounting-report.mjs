@@ -54,6 +54,7 @@ function isKnown504ReportRequest(req) {
 }
 
 const REPORT_PAGE_SIZE = 500;
+const REPORT_ITEMS_PAGE_SIZE = 1000;
 
 // Current-open-session Report: one LINE Group has one CURRENT route.
 // Historical attribution remains immutable and is available through an
@@ -138,22 +139,46 @@ async function fetchAllPages(makeQuery, streamName = null, trace = null) {
 async function fetchAllPagesConcurrent(makeQuery, streamName = null, trace = null) {
   const rows = [];
   const concurrency = 3;
-  const stride = REPORT_PAGE_SIZE * concurrency;
+
+  // Probe one 1,000-row item page. PostgREST may cap responses below the
+  // requested range; a short probe must fall back to the known-safe 500.
+  // Never interpret a capped first page as the complete ledger.
+  const probeStartedAt = Date.now();
+  const { data: probeData, error: probeError } =
+    await makeQuery().range(0, REPORT_ITEMS_PAGE_SIZE - 1);
+  if (probeError) throw probeError;
+  const probe = probeData ?? [];
+  if (!Array.isArray(probe) || probe.length > REPORT_ITEMS_PAGE_SIZE) {
+    throw new Error("ACCOUNTING_ITEMS_PAGE_INVALID");
+  }
+
+  const widePageAccepted = probe.length === REPORT_ITEMS_PAGE_SIZE;
+  const pageSize = widePageAccepted
+    ? REPORT_ITEMS_PAGE_SIZE
+    : REPORT_PAGE_SIZE;
+  const stride = pageSize * concurrency;
+
   for (let base = 0; ; base += stride) {
     const results = await Promise.all(
       Array.from({ length: concurrency }, async (_, offset) => {
-        const from = base + offset * REPORT_PAGE_SIZE;
-        const pageNumber = from / REPORT_PAGE_SIZE + 1;
-        const startedAt = Date.now();
+        const from = base + offset * pageSize;
+        const pageNumber = from / pageSize + 1;
+        const startedAt = widePageAccepted && from === 0
+          ? probeStartedAt : Date.now();
         const sampled = Boolean(trace) &&
           (pageNumber <= 3 || pageNumber % 10 === 0);
         if (sampled) trace(`${streamName}_page_start`, { page: pageNumber });
-        const { data, error } = await makeQuery().range(
-          from, from + REPORT_PAGE_SIZE - 1,
-        );
-        if (error) throw error;
-        const page = data ?? [];
-        if (!Array.isArray(page) || page.length > REPORT_PAGE_SIZE) {
+        let page;
+        if (widePageAccepted && from === 0) {
+          page = probe;
+        } else {
+          const { data, error } = await makeQuery().range(
+            from, from + pageSize - 1,
+          );
+          if (error) throw error;
+          page = data ?? [];
+        }
+        if (!Array.isArray(page) || page.length > pageSize) {
           throw new Error("ACCOUNTING_ITEMS_PAGE_INVALID");
         }
         return { page, pageNumber, pageMs: Date.now() - startedAt, sampled };
@@ -162,8 +187,8 @@ async function fetchAllPagesConcurrent(makeQuery, streamName = null, trace = nul
     let terminalSeen = false;
     for (const { page, pageNumber, pageMs, sampled } of results) {
       if (terminalSeen) {
-        // A nonempty higher-offset page after a short page indicates an
-        // inconsistent changing result set; never return a partial ledger.
+        // A short page followed by rows is a changing/inconsistent result.
+        // Never return a known partial ledger.
         if (page.length !== 0) {
           throw new Error("ACCOUNTING_ITEMS_PAGINATION_INCONSISTENT");
         }
@@ -171,7 +196,7 @@ async function fetchAllPagesConcurrent(makeQuery, streamName = null, trace = nul
       }
       rows.push(...page);
       if (trace && (sampled || pageMs >= 1000 ||
-          page.length < REPORT_PAGE_SIZE)) {
+          page.length < pageSize)) {
         trace(`${streamName}_page_end`, {
           page: pageNumber,
           page_ms: pageMs,
@@ -179,7 +204,7 @@ async function fetchAllPagesConcurrent(makeQuery, streamName = null, trace = nul
           total_rows: rows.length,
         });
       }
-      if (page.length < REPORT_PAGE_SIZE) terminalSeen = true;
+      if (page.length < pageSize) terminalSeen = true;
     }
     if (terminalSeen) break;
   }
