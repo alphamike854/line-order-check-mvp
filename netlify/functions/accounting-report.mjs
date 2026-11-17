@@ -30,6 +30,29 @@ import {
 } from "../../src/lib/report-ledger.mjs";
 
 
+/* TEMPORARY diagnostic: trace only the single known failing report route.
+ * No SQL, response, data or authorization changes. Existing trace logs
+ * contain only stage names, counters and durations, never message text or keys.
+ * REMOVE this temporary helper after resolving the timeout.
+ */
+const REPORT_504_TRACE_TARGET = Object.freeze({
+  sessionId: "600c3cc2-424f-4e03-ae5b-1bec33e68711",
+  summaryGroupId: "SOUTH-T",
+  lineGroupId: "Cab2d147cab47c36db20462655dce8121",
+});
+
+function isKnown504ReportRequest(req) {
+  try {
+    const url = new URL(req.url);
+    return url.pathname === "/api/accounting-report"
+      && url.searchParams.get("session_id") === REPORT_504_TRACE_TARGET.sessionId
+      && url.searchParams.get("group") === REPORT_504_TRACE_TARGET.summaryGroupId
+      && url.searchParams.get("line_group") === REPORT_504_TRACE_TARGET.lineGroupId;
+  } catch {
+    return false;
+  }
+}
+
 const REPORT_PAGE_SIZE = 500;
 
 // Current-open-session Report: one LINE Group has one CURRENT route.
@@ -413,7 +436,8 @@ export default async (req) => {
     `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const __locReportTraceStartedAt = Date.now();
   const __locReportTraceEnabled =
-    process.env.LOC_ACCOUNTING_TRACE === "1";
+    process.env.LOC_ACCOUNTING_TRACE === "1"
+    || isKnown504ReportRequest(req);
   const __locReportTrace = (stage, details = {}) => {
     if (!__locReportTraceEnabled) return;
     console.info("LOC_REPORT_STAGE_V1", JSON.stringify({
